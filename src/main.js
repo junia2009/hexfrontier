@@ -37,6 +37,7 @@ import { avatarSvg } from './render/avatars.js';
 import { renderHUD, RES_ICON, COM_ICON, setHumanSeat, setPlayerTitle } from './render/hud-render.js';
 import { rulesHtml } from './render/rules-content.js';
 import { islandNoteHtml, meetGuideHtml } from './render/meet-guide.js';
+import { LocalMeet, SOLO_SEAT, LOCAL_TICK_MS } from './minigame/meet/local.js';
 import { setHTML } from './render/dom.js';
 import { Bgm } from './audio/bgm.js';
 import { Sfx, sfxForAction, sfxForEnd, suspendAudio } from './audio/sfx.js';
@@ -464,16 +465,7 @@ function startNet(code, name, kind = 'game') {
     // 散策部屋: 全員ぶんの位置が 10 回/秒で届く
     onWalkers: (people) => walk?.putWalkers(people),
     // 釣り大会。進行はサーバー持ちなので、届いた表をそのまま描く
-    onContest: (c) => {
-      contest = c;
-      // 竜の居場所はサーバーが決めている。走っている間だけ出す
-      walk?.setDragon(c?.phase === 'running' && c.dragon ? c.dragon : null);
-      noteContestResult(c);
-      syncRaidContest(c);
-      syncTable(c);
-      renderContest();
-      renderDfgRules();
-    },
+    onContest: (c) => applyContest(c),
     onError: (msg, fatal) => {
       online.error = msg;
       if (fatal) {
@@ -719,14 +711,24 @@ async function startWalk() {
   clearTimeout(cpuTimer); // 歩いている間に CPU が指し進めないように止める
   r.setGame(state);
   r.update(state, freshUi());
+  // ひとりで歩くときは、サーバーの代わりに手元で集まりを回す。
+  // **席は0**(SOLO_SEAT)。受付のパネルも順位表も、席番号さえあれば
+  // オンラインとまったく同じ道が通る。
+  localMeet = null;
+  if (!lobby) {
+    const m = new LocalMeet(state, { name: savedName() || 'あなた', look: myLook });
+    if (m.ok) localMeet = m;
+  }
+  const mySeatNo = lobby ? seat : (localMeet ? SOLO_SEAT : null);
   const mod = await import('./minigame/walk-mode.js');
-  walk = new mod.WalkMode(r, state, undefined, seat, myLook);
-  if (seat != null) {
-    walk.onPos = (p) => net?.pos(p);
-    walk.setWalkerNames(lobby.seats);
+  walk = new mod.WalkMode(r, state, undefined, mySeatNo, myLook);
+  if (mySeatNo != null) {
+    if (lobby) walk.onPos = (p) => net?.pos(p);
+    walk.setWalkerNames(lobby ? lobby.seats : localMeet.roster());
     // 受付に寄ったらパネルを出す
     walk.onDesk = (near) => { atDesk = near; renderContest(); };
   }
+  startLocalMeet();
   atDesk = false;
   syncLookButton();
   renderContest();
@@ -776,6 +778,7 @@ async function startWalk() {
 }
 
 function exitWalk() {
+  stopLocalMeet();
   if (walk?.isAiming) stopArchery();
   setWalkBook(false);
   setWalkGuide(false);
@@ -893,7 +896,7 @@ function reportRaid(r, over = false) {
   if (contest?.kind !== 'raid' || contest.phase !== 'running') return;
   if (!over && r.score === raidSent) return;
   raidSent = r.score;
-  net?.contest('report', { score: r.score, wave: r.wave, over });
+  meetSend('report', { score: r.score, wave: r.wave, over });
 }
 
 // 大会の様子が届いたとき、こちらの弓を合わせる。
@@ -1132,7 +1135,7 @@ function showCatch() {
   // 釣り大会のときだけ申告する。竜の島では釣っても得点にならない
   if (contest?.kind === 'fishing' && contest.phase === 'running'
       && contest.entries.includes(mySeat())) {
-    net?.contest('land', { cm: f.fish.tier === 'junk' ? 0 : f.cm });
+    meetSend('land', { cm: f.fish.tier === 'junk' ? 0 : f.cm });
   }
   const r = addCatch(progress, f.fish.id, f.cm);
   progress = r.progress;
@@ -1236,24 +1239,119 @@ function setWalkGuide(on) {
   if (walkGuideOpen) walkStickHide();
 }
 
+// 集まりの表が届いた。**オンラインでも手元でも、ここ1本を通す。**
+// 分けて書いていたころ、ひとりのときだけ「円卓に座る」「竜を出す」が
+// 抜けていた ── 表(contest)は届いているので、順位も手札も出るのに、
+// 島の上では誰も座っていない、という気づきにくい壊れかたをする。
+function applyContest(c) {
+  contest = c;
+  // 竜の居場所は進行が決めている。走っている間だけ出す
+  walk?.setDragon(c?.phase === 'running' && c.dragon ? c.dragon : null);
+  noteContestResult(c);
+  syncRaidContest(c);
+  syncTable(c);
+  renderContest();
+  renderDfgRules();
+}
+
+// ひとりで歩くときの集まりを回す。
+//
+// サーバーの walk tick(room-do.js)と同じ間隔で進めて、同じものを配る。
+// **自分の位置も毎回渡す** ── 竜はそれを見て追いかけてくる。
+function startLocalMeet() {
+  stopLocalTimer();
+  if (!localMeet) return;
+  syncLocalMeet();
+  localTimer = setInterval(() => {
+    if (!localMeet || !walk) return;
+    localMeet.setMyPos(walk.walker.pos.x, walk.walker.pos.z);
+    localMeet.tick();
+    syncLocalMeet();
+  }, LOCAL_TICK_MS);
+}
+
+// 時計だけ止める(器はそのまま)
+function stopLocalTimer() {
+  clearInterval(localTimer);
+  localTimer = null;
+}
+
+// 島を出た。器ごと片付ける
+function stopLocalMeet() {
+  stopLocalTimer();
+  localMeet = null;
+  localRosterKey = '';
+}
+
+// 手元の器が配る中身を、サーバーから届いたときと同じところへ流し込む
+let localRosterKey = '';
+function syncLocalMeet() {
+  if (!localMeet) return;
+  // CPU の体。散策部屋から届く walkers と同じ形なので、そのまま渡せる
+  walk?.putWalkers(localMeet.walkers());
+  // 名簿は**変わったときだけ**渡す。中身は CPU の人数を変えたときしか
+  // 変わらないので、毎 tick 作り直しても意味がない
+  const roster = localMeet.roster();
+  const key = roster.map((r) => `${r.seat}:${r.name}:${r.look}`).join(',');
+  if (key !== localRosterKey) {
+    localRosterKey = key;
+    walk?.setWalkerNames(roster);
+  }
+  applyContest(localMeet.view());
+}
+
 // ---- 釣り大会 ----
 //
-// 進行(締め切り・順位)はサーバーが持つ(server/fishing-contest.js)。
+// 進行(締め切り・順位)はサーバーが持つ(src/minigame/meet/fishing-contest.js)。
 // ここは「配られた表を描く」と「受付を押す」だけ。自分で残り時間を
 // 数え始めると、端末ごとに違う残り時間が出て揉める。
-let contest = null;     // サーバーから届いた view
+let contest = null;     // サーバーから届いた view(ひとりなら手元の器の view)
+// ひとりで歩くときの集まり。サーバーの代わりに手元で同じエンジンを回す
+// (src/minigame/meet/local.js)。オンラインの部屋にいる間は null。
+let localMeet = null;
+let localTimer = null;
 let atDesk = false;     // 受付のそばに立っているか
 let meetRound = null;   // 実績を数え終わった回(結果は毎秒届くので1回だけ見る)
 let meetUnlocked = [];  // その回で解除した実績(結果のパネルに出す)
 
-function mySeat() { return net?.seat ?? null; }
+// 自分の席。オンラインはサーバーが割り当てたもの、ひとりで歩くときは席0
+// (local.js の SOLO_SEAT)。**片方だけの道を作らない** ── 順位表も円卓の
+// 席決めも「自分の席番号」で書いてあるので、ここが揃えばあとは同じ。
+function mySeat() { return localMeet ? SOLO_SEAT : (net?.seat ?? null); }
+
+// 集まりへの操作。**送り先は1か所にまとめる** ── オンラインならサーバーへ、
+// ひとりなら手元の器へ。呼ぶ側が「いまどっちか」を気にすると、片方だけ
+// 直したときに静かに効かなくなる。
+function meetSend(what, extra) {
+  if (localMeet) {
+    const res = localMeet.command(what, extra ?? {});
+    if (res?.error) walkNote(`⚠ ${res.error}`);
+    else syncLocalMeet();
+    return res;
+  }
+  return net?.contest(what, extra);
+}
+
+// 席の中身。人は部屋の名簿から、CPU は集まりが配る名簿から引く
+// ── CPU は部屋の席ではないので、部屋の名簿には載らない。
+function seatRow(seat) {
+  if (localMeet) {
+    const mine = localMeet.roster().find((x) => x.seat === seat);
+    if (mine) return mine;
+  }
+  return contest?.cpus?.find((x) => x.seat === seat)
+    ?? online.lobby?.seats?.find((x) => x.seat === seat)
+    ?? null;
+}
 function seatName(seat) {
-  const s = online.lobby?.seats?.find((x) => x.seat === seat);
-  return s?.name ?? `席${seat + 1}`;
+  return seatRow(seat)?.name ?? `席${seat + 1}`;
 }
 function seatIcon(seat) {
-  const s = online.lobby?.seats?.find((x) => x.seat === seat);
-  return speciesById(s?.look).icon;
+  return speciesById(seatRow(seat)?.look).icon;
+}
+// CPU の席には印を付ける。誰が人で誰が CPU かは、見て分からないと困る
+function seatTag(seat) {
+  return seatRow(seat)?.cpu ? '<span class="cpu-tag">CPU</span>' : '';
 }
 const mmss = (ms) => {
   const t = Math.ceil(ms / 1000);
@@ -1272,7 +1370,8 @@ function noteContestResult(c) {
   const { entered, won, score } = contestOutcome(c, mySeat());
   if (!entered) return; // 見ていただけ
   const r = addContestResult(progress, {
-    kind: c.kind, won, score, key: `${net?.code ?? '?'}#${c.round}`,
+    // 同じ回を二重に数えないための鍵。オンラインは合言葉、ひとりは卓の目印
+    kind: c.kind, won, score, key: `${net?.code ?? `solo${localMeet?.id ?? ''}`}#${c.round}`,
   });
   progress = r.progress;
   saveProgress(progress);
@@ -1387,6 +1486,22 @@ function renderMeetBar() {
   setHTML(el, clock + (me ? mine : ' 観戦中'));
 }
 
+// CPU の人数を選ぶ帯。**入れられるのは空いている席のぶんまで** ──
+// 上限はサーバーが決めた数(cpuMax)から、いま座っている人のぶんを引く。
+function cpuSeg(c) {
+  // 島に居る人の数。ひとりで歩いているときは名簿が無いので自分の1人
+  const people = localMeet
+    ? 1
+    : (online.lobby?.seats ?? []).filter((x) => x.occupied).length || 1;
+  const max = Math.max(0, Math.min(c.cpuMax ?? 0, WALK_SEATS - people));
+  const now = c.cpuCount ?? 0;
+  const opts = [];
+  for (let n = 0; n <= max; n++) {
+    opts.push(`<button class="${n === now ? 'sel' : ''}" data-act="meet-cpu:${n}">${n ? `${n}人` : 'なし'}</button>`);
+  }
+  return `<div class="seg">${opts.join('')}</div>`;
+}
+
 // 受付の「あそびかた」。**受付にも置く** ── 上の帯の ❓ は島に着いてすぐ
 // 目に入るが、受付まで来て初めて「何をする集まりなのか」を知りたくなる。
 const GUIDE_BTN = '<button data-act="walk-guide">❓ あそびかた</button>';
@@ -1413,7 +1528,7 @@ function renderContestPanel() {
     const rows = c.rank.length
       // メダルは並び順ではなく順位で出す。同率なら 🥇 が2つ並ぶ
       ? c.rank.map((r) => `<div class="${r.seat === seat ? 'me' : ''}">
-          <span>${['🥇', '🥈', '🥉'][r.place - 1] ?? `${r.place}.`} ${seatIcon(r.seat)} ${seatName(r.seat)}</span>
+          <span>${['🥇', '🥈', '🥉'][r.place - 1] ?? `${r.place}.`} ${seatIcon(r.seat)} ${seatName(r.seat)}${seatTag(r.seat)}</span>
           ${meetScore(c, r)}</div>`).join('')
       : `<div>${MEET_EMPTY[c.kind] ?? MEET_EMPTY.fishing}</div>`;
     // 新しく取った実績。ここで出さないと、戦績画面を開くまで気づけない
@@ -1438,7 +1553,7 @@ function renderContestPanel() {
 
   const joined = c.entries.includes(seat);
   const who = c.entries.length
-    ? c.entries.map((x) => `<span>${seatIcon(x)} ${seatName(x)}</span>`).join('')
+    ? c.entries.map((x) => `<span>${seatIcon(x)} ${seatName(x)}${seatTag(x)}</span>`).join('')
     : '<span class="note">まだ誰もいません</span>';
   const canStart = joined && c.entries.length >= c.minPlayers;
   // ここは押せるボタンが入る唯一の場面。setHTML で「変わったときだけ」書く
@@ -1448,12 +1563,17 @@ function renderContestPanel() {
   // 代わりに「いま入っているルール」と、ホストならその選び直しを出す。
   const host = c.hostSeat != null && c.hostSeat === seat;
   const isDfg = c.kind === 'daifugo';
+  // CPU を何人入れるか。**オーナー(部屋のホスト。ひとりなら自分)だけ**が
+  // 決める。人が少なくても遊べるようにするための口なので、受付の顔ぶれの
+  // すぐ下に置く ── 「あと1人ではじめられます」を読んだところで目に入る。
+  const cpuRow = host ? `<div class="srow cpu-row"><span>🤖 CPU</span>${cpuSeg(c)}</div>` : '';
   const head = isDfg
     ? `<div class="note">${meet.hint}</div>
        <div class="note">${dfgRuleNames(c.rules)}</div>
+       ${cpuRow}
        <div class="row">${GUIDE_BTN}
          ${host ? '<button data-act="dfg-rules">🃏 ルールを決める</button>' : ''}</div>`
-    : `<div class="note">${Math.round(c.total / 1000)}秒。${meet.hint}</div>${GUIDE_ROW}`;
+    : `<div class="note">${Math.round(c.total / 1000)}秒。${meet.hint}</div>${cpuRow}${GUIDE_ROW}`;
   setHTML(el, `<h4>${meet.title} 受付</h4>
     <div class="who">${who}</div>
     ${head}
@@ -1472,7 +1592,7 @@ function renderContest() {
 
 // ---- 大富豪 ----
 //
-// 進行はサーバーが持つ(server/daifugo-table.js)。ここは配られた中身を
+// 進行はサーバーが持つ(src/minigame/meet/daifugo-table.js)。ここは配られた中身を
 // 描いて、選んだ札を送るだけ。**「出せるか」は手元でも見る** ── 配られた
 // 中身に判定の材料が全部入っているので(daifugo.js の viewFor)、出せない
 // 札を沈めて見せられる。通るかどうかを決めるのは、あくまでサーバー。
@@ -3055,16 +3175,16 @@ document.addEventListener('click', (e) => {
       return;
     }
     case 'dfg-play':
-      net?.contest('play', { cards: [...dfgSel] });
+      meetSend('play', { cards: [...dfgSel] });
       dfgSel = [];
       sfx.play('ui');
       return;
     case 'dfg-pass':
-      net?.contest('pass');
+      meetSend('pass');
       dfgSel = [];
       return;
     case 'dfg-pick':
-      net?.contest('pick', { cards: [...dfgSel] });
+      meetSend('pick', { cards: [...dfgSel] });
       dfgSel = [];
       return;
     case 'dfg-rules': setDfgRules(true); return;
@@ -3072,13 +3192,14 @@ document.addEventListener('click', (e) => {
     case 'dfg-rule': {         // ホストだけが押せる(サーバーも弾く)
       const now = { ...(contest?.rules ?? defaultRules()) };
       now[arg] = !now[arg];
-      net?.contest('rules', { rules: now });
+      meetSend('rules', { rules: now });
       return;
     }
-    case 'meet-enter': net?.contest('enter'); return;
-    case 'meet-leave': net?.contest('leave'); return;
+    case 'meet-cpu': meetSend('cpu', { n: Number(arg) }); return;
+    case 'meet-enter': meetSend('enter'); return;
+    case 'meet-leave': meetSend('leave'); return;
     case 'meet-start':
-      net?.contest('start');
+      meetSend('start');
       sfx.play('ui');
       return;
     case 'net-look':     // すがたを選んだ
@@ -3110,7 +3231,7 @@ document.addEventListener('click', (e) => {
       if (walkEmoteOpen) { setWalkEmotes(false); return; }
       if (walkLookOpen) { setWalkLooks(false); return; }
       // 円卓に着いていたら、まず席を立つ(その回からは抜ける)
-      if (walk?.isSeated) { net?.contest('retire'); walk.standUp(); return; }
+      if (walk?.isSeated) { meetSend('retire'); walk.standUp(); return; }
       // 弓を構えていたら、まず弓をおろす(押し間違いで島から出さない)
       if (walk?.isAiming) { stopArchery(); return; }
       // 釣っている途中なら、まず竿をしまう(押し間違いで島から出さない)
@@ -3655,7 +3776,7 @@ window.hexDebug = {
   nestAt: () => (walk?.nestAt ? { ...walk.nestAt, hex: walk.nestHex } : null),
   atNest: () => !!walk?.atNest,
   nestWake: () => walk?.nestWake ?? 0,
-  meet: (action, extra) => net?.contest(action, extra),
+  meet: (action, extra) => meetSend(action, extra),
   getWalkEmote: () => (walk?.emote ? { ...walk.emote } : null),
   // 島を歩く・釣り(E2E用)。港まで歩かせずに試せるようにする
   walkTo: (x, z) => walk?.walker.setPosition(x, z),

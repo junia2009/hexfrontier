@@ -20,11 +20,11 @@ import { MODES } from '../src/progress.js';
 import { rulesHtml, RULES_TABS } from '../src/render/rules-content.js';
 import { MEETS } from '../src/minigame/meets.js';
 import { RULES as DFG_RULES } from '../src/minigame/daifugo.js';
-import { CONTEST_MS } from '../server/fishing-contest.js';
-import { HUNT_MS } from '../server/dragon-hunt.js';
-import { RAID_MS } from '../server/raid-contest.js';
-import { AUTO_MS } from '../server/daifugo-table.js';
-import { MIN_PLAYERS } from '../server/meet-core.js';
+import { CONTEST_MS } from '../src/minigame/meet/fishing-contest.js';
+import { HUNT_MS } from '../src/minigame/meet/dragon-hunt.js';
+import { RAID_MS } from '../src/minigame/meet/raid-contest.js';
+import { AUTO_MS } from '../src/minigame/meet/daifugo-table.js';
+import { MIN_PLAYERS } from '../src/minigame/meet/meet-core.js';
 
 // 遊びを1つ足したら、説明も1つ足す。ここが落ちたら書き忘れ。
 test('あそびかた: 受付のある遊びには全部そろっている', () => {
@@ -158,8 +158,8 @@ test('島えらび: 書いてあるものが本当にその島にある', () => 
   }
 });
 
-// ひとりでできることと、人が要ることを混ぜない。
-// 混ぜると「基本の島を選べば大富豪がひとりで遊べる」と読めてしまう。
+// ひとりでできることと、受付の集まりは分けて書く。
+// (集まりも CPU を入れればひとりで遊べるが、そのために一手要る。)
 test('島えらび: 集まりは「ひとりでできること」に混ぜない', () => {
   for (const mode of MODES) {
     const meet = MEETS[mode];
@@ -169,7 +169,9 @@ test('島えらび: 集まりは「ひとりでできること」に混ぜない
     const html = islandNoteHtml(mode);
     if (meet) {
       assert.ok(html.includes(meet.name), `${mode}: 受付に何があるか書かれていない`);
-      assert.match(html, /オンライン/, `${mode}: 人が要ることが書かれていない`);
+      // **ひとりでも遊べる**(CPU を入れる)ことが書かれていること。
+      // ここが「人が集まったときだけ」のままだと、いちばん要る情報が嘘になる。
+      assert.match(html, /CPU/, `${mode}: CPU を入れれば遊べることが書かれていない`);
     } else {
       assert.match(html, /受付はありません/);
     }

@@ -1,7 +1,7 @@
 // 蛮族を射る大会(都市と騎士の島の集まり)。トランスポート非依存。
 //
 // 浜の物見の櫓に立って、寄せる蛮族船を射る。制限時間のあいだに撃退した
-// 点を競う。受付と時間の進行は server/meet-core.js。ここは中身だけ。
+// 点を競う。受付と時間の進行は src/minigame/meet/meet-core.js。ここは中身だけ。
 //
 // **波はサーバーが配る種で決まる。** 各自の端末が Raid(src/minigame/archery.js)を
 // 回すので、種を配らないと人によって船の湧きかたが変わり、「そっちは楽な
@@ -14,8 +14,8 @@
 //   - 力尽きた(over)と申告したら、そこで凍結する
 
 import { MeetCore, RESULT_MS, MIN_PLAYERS } from './meet-core.js';
-import { makeRng, rngNext } from '../src/rng.js';
-import { placeBy, raidAhead } from '../src/minigame/contest.js';
+import { makeRng, rngNext } from '../../rng.js';
+import { placeBy, raidAhead } from '../contest.js';
 
 export { RESULT_MS, MIN_PLAYERS };
 
@@ -82,12 +82,21 @@ export class RaidContest extends MeetCore {
     return { ok: true, quiet: true, score: s.score };
   }
 
+  // ---- CPU ----
+
+  // 櫓に着いた CPU の点を伸ばす。**申告の口(report)をそのまま通す**ので、
+  // 1秒あたりの上限(MAX_RATE)も人と同じに掛かる。
+  _cpuPlay(now) {
+    if (this.phase !== 'running') return;
+    for (const seat of this.cpus) {
+      const r = this._crowd().raidScore(seat, now - this.startedAt);
+      if (r) this.report(seat, r, now);
+    }
+  }
+
   command(seat, what, msg, now = Date.now()) {
-    if (what === 'enter') return this.enter(seat, now);
-    if (what === 'leave') return this.leave(seat);
-    if (what === 'start') return this.start(seat, now);
     if (what === 'report') return this.report(seat, msg, now);
-    return { error: `不明な操作: ${what}` };
+    return super.command(seat, what, msg, now);
   }
 
   // 並べる順は 点 → 波 → 席番号。席番号は「表に並べる順」を決めるだけで、

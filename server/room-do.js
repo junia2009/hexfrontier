@@ -4,10 +4,10 @@
 
 import { RoomCore, IDLE_DISCONNECT_MS } from './room-core.js';
 import { WalkRelay, TICK_MS } from './walk-relay.js';
-import { FishingContest } from './fishing-contest.js';
-import { DragonHunt } from './dragon-hunt.js';
-import { RaidContest } from './raid-contest.js';
-import { DaifugoTable } from './daifugo-table.js';
+import { FishingContest } from '../src/minigame/meet/fishing-contest.js';
+import { DragonHunt } from '../src/minigame/meet/dragon-hunt.js';
+import { RaidContest } from '../src/minigame/meet/raid-contest.js';
+import { DaifugoTable } from '../src/minigame/meet/daifugo-table.js';
 import { hasMeet, meetFor } from '../src/minigame/meets.js';
 import { meetHome } from '../src/minigame/ground.js';
 import { createGame } from '../src/state.js';
@@ -78,20 +78,25 @@ export class RoomDO {
   }
 
   // 島の形に依るものを進行に渡す。サーバーは盤を持たないので、
-  // 必要になったぶんだけここで求める(いまは竜の飛び立つ場所だけ)。
+  // 必要になったぶんだけここで求める(竜の飛び立つ場所と、CPU の歩く地面)。
   primeMeet() {
     const r = this.room;
     if (!r || !this.contest) return;
     // 波の抽選に使う種。全員が同じ波を迎え撃つように、サーバーが配る
-    // (server/raid-contest.js)。部屋の種そのものは既に全員が持っている。
+    // (raid-contest.js)。部屋の種そのものは既に全員が持っている。
     this.contest.setSeed?.(r.seed);
     this.syncHost();
-    if (!this.contest.setHome) return;
+    this.syncTaken();
     // 島はクライアントと同じ「種 + 島の種類」から作る(main.js の
-    // makeWalkIsland と同じ引数でないと、竜が別の島の中心から飛び立つ)。
+    // makeWalkIsland と同じ引数でないと、竜が別の島の中心から飛び立つし、
+    // CPU が別の島の地面を歩くことになる)。
     const state = createGame({
       seed: r.seed, playerCount: 4, humanIndex: -1, mode: r.settings.mode,
     });
+    // CPU はこの島の上を歩く(歩ける地面の判定も、円卓や櫓の場所も、
+    // クライアントと同じ ground.js から出る)。
+    this.contest.setIsland(state);
+    if (!this.contest.setHome) return;
     // **竜は自分の巣から飛び立つ。**
     // 以前は島の中心 ── つまり受付の広場、全員が立っているところ ── から
     // 湧いていた。世界としておかしいし、始まった瞬間に全員の真上に居る。
@@ -106,6 +111,13 @@ export class RoomDO {
   syncHost() {
     if (!this.contest?.setHost || !this.room) return;
     this.contest.setHost(this.room.lobbyInfo().hostSeat);
+  }
+
+  // 人が座っている席を進行へ渡す。CPU はここを避けて座る
+  // ── 部屋のほうは CPU を知らない(集まりの都合で部屋の席を埋めない)。
+  syncTaken() {
+    if (!this.contest?.setTaken || !this.room) return;
+    this.contest.setTaken(this.room.seats.map((s, i) => (s ? i : -1)).filter((i) => i >= 0));
   }
 
   async fetch(request) {
@@ -302,7 +314,10 @@ export class RoomDO {
     if (this.walkTimer) return;
     let n = 0;
     this.walkTimer = setInterval(() => {
-      const people = this.walk.snapshot();
+      // **CPU の体も一緒に配る。** CPU は誰の端末でも動いていないので、
+      // ここで混ぜないと順位表にだけ名前が出て、島には誰も居ないことになる。
+      const live = this.walk.snapshot();
+      const people = [...live, ...(this.contest?.cpuPositions?.() ?? [])];
       // 竜は全員の位置を見て動く(dragon-hunt.js)。**進める前に渡す** ──
       // あとで渡すと、竜は常に 1 tick 古い位置を追いかけることになる。
       this.contest?.setPositions?.(people);
@@ -314,10 +329,12 @@ export class RoomDO {
       // 受け取った側が受付のパネルを秒 10 回描き直すことになる
       // (実機の指では押せなくなる。src/render/dom.js を参照)。
       const busy = this.contest && this.contest.phase !== 'idle';
-      const live = busy && this.contest.kind === 'dragonhunt' && this.contest.phase === 'running';
-      if (busy && (live || n % 10 === 0)) this.broadcastContest();
+      const moving = busy && this.contest.kind === 'dragonhunt' && this.contest.phase === 'running';
+      if (busy && (moving || n % 10 === 0)) this.broadcastContest();
 
-      if (!people.length) {
+      // **止めるかどうかは人の数で見る。** CPU の体を数えると、誰も居ない
+      // 部屋で CPU だけが歩き続けて、タイマーが永久に止まらない。
+      if (!live.length) {
         // 開催中は、誰も歩いていなくても止めない
         if (!busy) this.stopWalkTick();
         return;
@@ -454,6 +471,7 @@ export class RoomDO {
   broadcastLobby() {
     const info = this.room.lobbyInfo();
     this.contest?.setHost?.(info.hostSeat);
+    this.syncTaken();
     for (const ws of this.sockets.keys()) this.send(ws, { t: 'lobby', ...info });
   }
 

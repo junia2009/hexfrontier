@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 
 import { WalkRelay, TICK_MS, STALE_MS } from '../server/walk-relay.js';
 import { RemoteWalkers, lerpAngle } from '../src/minigame/remote.js';
-import { ST, EMOTE_MAX } from '../src/minigame/remote-st.js';
+import { ST, ST_MAX, EMOTE_MAX } from '../src/minigame/remote-st.js';
 import { RoomCore, MAX_SEATS, WALK_MAX_SEATS } from '../server/room-core.js';
 import {
   SPECIES, SPECIES_MAX, DEFAULT_SPECIES, speciesById, cleanSpecies, speciesOk,
@@ -53,7 +53,8 @@ test('リレー: 島の外へ飛ばそうとしても範囲に収める', () => 
   assert.ok(Math.abs(x) <= 12 && Math.abs(z) <= 12, `${x},${z}`);
   assert.ok(Math.abs(y) <= 4, y);
   assert.ok(Math.abs(f) <= Math.PI * 2 + 1e-9, f);
-  assert.ok(st >= 0 && st <= 3, st);
+  // 上限は表(remote-st.js)から引く。書き写すと、姿勢を足したときにずれる
+  assert.ok(st >= 0 && st <= ST_MAX, st);
 });
 
 test('リレー: 位置は小数2桁に丸める(通信量を抑える)', () => {

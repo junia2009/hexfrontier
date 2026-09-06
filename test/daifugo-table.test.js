@@ -1,4 +1,4 @@
-// 大富豪の卓(server/daifugo-table.js)。
+// 大富豪の卓(src/minigame/meet/daifugo-table.js)。
 //
 // ルールそのものは test/daifugo.test.js が押さえてあるので、ここは
 // **卓とサーバーの繋ぎ目**だけを見る:
@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DaifugoTable, AUTO_MS, TABLE_MS, dealSeed, weakestPlay } from '../server/daifugo-table.js';
+import { DaifugoTable, AUTO_MS, TABLE_MS, dealSeed, weakestPlay } from '../src/minigame/meet/daifugo-table.js';
 import { defaultRules, legalPlays, rankOf } from '../src/minigame/daifugo.js';
 import { contestOutcome } from '../src/minigame/contest.js';
 

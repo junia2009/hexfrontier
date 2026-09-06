@@ -14,9 +14,9 @@
 // サーバーは島の形を知らなくてよい(歩ける範囲の判定を持ち込まずに済む)。
 
 import { MeetCore, RESULT_MS, MIN_PLAYERS } from './meet-core.js';
-import { WALK_SPEED } from '../src/minigame/motion.js';
-import { s as sc } from '../src/minigame/scale.js';
-import { placeBy, huntAhead } from '../src/minigame/contest.js';
+import { WALK_SPEED } from '../motion.js';
+import { s as sc } from '../scale.js';
+import { placeBy, huntAhead } from '../contest.js';
 
 export { RESULT_MS, MIN_PLAYERS };
 
@@ -59,12 +59,22 @@ export class DragonHunt extends MeetCore {
   // 位置リレーから毎 tick もらう。[[seat, x, z, ...], ...]
   setPositions(people) {
     this.pos = new Map();
+    this._put(people);
+  }
+
+  _put(people) {
     for (const p of people ?? []) {
       if (!Array.isArray(p) || p.length < 3) continue;
       const [seat, x, z] = p;
       if (!(seat >= 0) || !Number.isFinite(x) || !Number.isFinite(z)) continue;
       this.pos.set(seat, { x, z });
     }
+  }
+
+  // CPU が逃げる手がかり。竜の居場所と、まだ生きているか
+  _cpuCtx(now) {
+    const flying = this.phase === 'running' && now >= this.endsAt - this.ms + GRACE_MS;
+    return { dragon: flying ? { x: this.dragon.x, z: this.dragon.z } : null };
   }
 
   _onStart(now) {
@@ -84,6 +94,10 @@ export class DragonHunt extends MeetCore {
   // 竜を1歩進めて、捕まえたかを見る。
   // 戻り値 true で「時間前に終わり」(最後のひとりになった)。
   _step(now) {
+    // **CPU のぶんは自分で重ねる。** CPU はリレーを通らない(誰の端末でも
+    // 動いていない)ので、渡してもらうのを待っていると竜に見えず、永遠に
+    // 捕まらない ── しかも「渡し忘れ」は動かしている側からは気づけない。
+    this._put(this.cpuPositions());
     const dt = Math.min(0.5, Math.max(0, (now - this.at) / 1000));
     this.at = now;
     const alive = this.aliveSeats();
@@ -134,13 +148,8 @@ export class DragonHunt extends MeetCore {
     return false;
   }
 
-  command(seat, what, msg, now = Date.now()) {
-    if (what === 'enter') return this.enter(seat, now);
-    if (what === 'leave') return this.leave(seat);
-    if (what === 'start') return this.start(seat, now);
-    // 竜のほうは申告するものが無い(サーバーが全部見ている)
-    return { error: `不明な操作: ${what}` };
-  }
+  // 竜のほうは申告するものが無い(サーバーが全部見ている)ので、
+  // 受ける操作は器のぶん(受付・開始・CPU の人数)だけ。command は器のまま。
 
   // 生き残った時間。まだ逃げているなら「いまの時点まで」。
   aliveMs(seat, now) {

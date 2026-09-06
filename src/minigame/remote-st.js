@@ -16,9 +16,10 @@ export const ST = {
   air: 1,    // 跳んでいる
   fall: 2,   // 海へ落ちている・沈んでいる
   fish: 3,   // 釣っている
+  sit: 4,    // 円卓に座っている
 };
 
-export const ST_MAX = 3;
+export const ST_MAX = 4;
 
 // エモートの番号の上限。0 は「出していない」。
 // 中身(絵柄・名前・長さ)はクライアントだけが知っていればよいので emote.js。

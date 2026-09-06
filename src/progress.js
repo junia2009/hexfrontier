@@ -153,7 +153,7 @@ export function addCatch(progress, fishId, cm, now = Date.now()) {
 
 // ---- 釣り大会 ----
 //
-// 散策部屋のミニゲーム。進行はサーバーが持っていて(server/fishing-contest.js)、
+// 散策部屋のミニゲーム。進行はサーバーが持っていて(src/minigame/meet/fishing-contest.js)、
 // ここに残すのは「この端末の人が何回出て何回勝ったか」だけ。
 //
 // key は「部屋のコード + 何回目の大会か」。結果は25秒のあいだ毎秒配られるし、
