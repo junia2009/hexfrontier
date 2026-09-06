@@ -1,4 +1,4 @@
-// ドラゴンから逃げろ(server/dragon-hunt.js)。
+// ドラゴンから逃げろ(src/minigame/meet/dragon-hunt.js)。
 //
 // 竜を動かすのも捕まえるのもサーバーなので、「どっちが勝ったか」で
 // 揉めないための決まりごとを、ここで押さえる。
@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DragonHunt, HUNT_MS, GRACE_MS, DRAGON_SPEED, CATCH_R,
-} from '../server/dragon-hunt.js';
+} from '../src/minigame/meet/dragon-hunt.js';
 import { WALK_SPEED } from '../src/minigame/motion.js';
 
 const at = (t) => t;

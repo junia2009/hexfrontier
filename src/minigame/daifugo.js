@@ -1,7 +1,7 @@
 // 大富豪(基本の島の集まり)。進行の計算だけ。
 //
 // THREE も DOM も知らない。見た目は table.js、席ごとの伏せ処理と配信は
-// server/daifugo-table.js。**この遊びだけは手札という隠し情報を持つ**ので、
+// src/minigame/meet/daifugo-table.js。**この遊びだけは手札という隠し情報を持つ**ので、
 // 対戦(src/actions.js)と同じ作りにしてある:
 //   validate → clone → apply の一本道、状態は plain object 1つ、
 //   乱数は state に持つ種だけ(Math.random は使わない)。

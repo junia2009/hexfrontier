@@ -7,7 +7,7 @@
 // 旗を高く上げてある ── 島は木や山で見通しが悪く、低い台だけだと
 // 「どこにあるか分からない」になる。
 //
-// 進行そのものは持たない(サーバーの server/fishing-contest.js)。
+// 進行そのものは持たない(サーバーの src/minigame/meet/fishing-contest.js)。
 // ここは見た目と「近いかどうか」だけ。
 
 import * as THREE from 'three';

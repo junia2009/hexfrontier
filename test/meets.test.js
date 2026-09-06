@@ -26,10 +26,10 @@ test('集まり: 島ごとに開かれるものが決まっている', () => {
 // 表の id と、サーバーの進行(server/*.js)が食い違うと、受付は立つのに
 // 何も始まらない島ができる。
 test('集まり: 表の id にサーバーの進行がある', async () => {
-  const { FishingContest } = await import('../server/fishing-contest.js');
-  const { DragonHunt } = await import('../server/dragon-hunt.js');
-  const { RaidContest } = await import('../server/raid-contest.js');
-  const { DaifugoTable } = await import('../server/daifugo-table.js');
+  const { FishingContest } = await import('../src/minigame/meet/fishing-contest.js');
+  const { DragonHunt } = await import('../src/minigame/meet/dragon-hunt.js');
+  const { RaidContest } = await import('../src/minigame/meet/raid-contest.js');
+  const { DaifugoTable } = await import('../src/minigame/meet/daifugo-table.js');
   const engines = {
     fishing: FishingContest, dragonhunt: DragonHunt, raid: RaidContest, daifugo: DaifugoTable,
   };

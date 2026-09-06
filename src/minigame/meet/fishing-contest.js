@@ -1,7 +1,7 @@
 // 釣り大会(漁師たちの島の集まり)。トランスポート非依存。
 //
 // 受付でエントリーして、制限時間のあいだに釣った魚の「合計の長さ」を競う。
-// 受付と時間の進行は server/meet-core.js。ここは釣り大会の中身だけ。
+// 受付と時間の進行は src/minigame/meet/meet-core.js。ここは釣り大会の中身だけ。
 //
 // ただし**釣果そのものはクライアントが申告する**。魚の抽選と勝負は各自の
 // 端末で回っていて(fishing.js)、サーバーは盤面を持っていないため。
@@ -11,7 +11,7 @@
 // これで、バグや連打で桁違いの数字が並ぶことは防げる。
 
 import { MeetCore, RESULT_MS, MIN_PLAYERS } from './meet-core.js';
-import { placeOf } from '../src/minigame/contest.js';
+import { placeOf } from '../contest.js';
 
 export { RESULT_MS, MIN_PLAYERS };
 
@@ -53,13 +53,23 @@ export class FishingContest extends MeetCore {
     return { ok: true, cm: v, total: s.cm };
   }
 
+  // ---- CPU ----
+
+  // 桟橋に着いた CPU が、腕前ぶんの間合いで魚を上げる。
+  // **申告の口(land)をそのまま通す** ── 上限も間隔の下限も人と同じ物差しで
+  // 掛かるので、CPU だけ桁違いの数字を積むことがない。
+  _cpuPlay(now) {
+    if (this.phase !== 'running') return;
+    for (const seat of this.cpus) {
+      const cm = this._crowd().fishCatch(seat, now);
+      if (cm != null) this.land(seat, cm, now);
+    }
+  }
+
   // 席から来る操作。room-do は中身を知らずにここへ渡す。
   command(seat, what, msg, now = Date.now()) {
-    if (what === 'enter') return this.enter(seat, now);
-    if (what === 'leave') return this.leave(seat);
-    if (what === 'start') return this.start(seat, now);
     if (what === 'land') return this.land(seat, msg?.cm, now);
-    return { error: `不明な操作: ${what}` };
+    return super.command(seat, what, msg, now);
   }
 
   // 並べる順は 合計 → 大物 → 席番号。席番号は「表に並べる順」を決めるだけで、

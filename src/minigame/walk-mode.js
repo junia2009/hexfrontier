@@ -1221,9 +1221,12 @@ export class WalkMode {
     if (now - this._sendAt < SEND_MS) return null;
     const w = this.walker;
     const m = w.motion;
-    const st = this.fishing ? ST.fish
-      : m.falling ? ST.fall
-        : m.grounded ? ST.walk : ST.air;
+    // **座っているのも送る。** 送らないと、円卓を囲んでいるはずの相手が
+    // 全員立ったまま札を出すことになる(実際そうなっていた)。
+    const st = this.tableSeatAt ? ST.sit
+      : this.fishing ? ST.fish
+        : m.falling ? ST.fall
+          : m.grounded ? ST.walk : ST.air;
     const p = [w.pos.x, w.pos.z, m.y, w.facing, st, this.emote ? this.emote.id : 0];
     const last = this._sent;
     const still = last

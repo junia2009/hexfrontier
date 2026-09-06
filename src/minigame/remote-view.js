@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { makeWalker, walkerHeight } from './body.js';
 import { applyPose } from './walker.js';
-import { walkPose, airPose, tumblePose, fishPose, emotePose } from './pose.js';
+import { walkPose, airPose, tumblePose, fishPose, sitPose, emotePose } from './pose.js';
 import { WALK_SPEED } from './motion.js';
 import { ST } from './remote-st.js';
 import { emoteById } from './emote.js';
@@ -189,6 +189,10 @@ export class RemoteView {
       let pose;
       if (emote && emoteK < 1 && p.st === ST.walk) {
         pose = emotePose(emote.key, e.emoteT, p.facing, emoteK);
+      } else if (p.st === ST.sit) {
+        // 円卓に着いている人。座り姿を出さないと、卓を囲んでいるはずの
+        // 全員が立ったまま札を出しているように見える。
+        pose = sitPose(e.t, p.facing);
       } else if (p.st === ST.fish) {
         pose = fishPose(e.t, p.facing, { phase: 'wait' });
       } else if (p.st === ST.fall) {

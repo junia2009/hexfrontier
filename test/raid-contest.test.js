@@ -1,4 +1,4 @@
-// 蛮族を射る大会の進行(server/raid-contest.js)。
+// 蛮族を射る大会の進行(src/minigame/meet/raid-contest.js)。
 //
 // 受付と時間の器(meet-core.js)は釣り大会のテストで押さえてあるので、
 // ここは**この遊び固有の決まりごと**だけを見る:
@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 
 import {
   RaidContest, RAID_MS, RESULT_MS, MAX_RATE, RATE_GRACE, waveSeed,
-} from '../server/raid-contest.js';
+} from '../src/minigame/meet/raid-contest.js';
 import { contestOutcome } from '../src/minigame/contest.js';
 
 const at = (t) => t;

@@ -1,6 +1,6 @@
 // 大富豪の卓(基本の島の集まり)。トランスポート非依存。
 //
-// 円卓を囲んで1回ぶん遊ぶ。受付と時間の器は server/meet-core.js、
+// 円卓を囲んで1回ぶん遊ぶ。受付と時間の器は src/minigame/meet/meet-core.js、
 // ルールそのものは src/minigame/daifugo.js。ここは両者を繋ぐだけ。
 //
 // **この卓だけは席ごとに違うものを配る**(perSeat)。手札は隠し情報なので、
@@ -12,11 +12,11 @@
 // 制限時間のほうは、卓に着いたまま誰も戻ってこない部屋を畳むための保険。
 
 import { MeetCore, RESULT_MS, MIN_PLAYERS } from './meet-core.js';
-import { makeRng, rngNext } from '../src/rng.js';
+import { makeRng, rngNext } from '../../rng.js';
 import {
   TITLES, apply, classify, cleanRules, createTable, defaultRules,
   forbiddenFinish, legalPlays, retire, validate, viewFor as tableViewFor,
-} from '../src/minigame/daifugo.js';
+} from '../daifugo.js';
 
 export { RESULT_MS, MIN_PLAYERS };
 
@@ -43,7 +43,6 @@ export class DaifugoTable extends MeetCore {
     this.kind = 'daifugo';
     this.base = 1;          // 部屋の種
     this.rules = defaultRules();
-    this.hostSeat = -1;     // ルールを選べる人(ゲームマスター)
     this.table = null;      // 進行中の卓(daifugo.js の状態)
     this.titles = null;     // 前の回の称号(カード交換と都落ちに使う)
     this.game = 0;          // 同じ顔ぶれで何回続けたか
@@ -57,12 +56,6 @@ export class DaifugoTable extends MeetCore {
 
   setSeed(seed) {
     this.base = makeRng(Number(seed) || 1);
-  }
-
-  // ルールを選べる人。**クライアントの言い分ではなく部屋から渡す**
-  // (room-do が名簿から取る)。ここを msg から取ると誰でも書き換えられる。
-  setHost(seat) {
-    this.hostSeat = Number.isInteger(seat) ? seat : -1;
   }
 
   // ---- 回のはじめと終わり ----
@@ -98,18 +91,60 @@ export class DaifugoTable extends MeetCore {
     return !!this.table.result;
   }
 
+  // ---- CPU ----
+
+  // 円卓のどこに座るか。**人と同じ並び**(卓に着いている順)を渡す
+  _cpuCtx() {
+    return { players: this.table ? this.table.players : [...this.entries].sort((a, b) => a - b) };
+  }
+
+  // CPU の手番なら打つ。待つのは考えているふりのぶんだけ
+  // ── 放置よけの 45 秒を待たせると、CPU がいるだけで卓が止まる。
+  //
+  // **放置よけ(autoPlay)は借りない。** あれは「席を外した人の代打」で、
+  // 場があれば必ずパスする ── 人の札を勝手に使わないための遠慮であって、
+  // 相手としては弱すぎる(CPU が場を取れないので、人がひとりで出し続けて
+  // 必ず勝つ。実際そうなっていた)。CPU は自分の意思で出す。
+  _cpuPlay(now) {
+    const t = this.table;
+    if (!t || t.result || this.phase !== 'running') return;
+    const who = t.awaiting ? t.awaiting.player : t.players[t.turn];
+    if (!this.cpus.has(who)) return;
+    if (!this._crowd().thinkDone(now, this.actedAt)) return;
+    this.cpuMove(who, now);
+  }
+
+  // CPU の1手。**いちばん弱い出せる手を出す**(大富豪の基本の打ちかた)。
+  // 出せる手が無ければパス。反則負けになる手は weakestPlay が後回しにする。
+  cpuMove(who, now) {
+    const t = this.table;
+    this.actedAt = now;
+    if (t.awaiting) {
+      const type = PICK_OPS[t.awaiting.type];
+      const pick = t.hands[who].slice(0, t.awaiting.count);
+      this.table = apply(structuredClone(t), { type, player: who, cards: pick });
+      return;
+    }
+    const best = weakestPlay(t, who);
+    if (!best) {
+      // 場が無いのに出せる手が無いことは無い(手札があれば必ず何か出せる)。
+      // ここへ来るのは場があって返せないときだけ。
+      this.table = apply(structuredClone(t), { type: 'PASS', player: who });
+      return;
+    }
+    this.table = apply(structuredClone(t), { type: 'PLAY', player: who, cards: best });
+    if (this.table.result) this.tick(now);
+  }
+
   // ---- 席から来る操作 ----
 
   command(seat, what, msg, now = Date.now()) {
-    if (what === 'enter') return this.enter(seat, now);
-    if (what === 'leave') return this.leave(seat);
-    if (what === 'start') return this.start(seat, now);
     if (what === 'rules') return this.setRules(seat, msg?.rules);
     // 席を立つ。卓が立っている間は leave が効かないので、こちらで抜ける
     // ── 抜けられないと、始まったあと島から出るまで卓に縛られる。
     if (what === 'retire') { this.dropSeat(seat); return { ok: true }; }
     if (PLAY_OPS[what] || what === 'pick') return this.act(seat, what, msg, now);
-    return { error: `不明な操作: ${what}` };
+    return super.command(seat, what, msg, now);
   }
 
   // ルールを入れ替える。**ゲームマスター(ホスト)だけ**、卓が立つ前だけ。
@@ -205,7 +240,6 @@ export class DaifugoTable extends MeetCore {
   _extraView(now = Date.now()) {
     return {
       rules: { ...this.rules },
-      hostSeat: this.hostSeat,
       game: this.game,
       titles: this.titles ? { ...this.titles } : null,
       // 考える時間の残り。0 になるとサーバーが代わりに打つ

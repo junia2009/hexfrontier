@@ -29,7 +29,7 @@ export function minutes(ms) {
   return s ? `${m}分${s}秒` : `${m}分`;
 }
 
-// 何人からはじめられるか(server/meet-core.js の MIN_PLAYERS と同じ)
+// 何人からはじめられるか(src/minigame/meet/meet-core.js の MIN_PLAYERS と同じ)
 export const MIN_PLAYERS = 2;
 
 export const GUIDES = {
@@ -99,6 +99,15 @@ export const GUIDES = {
   },
 };
 
+// CPU のこと。**4つの遊びに共通**なので1か所に置いて、どの説明にも足す。
+// ここが読めないと「ひとりでは遊べない」と思われたままになる。
+const CPU_NOTE = `<h4>🤖 CPU を入れる</h4>
+  <p>受付の「🤖 CPU」で、<b>オーナー(部屋を立てた人。ひとりで歩いているときは自分)</b>が
+  何人入れるかを決めます。CPU も島の上を歩いて、円卓に座り、櫓に立ち、竜から逃げます。
+  <b>ひとりで歩いているときも入れられる</b>ので、友達が居なくても遊べます。</p>
+  <p class="mg-note">CPU は席の空いているぶんだけ入ります。あとから人が入ってきたら、
+  その席の CPU は席を譲ります。</p>`;
+
 const stepRow = ([icon, label, text]) =>
   `<div class="rcard"><span class="ricon">${icon}</span><div><b>${label}</b><p>${text}</p></div></div>`;
 
@@ -138,15 +147,17 @@ export function guideBodyHtml(id, { rules = null } = {}) {
     ${g.score ? `<h4>🏆 点の入りかた</h4><p>${g.score}</p>` : ''}
     ${g.tips ? `<h4>💡 コツ</h4>${list(g.tips)}` : ''}
     ${g.note ? `<p class="mg-note">${g.note}</p>` : ''}
+    ${CPU_NOTE}
     ${id === 'daifugo' ? dfgRulesHtml(rules) : ''}`;
 }
 
 // 島ごとに、**ひとりでも触れるもの**。
 //
 // 港の釣りはどの島にもあるので別枠。櫓(蛮族を射る)は都市と騎士だけ、
-// 巣の竜はドラゴンの島だけ ── どちらも進行が手元にあるので、ひとりでも動く。
-// **集まり(大会)はここに入れない。** サーバーが要るので、混ぜて並べると
-// 「基本の島を選べば大富豪がひとりで遊べる」と読めてしまう。
+// 巣の竜はドラゴンの島だけ ── どちらも歩いて行けばすぐ触れる。
+// **受付の集まりはここに入れない。** 集まりも CPU を入れればひとりで
+// 遊べるが、受付でひと手間要る ── 「歩いて行けば触れるもの」と混ぜると、
+// どちらもぼやける。集まりのことは下の1行で別に書く。
 // **集まりと同じ名前で書かない。** 都市と騎士の島は、櫓に立てばひとりでも
 // 撃てる ── 集まりのほうは「順位を競う」だけの違いなので、同じ言葉で並べると
 // 「ひとりでは撃てない」とも「ひとりで大会ができる」とも読めてしまう。
@@ -166,7 +177,7 @@ export function islandNoteHtml(mode) {
   return `<div class="mg-solo">
     ${islandSolo(mode).map((t) => `<div>${t}</div>`).join('')}
     <div class="mg-dim">${meet
-      ? `🎪 中心に<b>${meet.name}</b>の受付。順位を競う集まりは、オンラインで人が集まったときだけ開けます`
+      ? `🎪 中心に<b>${meet.name}</b>の受付。<b>CPU を入れればひとりでも遊べます</b>`
       : '🎪 この島に受付はありません'}</div></div>`;
 }
 
@@ -198,7 +209,8 @@ export function meetsGuideHtml() {
   const where = Object.entries(MEETS)
     .map(([mode, m]) => `<div class="rrow"><b>${MODE_JP[mode] ?? mode}</b><span class="rcost">${m.title}</span></div>`)
     .join('');
-  return `<p>オンラインで部屋を立てて<b>「島を歩く」</b>と、選んだ島を全員で歩けます。
+  return `<p><b>ひとりでも、友達とでも</b>遊べます。タイトルの 🚶 から島を選べば
+    ひとりで、オンラインで部屋を立てて「島を歩く」なら全員で同じ島を歩けます。
     島の中心には受付が立っていて、そこから<b>みんなで遊ぶ集まり</b>を開けます。</p>
     ${where}
     <p class="mg-note">遊びは島ごとに違います。集まりに出なくても、島は自由に歩けます。</p>

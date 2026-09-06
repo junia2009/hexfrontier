@@ -13,6 +13,7 @@
 //   - 受付の見た目(sign の文字は desk.js が焼き込む)
 //   - 実績(src/achievements.js の checkMeet)
 //   - あそびかた(src/render/meet-guide.js の GUIDES)
+//   - CPU の動き(src/minigame/meet/cpu.js の _stepOne)
 // を1セットで用意する。**hint はあくまで一行の呼び込み**で、操作の説明は
 // meet-guide.js に書く(test/meet-guide.test.js が書き忘れで落ちる)。
 

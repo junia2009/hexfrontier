@@ -1,4 +1,4 @@
-// 釣り大会の進行(server/fishing-contest.js)。
+// 釣り大会の進行(src/minigame/meet/fishing-contest.js)。
 //
 // 「どっちが勝ったか」で揉めないための決まりごとを、ここで押さえる。
 
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 
 import {
   FishingContest, CONTEST_MS, MIN_PLAYERS, MAX_CM, MIN_GAP_MS,
-} from '../server/fishing-contest.js';
+} from '../src/minigame/meet/fishing-contest.js';
 
 // 時刻を自分で進められるようにして、待たずに検証する
 const at = (t) => t;
