@@ -10,7 +10,7 @@ import { MODES } from '../src/progress.js';
 
 // 島と遊びは1対1。片方の島の受付でもう片方が始まると、看板と中身が食い違う。
 test('集まり: 島ごとに開かれるものが決まっている', () => {
-  const expected = { base: 'daifugo', fish: 'fishing', dragon: 'dragonhunt', cak: 'raid' };
+  const expected = { base: 'daifugo', fish: 'fishing', dragon: 'dragonhunt', cak: 'raid', sea: 'logroll' };
   for (const mode of MODES) {
     const want = expected[mode] ?? null;
     if (want) {
@@ -30,8 +30,10 @@ test('集まり: 表の id にサーバーの進行がある', async () => {
   const { DragonHunt } = await import('../src/minigame/meet/dragon-hunt.js');
   const { RaidContest } = await import('../src/minigame/meet/raid-contest.js');
   const { DaifugoTable } = await import('../src/minigame/meet/daifugo-table.js');
+  const { LogRollContest } = await import('../src/minigame/meet/logroll-contest.js');
   const engines = {
     fishing: FishingContest, dragonhunt: DragonHunt, raid: RaidContest, daifugo: DaifugoTable,
+    logroll: LogRollContest,
   };
   for (const m of Object.values(MEETS)) {
     assert.ok(engines[m.id], `${m.id}: 進行が無い`);

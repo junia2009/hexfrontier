@@ -61,6 +61,22 @@ export class WalkerMotion {
     this.coyote = 0;      // 地面を離れてからの猶予の残り
     this.wantJump = false;
     this.respawn = { x: 0, z: 0 };
+    // 足場そのものが動いている速さ(回る丸太の上など)。乗っているあいだ、
+    // 歩く速さとは別にこのぶん運ばれる。**前のフレームで見た地面の値**を
+    // 使う ── 動かす前に地面をもう一度引くと、1歩ごとに2回引くことになる。
+    // 1フレームの遅れは目では分からない。
+    this.carry = { x: 0, z: 0 };
+    // 復帰先を固定するか。**丸太の上では固定する** ── 固定しないと、
+    // 接地するたびに丸太の上が復帰先になり、落ちても筏に戻ってきてしまう
+    // (落ちること自体が負けの遊びが成立しない)。
+    this.respawnPinned = false;
+  }
+
+  // 落ちたときに戻る場所。pin を立てると、そのあと接地しても書き換わらない
+  setRespawn(x, z, { pin = false } = {}) {
+    this.respawn.x = x;
+    this.respawn.z = z;
+    this.respawnPinned = pin;
   }
 
   setPosition(x, z) {
@@ -76,8 +92,12 @@ export class WalkerMotion {
     this.grounded = true;
     this.coyote = 0;
     this.wantJump = false;
-    this.respawn.x = x;
-    this.respawn.z = z;
+    this.carry.x = 0;
+    this.carry.z = 0;
+    if (!this.respawnPinned) {
+      this.respawn.x = x;
+      this.respawn.z = z;
+    }
   }
 
   // 海に落ちている最中(足場のない空中)。着地でも復帰でもない。
@@ -141,8 +161,8 @@ export class WalkerMotion {
     // ---- 横の移動 ----
     // 端で止めない。踏み外したら海に落ちる ── そのほうが遊びとして楽しく、
     // すぐ元の場所に戻るので詰まらない。
-    let nx = this.pos.x + this.vel.x * step;
-    let nz = this.pos.z + this.vel.z * step;
+    let nx = this.pos.x + (this.vel.x + this.carry.x) * step;
+    let nz = this.pos.z + (this.vel.z + this.carry.z) * step;
 
     // 盤の上の物にめり込ませない。足が越えている高さの物はすり抜ける
     // (低い岩や煉瓦は跳び越えられる)。触れていなければ何もしないので、
@@ -236,11 +256,20 @@ export class WalkerMotion {
     }
     if (this.grounded) {
       this.coyote = COYOTE_TIME;
-      // 落ちる前の足場を覚えておく(復帰先)
-      this.respawn.x = this.pos.x;
-      this.respawn.z = this.pos.z;
+      // 落ちる前の足場を覚えておく(復帰先)。固定されているときは触らない
+      if (!this.respawnPinned) {
+        this.respawn.x = this.pos.x;
+        this.respawn.z = this.pos.z;
+      }
+      // 足場が動いていれば、そのぶん次のフレームで運ばれる。
+      // 島の地面は drift を返さない(動かない)ので、そこでは 0 に戻る。
+      this.carry.x = g.drift ? g.drift.x : 0;
+      this.carry.z = g.drift ? g.drift.z : 0;
     } else {
       this.coyote = Math.max(0, this.coyote - step);
+      // 空中では運ばれない。跳んだ瞬間に丸太の流れから切り離される
+      this.carry.x = 0;
+      this.carry.z = 0;
     }
 
     return {

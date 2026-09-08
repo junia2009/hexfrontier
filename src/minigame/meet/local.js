@@ -18,11 +18,13 @@ import { FishingContest } from './fishing-contest.js';
 import { DragonHunt } from './dragon-hunt.js';
 import { RaidContest } from './raid-contest.js';
 import { DaifugoTable } from './daifugo-table.js';
+import { LogRollContest } from './logroll-contest.js';
 import { meetFor } from '../meets.js';
 import { meetHome } from '../ground.js';
 
 const ENGINES = {
   fishing: FishingContest, dragonhunt: DragonHunt, raid: RaidContest, daifugo: DaifugoTable,
+  logroll: LogRollContest,
 };
 
 // ひとりで歩くときの自分の席
