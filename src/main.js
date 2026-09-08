@@ -746,6 +746,8 @@ async function startWalk() {
     stepLog?.push({ terrain, motion, gait: +(gait ?? 1).toFixed(2), at: performance.now() });
   };
   walk.onSink = setDiveVeil;
+  // 丸太乗り。海へ落ちて岸へ戻されたら、その回は終わり
+  walk.onRespawn = noteLogFall;
   walk.onSpot = onFishSpot;
   walk.onPost = onWatchPost;
   walk.onRaidEvent = (e) => {
@@ -1250,8 +1252,54 @@ function applyContest(c) {
   noteContestResult(c);
   syncRaidContest(c);
   syncTable(c);
+  syncLogRoll(c);
   renderContest();
   renderDfgRules();
+}
+
+// ---- 丸太乗り ----
+//
+// 筏は**種から作る**(logroll.js)ので、届くのは種と浮かべた場所だけ。
+// 回っている秒数は「制限時間 − 残り」から出す ── 端末の時計を突き合わせ
+// なくてよいし、途中から見に来た人も同じところから丸太が回る。
+let rollRound = null;   // 筏に乗せた回(同じ回で二度乗せない)
+let rollOut = false;    // この回はもう落ちた
+
+function syncLogRoll(c) {
+  if (!walk || c?.kind !== 'logroll') {
+    if (walk?.onLogs) walk.clearLogRoll();
+    rollRound = null;
+    return;
+  }
+  const running = c.phase === 'running' && !!c.seed && !!c.anchor;
+  if (!running) {
+    if (walk.onLogs) walk.clearLogRoll();
+    rollRound = null;
+    return;
+  }
+  walk.setLogRoll({ seed: c.seed, anchor: c.anchor, elapsed: c.total - c.remain });
+  // その回に乗るのは1度だけ。**乗り直させない** ── 表は毎秒届くので、
+  // 毎回乗せると丸太の上でずっと瞬間移動することになる。
+  if (rollRound === c.round) return;
+  rollRound = c.round;
+  rollOut = false;
+  const seat = mySeat();
+  const players = (c.entries ?? []).slice().sort((a, b) => a - b);
+  const i = players.indexOf(seat);
+  if (i < 0) return;                 // 見ているだけの人は乗せない
+  walk.standOnLogs(i, players.length, c.shore);
+  walkNote('🪵 丸太が回りだす!');
+}
+
+// 海に落ちた。**落ちたことは自分で申告する**(釣り・蛮族と同じ)。
+// 時刻はサーバーが打つので、生き残った時間を水増しすることはできない。
+function noteLogFall() {
+  if (contest?.kind !== 'logroll' || contest.phase !== 'running') return;
+  if (rollOut || rollRound !== contest.round) return;
+  if (!(contest.entries ?? []).includes(mySeat())) return;
+  rollOut = true;
+  meetSend('fell');
+  walkNote('🌊 落ちた!');
 }
 
 // ひとりで歩くときの集まりを回す。
@@ -1444,6 +1492,11 @@ function meetScore(c, r) {
       ? '<b>逃げきり</b>'
       : `<b>${(r.ms / 1000).toFixed(1)}秒</b>`;
   }
+  if (c.kind === 'logroll') {
+    return r.alive
+      ? '<b>乗りきり</b>'
+      : `<b>${(r.ms / 1000).toFixed(1)}秒</b>`;
+  }
   if (c.kind === 'raid') {
     return `<b>撃退 ${r.score} <small>(${r.wave}波)</small></b>`;
   }
@@ -1479,6 +1532,8 @@ function renderMeetBar() {
       : ' 💀 つかまった')
     : c.kind === 'daifugo'
       ? (me ? ` 🃏 のこり ${c.table?.counts?.[mySeat()] ?? '-'}枚` : ' 観戦中')
+      : c.kind === 'logroll'
+      ? (me?.alive ? ` 🪵 のこり${alive}人` : ' 💧 落ちた')
       : c.kind === 'raid'
       ? (me ? ` 🏹 ${me.place}位/${c.rank.length}人` : ' 観戦中')
       : (me ? ` 🎣 ${me.cm}cm(${me.place}位/${c.rank.length}人)` : ' 観戦中');

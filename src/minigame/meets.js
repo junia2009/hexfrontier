@@ -41,6 +41,13 @@ export const MEETS = {
     title: '🐉 ドラゴンから逃げろ',
     hint: '竜に捕まらないように逃げます。木の陰に回りこんで。',
   },
+  sea: {
+    id: 'logroll',
+    name: '丸太乗り',
+    sign: ['丸太乗り', '受付'],
+    title: '🪵 丸太乗り',
+    hint: '沖に浮かぶ回る丸太の上で、最後まで残った人が勝ちです。',
+  },
   cak: {
     id: 'raid',
     name: '蛮族を射る',

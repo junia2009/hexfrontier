@@ -8,6 +8,7 @@ import { FishingContest } from '../src/minigame/meet/fishing-contest.js';
 import { DragonHunt } from '../src/minigame/meet/dragon-hunt.js';
 import { RaidContest } from '../src/minigame/meet/raid-contest.js';
 import { DaifugoTable } from '../src/minigame/meet/daifugo-table.js';
+import { LogRollContest } from '../src/minigame/meet/logroll-contest.js';
 import { hasMeet, meetFor } from '../src/minigame/meets.js';
 import { meetHome } from '../src/minigame/ground.js';
 import { createGame } from '../src/state.js';
@@ -17,6 +18,7 @@ import { createGame } from '../src/state.js';
 // ── test/meets.test.js がその食い違いを見張っている。
 const ENGINES = {
   fishing: FishingContest, dragonhunt: DragonHunt, raid: RaidContest, daifugo: DaifugoTable,
+  logroll: LogRollContest,
 };
 
 // CPU / 切断中の席をサーバーが打つときの間合い(ローカル戦の演出と揃える)

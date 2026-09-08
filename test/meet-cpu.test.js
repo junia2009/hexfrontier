@@ -19,6 +19,10 @@ import { DaifugoTable } from '../src/minigame/meet/daifugo-table.js';
 import { FishingContest } from '../src/minigame/meet/fishing-contest.js';
 import { RaidContest } from '../src/minigame/meet/raid-contest.js';
 import { DragonHunt, GRACE_MS } from '../src/minigame/meet/dragon-hunt.js';
+import { LogRollContest, ROLL_MS } from '../src/minigame/meet/logroll-contest.js';
+import {
+  COURSE_W, LOG_COUNT, LOG_PITCH, logSolid, makeCourse, toLocal,
+} from '../src/minigame/logroll.js';
 import { LocalMeet, SOLO_SEAT } from '../src/minigame/meet/local.js';
 import { makeGround, tableSeats, meetHome, watchPost, fishingSpots } from '../src/minigame/ground.js';
 import { WALK_SEATS, ST } from '../src/minigame/remote-st.js';
@@ -349,8 +353,10 @@ test('ひとり: CPU を入れれば集まりが成立する', () => {
   assert.equal(m.walkers().length, 3);
 });
 
+// **もう全部の島に受付がある**ので、島の種類では試せない。
+// 知らない島(壊れた設定・古い保存)でも落ちないことを見る。
 test('ひとり: 受付の無い島では作らない', () => {
-  const m = new LocalMeet(island('sea'));
+  const m = new LocalMeet({ ...island('sea'), mode: 'しらない島' });
   assert.equal(m.ok, false);
   assert.equal(m.view(), null);
   assert.equal(m.command('enter').error, 'この島に受付はありません');
@@ -391,3 +397,63 @@ class MeetCoreStub extends MeetCore {
   _score() { return {}; }
   rankRows() { return []; }
 }
+
+// ---- 丸太乗り ----
+
+// **CPU が筏に乗って、落ちること。** 乗らなければ順位表に並ぶだけになり、
+// 落ちなければ人がどう乗っても勝てなくなる。
+test('CPU: 丸太乗りでは筏に乗り、腕前ぶん残って落ちる', () => {
+  const { e } = withCpus(LogRollContest, 'sea', 5);
+  e.enter(0, 1_000_000);
+  const at = 1_000_000;
+  assert.ok(e.start(0, at).ok, 'はじめられない');
+  // 乗った直後は全員が筏の上(足場の上)にいる
+  e.tick(at + 100);
+  const course = makeCourse(e.seed);
+  for (const [seat, x, z] of e.cpuPositions()) {
+    const p = toLocal(e.anchor, x, z);
+    assert.ok(Math.abs(p.x) <= COURSE_W / 2, `席${seat} が筏の外に立った (${p.x.toFixed(2)})`);
+    const i = Math.round(p.x / LOG_PITCH + (LOG_COUNT - 1) / 2);
+    assert.ok(logSolid(course.logs[i], p.z, 0), `席${seat} が切れ目の上に立った`);
+  }
+  // 進めると、順に落ちていく
+  run(e, ROLL_MS + 5000, 100, at);
+  const out = [...e.cpus].filter((s) => e.scores.get(s)?.outAt);
+  assert.ok(out.length >= 3, `${out.length}人しか落ちていない(勝負にならない)`);
+  // 走り終わっていること。**result とは限らない** ── 早じまいすると
+  // 25秒の結果表示も終わって受付へ戻っているので、走っていないことだけ見る。
+  assert.notEqual(e.phase, 'running', '制限時間を過ぎても走り続けている');
+});
+
+// 腕前が効いていること。**同じなら順位表が意味を持たない。**
+test('CPU: 丸太乗りは腕前で残る時間が変わる', () => {
+  const { e } = withCpus(LogRollContest, 'sea', 6);
+  e.enter(0, 1_000_000);
+  const at = 1_000_000;
+  e.start(0, at);
+  e.fell(0, at + 100);           // 人はすぐ落ちる(CPU だけを見たい)
+  run(e, ROLL_MS + 5000, 100, at);
+  const times = [...e.cpus].map((s) => e.aliveMs(s, at + ROLL_MS));
+  const spread = Math.max(...times) - Math.min(...times);
+  assert.ok(spread > 4000, `残った時間がほぼ同じ: ${times.map((t) => (t / 1000).toFixed(1))}`);
+  // 早い者から順に並ぶ
+  const rows = e.rankRows(at + ROLL_MS + 5000);
+  for (let i = 1; i < rows.length; i++) {
+    assert.ok(rows[i - 1].place <= rows[i].place, '順位が並んでいない');
+  }
+});
+
+// 落ちた CPU は岸へ戻る(海の上に立ったままにならない)
+test('CPU: 落ちた CPU は海の上に残らない', () => {
+  const { e, st } = withCpus(LogRollContest, 'sea', 4);
+  e.setHome(0, 0);
+  e.enter(0, 1_000_000);
+  const at = 1_000_000;
+  e.start(0, at);
+  run(e, 40000, 100, at);
+  const ground = makeGround(st);
+  for (const [seat, x, z] of e.cpuPositions()) {
+    if (!e.scores.get(seat)?.outAt) continue;   // まだ乗っている子は筏の上
+    assert.equal(ground(x, z).ok, true, `落ちた席${seat} が海の上に立っている`);
+  }
+});

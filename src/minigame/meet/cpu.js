@@ -23,6 +23,10 @@ import { SPECIES } from '../species.js';
 import {
   makeGround, meetHome, fishingSpots, watchPost, tableSeats, spawnPoint,
 } from '../ground.js';
+import {
+  COURSE_W, LOG_COUNT, LOG_LEN, LOG_PITCH, LOG_R, logSolid, rollTime, safeZ, toWorld,
+  upstreamFace,
+} from '../logroll.js';
 
 // 入れられる人数の上限。席の数から自分のぶんを引いたぶんまで
 export const CPU_MAX = WALK_SEATS - 1;
@@ -61,6 +65,18 @@ const MAX_DT = 0.25;
 
 // 大富豪で、CPU が考えているふりをする時間
 export const THINK_MS = 900;
+
+// 丸太乗り: 流れをどれだけ打ち消せるか。
+// 下手でも 0.78 は返す ── 返せないと数秒で全員が同じ側から落ちて勝負にならない。
+// **上手い子でも打ち消しきらない**(0.97)── 完全に返せると永久に落ちず、
+// 人がどれだけうまく乗っても CPU に勝てなくなる。この幅だと、残る時間は
+// おおよそ 10秒(下手)〜制限時間いっぱい(上手)に散る。
+const ROLL_HOLD = [0.78, 0.97];
+// 立て直しの揺らぎ(人が足踏みでずれるぶん)。速さと周期
+const ROLL_WOBBLE = 0.22;
+const ROLL_WOBBLE_HZ = [0.5, 1.1];
+// 切れ目を何秒先まで読むか。腕前が高いほど早く動く
+const ROLL_LOOK = [0.35, 1.3];
 
 // 釣り: 1匹上げるまでの間合いと、上がる魚の大きさ。
 // 人が本気で釣ると 3分で 10匹ほどなので、腕前で 6〜13匹あたりに収まるように。
@@ -121,6 +137,8 @@ export class CpuCrowd {
         skill: skillOf(seat, this.base),
         // 遊びごとの持ち物(次に釣れる時刻・座る席など)
         nextAt: 0, spot: null, drift: 0, side: 0,
+        // 丸太乗り: 筏を基準にした位置と、乗っているか・落ちたか
+        lx: 0, lz: 0, wob: 0, onRaft: false, out: false,
       });
       this._place(seat);
     }
@@ -144,7 +162,10 @@ export class CpuCrowd {
     if (!this.island) { this.at = now; return; }
     const dt = this.at ? Math.min(MAX_DT, (now - this.at) / 1000) : 0;
     this.at = now;
-    if (dt <= 0) return;
+    // **dt = 0 でも本体は回す。** 1回目は必ず 0 になるが、そこで打ち切ると
+    // 「乗る」「置く」といった移動でない仕事まで 1 tick 遅れる ── 丸太乗りでは
+    // 始まった直後の 1 tick だけ、CPU が島の上に立ったまま写る。
+    if (dt < 0) return;
     for (const b of this.bodies.values()) this._stepOne(b, dt, now, ctx);
   }
 
@@ -153,6 +174,90 @@ export class CpuCrowd {
     if (this.kind === 'fishing') return this._stepFish(b, dt);
     if (this.kind === 'raid') return this._stepPost(b, dt);
     if (this.kind === 'dragonhunt') return this._stepFlee(b, dt, now, ctx);
+    if (this.kind === 'logroll') return this._stepRoll(b, dt, now, ctx);
+  }
+
+  // ---- 丸太乗り ----
+
+  // その回の筏を受け取る。**始まるまでは乗せない**(筏は回っている間だけ
+  // 海に浮いている)ので、ここでは持っておくだけ。
+  setCourse(course, anchor, { players = [], shore = null } = {}) {
+    this.course = course;
+    this.rollAnchor = anchor;
+    this.rollPlayers = players;
+    this.shore = shore;
+    for (const b of this.bodies.values()) { b.onRaft = false; b.out = false; }
+  }
+
+  // 落ちたか(器が拾って、人と同じ申告の口へ流す)
+  hasFallen(seat) {
+    return !!this.bodies.get(seat)?.out;
+  }
+
+  // 丸太の上で足踏みする。
+  //
+  // **人と同じ物差しで落ちる。** 位置は筏を基準にした座標(lx, lz)で持ち、
+  // 足場があるかは logSolid ── 見た目だけ乗っているのに落ちない、という
+  // ことにならないように、判定は人が踏んでいるものと同じ式を通す。
+  _stepRoll(b, dt, now, ctx) {
+    b.st = ST.walk;
+    if (!this.course || !this.rollAnchor || !ctx.running) return;
+    const t = rollTime(ctx.elapsed ?? 0);
+    if (!b.onRaft) {
+      // 乗る。人と同じ立ち位置(startSpots と同じ並び)へ置く
+      const i = Math.max(0, this.rollPlayers.indexOf(b.seat));
+      const log = this.course.logs[i % LOG_COUNT];
+      const lane = Math.floor(i / LOG_COUNT);
+      const want = (lane % 2 === 0 ? 1 : -1) * LOG_LEN * (0.3 + 0.08 * Math.floor(lane / 2));
+      b.lx = log.x;
+      b.lz = safeZ(log, 0, 3, want) ?? want;
+      b.onRaft = true;
+      b.out = false;
+      b.wob = this._roll(b) * Math.PI * 2;
+      this._placeRoll(b);
+      return;
+    }
+    if (b.out) return;
+
+    // いま乗っている丸太
+    const i = Math.round(b.lx / LOG_PITCH + (LOG_COUNT - 1) / 2);
+    const log = this.course.logs[Math.max(0, Math.min(LOG_COUNT - 1, i))];
+
+    // 流れに逆らう。**打ち消しきらない**(腕前ぶん取りこぼす)ので、
+    // うまい子ほど長く残るが、誰でもいつかは端へ寄っていく。
+    // **猶予中(t <= 0)は流れない。** 人の側(courseGround)と揃える
+    const drift = t > 0 ? log.spin * LOG_R : 0;
+    const hold = lerp(ROLL_HOLD[0], ROLL_HOLD[1], b.skill);
+    b.wob += dt * lerp(ROLL_WOBBLE_HZ[0], ROLL_WOBBLE_HZ[1], 1 - b.skill) * Math.PI * 2;
+    const wobble = Math.sin(b.wob) * ROLL_WOBBLE * CPU_SPEED;
+    b.lx += (drift * (1 - hold) + wobble) * dt;
+
+    // 切れ目をよける。腕前が高いほど早く読む
+    const look = lerp(ROLL_LOOK[0], ROLL_LOOK[1], b.skill);
+    const want = safeZ(log, t, look, b.lz);
+    if (want != null) {
+      const d = want - b.lz;
+      const step = Math.min(Math.abs(d), CPU_SPEED * dt);
+      b.lz += Math.sign(d) * step;
+    }
+
+    // 落ちたか。**人と同じ判定**(筏の外か、足場が抜けているか)
+    if (Math.abs(b.lx) > COURSE_W / 2 || !logSolid(log, b.lz, t)) {
+      b.out = true;
+      b.st = ST.fall;
+      if (this.shore) { b.x = this.shore.x; b.z = this.shore.z; b.st = ST.walk; }
+      return;
+    }
+    this._placeRoll(b);
+  }
+
+  // 筏の座標から世界の座標へ
+  _placeRoll(b) {
+    const w = toWorld(this.rollAnchor, b.lx, b.lz);
+    b.x = w.x;
+    b.z = w.z;
+    // 丸太は全部同じ向きに回るので、どの本で測っても上流は同じ
+    b.facing = upstreamFace(this.rollAnchor, this.course.logs[0]);
   }
 
   // 円卓へ歩いて、自分の席に座る。
