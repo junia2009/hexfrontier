@@ -18,6 +18,7 @@
 
 import { longestRoadLength } from './rules/victory.js';
 import { hasOldShoe } from './rules/fish.js';
+import { FISH } from './minigame/fish.js';
 
 export const MODE_JP = {
   base: '基本',
@@ -68,7 +69,9 @@ const UNIT = {
   cities: 'つ', roadLen: '', knights: '体', ships: '隻',
   metropolis: 'つ', defender: '回', maxTrack: 'Lv', treasures: 'つ', islands: 'つ',
   raidScore: '点', raidWave: '波', raidAcc: '%',
-  daifugoPlayed: '回', daifugoBest: '人',
+  daifugoPlayed: '回', daifugoBest: '人', rollBest: '秒',
+  fishSpecies: '種類', fishBiggest: 'cm', fishingBest: 'cm',
+  huntWon: '回', raidMeetBest: '点',
 };
 
 // そのモードで勝った実績(5モードぶん自動で作る)
@@ -252,6 +255,16 @@ export const ACHIEVEMENTS = [
     checkMeet: ({ meets }) => (meets.fishing?.won ?? 0) > 0,
   },
   {
+    id: 'meet-fish-haul',
+    name: '大漁',
+    desc: '釣り大会の1回で 合計 700cm 釣り上げる',
+    title: '大漁旗',
+    icon: '🐳', tier: 'gold', scope: '散策部屋',
+    // CPU を6人で回して測ると 428〜663cm(中央 580)。上位を超える線。
+    mark: 'fishingBest', goal: 700,
+    checkMeet: ({ meets }) => (meets.fishing?.best ?? 0) >= 700,
+  },
+  {
     id: 'hunt-survive',
     name: '竜をかわす',
     desc: '「ドラゴンから逃げろ」で最後まで逃げきる',
@@ -260,6 +273,16 @@ export const ACHIEVEMENTS = [
     checkMeet: ({ meets }) => (meets.dragonhunt?.won ?? 0) > 0,
   },
 
+  {
+    id: 'hunt-thrice',
+    name: '竜を出し抜く',
+    desc: '「ドラゴンから逃げろ」で3回逃げきる',
+    title: '逃げ足',
+    icon: '🦎', tier: 'gold', scope: '散策部屋',
+    // 逃げきれば必ず制限時間ぶん残るので、秒ではなく回数で厚みを出す
+    mark: 'huntWon', goal: 3,
+    checkMeet: ({ meets }) => (meets.dragonhunt?.won ?? 0) >= 3,
+  },
   {
     id: 'daifugo-win',
     name: '卓を制す',
@@ -287,12 +310,94 @@ export const ACHIEVEMENTS = [
     checkMeet: ({ meets }) => (meets.daifugo?.best ?? 0) >= 4,
   },
   {
+    id: 'raid-meet-score',
+    name: '浜を守りきる',
+    desc: '「蛮族を射る」大会の1回で 150点とる',
+    title: '浜の守り',
+    icon: '🛟', tier: 'gold', scope: '散策部屋',
+    // CPU を6人で回して測ると 98〜141点(中央 132)。上位を超える線。
+    mark: 'raidMeetBest', goal: 150,
+    checkMeet: ({ meets }) => (meets.raid?.best ?? 0) >= 150,
+  },
+  {
+    id: 'roll-win',
+    name: '丸太を制す',
+    desc: '散策部屋の丸太乗りで最後まで残る',
+    title: '丸太乗り',
+    icon: '🪵', tier: 'silver', scope: '散策部屋',
+    checkMeet: ({ meets }) => (meets.logroll?.won ?? 0) > 0,
+  },
+  {
+    id: 'roll-minute',
+    name: '流れに逆らう',
+    desc: '丸太乗りで 60 秒以上落ちずに乗り続ける',
+    title: '川渡り',
+    icon: '🌀', tier: 'gold', scope: '散策部屋',
+    // 丸太は終盤に歩きより速くなるので、60 秒は「押し負けるところまで
+    // 粘った」の線(実測: 達人でおよそ 65 秒)。
+    mark: 'rollBest', goal: 60,
+    checkMeet: ({ meets }) => (meets.logroll?.best ?? 0) >= 60,
+  },
+  {
     id: 'raid-meet-win',
     name: '射手の頂点',
     desc: '散策部屋の「蛮族を射る」大会で優勝する',
     title: '射手頭',
     icon: '🏅', tier: 'silver', scope: '散策部屋',
     checkMeet: ({ meets }) => (meets.raid?.won ?? 0) > 0,
+  },
+
+  // ---- 港での釣り(図鑑)----
+  //
+  // 大会とは別の入口(checkFish)で見る ── ひとりで港に立って釣っただけでも
+  // 付く。判定材料は progress.fish(釣った魚の表)。
+  {
+    id: 'fish-ten',
+    name: '釣り好き',
+    desc: '図鑑を10種類うめる',
+    title: '釣り好き',
+    icon: '🎏', tier: 'bronze', scope: '港',
+    mark: 'fishSpecies', goal: 10,
+    checkFish: ({ fish }) => fishCounts(fish).species >= 10,
+  },
+  {
+    id: 'fish-lord',
+    name: '港のぬし',
+    desc: 'どこかの港で「ぬし」を釣り上げる',
+    title: 'ぬし釣り',
+    icon: '🌝', tier: 'silver', scope: '港',
+    // ぬしは港ごとに1種類しか出ない。どれか1匹で付く
+    checkFish: ({ fish }) => fishCounts(fish).lords >= 1,
+  },
+  {
+    id: 'fish-big',
+    name: '大物',
+    desc: '2メートルを超える魚を釣り上げる',
+    title: '大物釣り',
+    icon: '📏', tier: 'silver', scope: '港',
+    mark: 'fishBiggest', goal: 200,
+    checkFish: ({ fish }) => fishCounts(fish).biggest >= 200,
+  },
+  {
+    id: 'fish-kraken',
+    name: '幻を釣る',
+    desc: 'ダイオウイカを釣り上げる',
+    title: '深海の主',
+    icon: '🦑', tier: 'gold', scope: '港',
+    // いちばん出にくい1種。狙って釣れるものではないので通しの目標にする
+    checkFish: ({ fish }) => fishCounts(fish).myth,
+  },
+  {
+    id: 'fish-book',
+    name: '図鑑を埋める',
+    desc: '図鑑を全種類うめる',
+    title: '博物学者',
+    icon: '📖', tier: 'gold', scope: '港',
+    mark: 'fishSpecies', goal: FISH.length,
+    checkFish: ({ fish }) => {
+      const c = fishCounts(fish);
+      return c.species >= c.total;
+    },
   },
 
   // ---- 散策部屋(蛮族を射る・ひとりの記録)----
@@ -356,7 +461,10 @@ export const ACHIEVEMENTS = [
 // **この印が付いているものは、対戦の締めでは絶対に付かない。** 進捗を出す
 // ために mark を持たせることがあるので、mark の有無では見分けられない
 // ── 対戦を1戦終えたら散策部屋の実績が付いた、を防ぐのはここ。
-const OTHER_GATES = ['checkMeet', 'checkSeen', 'checkRaid'];
+// 対戦の締め(unlockedBy)以外の入口。**足したらここにも足すこと** ──
+// 入口を持つ実績は「対戦を1戦終えたら付く」に混ぜてはいけない。
+// test/progress.test.js もこの一覧を読む(二重に書くと片方だけ古くなる)。
+export const OTHER_GATES = ['checkMeet', 'checkSeen', 'checkRaid', 'checkFish'];
 
 // 数値ものの判定は共通(check を書かなくてよい)
 function passes(a, ctx) {
@@ -409,6 +517,26 @@ export function unlockedBySeen(ctx) {
 // 蛮族を射る(ひとりの記録)のほう。ctx は { raid } ── 自己最高の一式。
 export function unlockedByRaid(ctx) {
   return unlockedVia('checkRaid', ctx);
+}
+
+// 釣りの図鑑のほう。ctx は { fish } ── { 魚の id: { n, best } } の表。
+// 大会とは別の入口にしてある ── 港でひとり釣っただけでも付く。
+export function unlockedByFish(ctx) {
+  return unlockedVia('checkFish', ctx);
+}
+
+// 図鑑の数えかた。実績の判定と戦績の進捗で同じ式を通す。
+export function fishCounts(book) {
+  const got = Object.keys(book ?? {});
+  const kinds = new Set(got);
+  const tierOf = (id) => FISH.find((f) => f.id === id)?.tier ?? null;
+  return {
+    species: kinds.size,
+    total: FISH.length,
+    lords: got.filter((id) => tierOf(id) === 'legend').length,
+    myth: got.some((id) => tierOf(id) === 'myth'),
+    biggest: got.reduce((m, id) => Math.max(m, book[id]?.best ?? 0), 0),
+  };
 }
 
 // 実績の「どこで取るものか」。モードに紐づかないものは scope に書く。

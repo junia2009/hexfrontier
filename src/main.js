@@ -1151,6 +1151,13 @@ function showCatch() {
     <div class="fr-icon">${f.fish.icon}</div>
     <div class="fr-name">${f.fish.name}</div>
     <div class="fr-size">${f.cm} cm</div>${tag}`, false);
+  // 図鑑がのびて実績が付いたら伝える。**釣果の表示に重ねない** ──
+  // 1匹ぶんの札が出ている最中なので、少し待ってから帯で出す。
+  if (r.unlocked.length) {
+    sfx.play('win');
+    const a = achievementById(r.unlocked[0]);
+    setTimeout(() => walkNote(`🎉 実績を解除: ${a?.icon ?? ''} ${a?.name ?? ''}`), 1400);
+  }
 }
 
 function showMiss() {

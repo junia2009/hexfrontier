@@ -18,6 +18,9 @@ import { createGame } from '../src/state.js';
 import { makeGround } from '../src/minigame/ground.js';
 import { WalkerMotion, WALK_SPEED, WATER_Y } from '../src/minigame/motion.js';
 import { TILE_TOP } from '../src/terrain.js';
+import { contestOutcome } from '../src/minigame/contest.js';
+import { addContestResult, emptyProgress, summarize } from '../src/progress.js';
+import { achievementById } from '../src/achievements.js';
 import {
   COURSE_L, COURSE_W, DRUM_AXIS, DRUM_BAND, DRUM_LEN, DRUM_R, DRUM_TOP, GRACE_MS,
   FREE_TURN, HOLE_ARC, angleAt, courseGround, findAnchor, holeOpen, makeCourse, rollTime, safeZ,
@@ -481,4 +484,68 @@ test('丸太: 歩ける帯は水面まで届いている(見えない棚が無�
   assert.ok(edge > sea, '足場の端が水没している');
   assert.ok(edge - sea < DRUM_R * 0.1,
     `足場の端と水面のあいだに ${(edge - sea).toFixed(3)} の棚がある`);
+});
+
+// **戦績と実績にちゃんと積まれること。**
+//
+// ここは「新しい遊びを足したときに忘れる」ところ ── 丸太乗りを足した
+// ときも、contestOutcome が釣り大会あつかいで落ちてくるのに気づかず、
+// 存在しない me.cm を見て**優勝が一度も記録されず、順位も全員1位**に
+// なっていた(実測)。
+test('丸太: 回の結果が順位と記録になる', () => {
+  const view = {
+    kind: 'logroll',
+    rank: [
+      { seat: 0, ms: 45000, alive: true, place: 1 },
+      { seat: 1, ms: 20000, alive: false, place: 2 },
+      { seat: 2, ms: 12000, alive: false, place: 3 },
+    ],
+  };
+  assert.deepEqual(contestOutcome(view, 0), { entered: true, won: true, score: 45, place: 1 });
+  assert.deepEqual(contestOutcome(view, 1), { entered: true, won: false, score: 20, place: 2 });
+  assert.deepEqual(contestOutcome(view, 2), { entered: true, won: false, score: 12, place: 3 });
+  // 出ていない席は数えない
+  assert.equal(contestOutcome(view, 5).entered, false);
+  // **全員が落ちた回でも、いちばん長く乗っていた人が勝ち**(竜と違う)。
+  // 丸太は終盤に歩きより速くなるので、この回のほうが普通。
+  const allFell = {
+    kind: 'logroll',
+    rank: [
+      { seat: 0, ms: 30000, alive: false, place: 1 },
+      { seat: 1, ms: 10000, alive: false, place: 2 },
+    ],
+  };
+  assert.equal(contestOutcome(allFell, 0).won, true, '全員落ちた回に勝者が出ない');
+  // ひとりだけの回は優勝にしない(ほかの集まりと同じ)
+  const solo = { kind: 'logroll', rank: [{ seat: 0, ms: 30000, alive: true, place: 1 }] };
+  assert.equal(contestOutcome(solo, 0).won, false);
+});
+
+test('丸太: 優勝と自己最高で実績がつく', () => {
+  let p = emptyProgress();
+  const view = {
+    kind: 'logroll',
+    rank: [
+      { seat: 0, ms: 45000, alive: true, place: 1 },
+      { seat: 1, ms: 20000, alive: false, place: 2 },
+    ],
+  };
+  const o = contestOutcome(view, 0);
+  const r1 = addContestResult(p, { kind: 'logroll', won: o.won, score: o.score, key: 'a#1' });
+  p = r1.progress;
+  assert.equal(p.meets.logroll.won, 1, '優勝が数えられていない');
+  assert.equal(p.meets.logroll.best, 45, '自己最高が残っていない');
+  assert.ok(r1.unlocked.includes('roll-win'), `優勝の実績が付かない: ${r1.unlocked}`);
+  assert.ok(!r1.unlocked.includes('roll-minute'), '45秒で 60秒の実績が付いた');
+  // 60 秒を超えたら、粘りの実績も付く
+  const long = { kind: 'logroll', rank: [
+    { seat: 0, ms: 64000, alive: false, place: 1 },
+    { seat: 1, ms: 20000, alive: false, place: 2 },
+  ] };
+  const o2 = contestOutcome(long, 0);
+  const r2 = addContestResult(p, { kind: 'logroll', won: o2.won, score: o2.score, key: 'a#2' });
+  assert.ok(r2.unlocked.includes('roll-minute'), `粘りの実績が付かない: ${r2.unlocked}`);
+  // 進捗バーに出る(取っていない人に「あと何秒か」が見える)
+  assert.equal(summarize(r2.progress).bests.rollBest, 64);
+  assert.ok(achievementById('roll-minute')?.title, '称号が無い');
 });

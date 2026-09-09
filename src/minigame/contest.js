@@ -22,8 +22,13 @@ export function placeBy(rows, ahead) {
 // 直後に回が終わったとき「捕まった人と逃げきった人が同率」になってしまう
 // (最後のひとりになった回では必ずそうなる)。
 // 同じ側どうしなら、長く生き残ったほうが上 ── 秒でまるめて同着は同率にする。
+//
+// **丸太乗りも同じ形**(残っているか → 残った時間)なので、この式を共有する。
 export const huntAhead = (r, o) => (o.alive && !r.alive)
   || (!!o.alive === !!r.alive && Math.round(o.ms / 1000) > Math.round(r.ms / 1000));
+
+// 生き残りで competing する遊び。順位も記録の単位も同じ扱いにする
+const SURVIVAL = new Set(['dragonhunt', 'logroll']);
 
 // 釣り大会の順位。合計 → いちばん大きい1匹、で決着が付かなければ同率。
 export function placeOf(rank) {
@@ -64,7 +69,7 @@ export function contestOutcome(view, seat) {
   }
   // サーバーが place を入れて配っているが、ここでも数え直す ── 古い版の
   // サーバーが繋がっていても、優勝の判定だけは自前で決められるように。
-  const rows = view?.kind === 'dragonhunt'
+  const rows = SURVIVAL.has(view?.kind)
     ? placeBy(rank, huntAhead)
     : view?.kind === 'raid'
       ? placeBy(rank, raidAhead)
@@ -80,6 +85,14 @@ export function contestOutcome(view, seat) {
     // 勝ちにすると、逃げきる実績が逃げきらなくても取れてしまう。
     return {
       entered: true, won: !!me.alive, score: Math.round(me.ms / 1000), place: me.place,
+    };
+  }
+  if (view?.kind === 'logroll') {
+    // **最後まで残った人が勝ち。** 竜と違って「逃げきり(alive)」は条件に
+    // しない ── 丸太は終盤に歩きより速くなるので、たいていは全員が落ちて
+    // 回が終わる。それでも「いちばん長く乗っていた人」が勝ち。
+    return {
+      entered: true, won: me.place === 1, score: Math.round(me.ms / 1000), place: me.place,
     };
   }
   if (view?.kind === 'raid') {
