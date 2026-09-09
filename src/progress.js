@@ -364,9 +364,41 @@ function sanitizeMeet(m) {
   };
 }
 
+// **すでに達成しているぶんを、後から足した実績にも行き渡らせる。**
+//
+// 集まり・釣り・蛮族・島で見つけたもの の判定は、どれも「保存してある記録
+// だけ」で決まる純粋な式で、走るのは**その遊びを次に終えたとき**だけ。
+// つまり実績を後から足すと、すでに条件を満たしている人には付かないまま
+// 残る ── 実際、竜から3回逃げきっている人の画面に「5/3回」と出たまま
+// 鍵がかかっていた。読み込むたびに保存してある記録と突き合わせて埋める。
+//
+// 対戦の締め(unlockedBy)はここでは見ない。あちらは「その1戦で何をしたか」
+// が要る(勝ったか・どのルールか)ので、保存してある集計からは決められない。
+export function reconcileAchievements(progress, at = Date.now()) {
+  const ids = [
+    ...unlockedByMeet({ meets: progress.meets ?? {} }),
+    ...unlockedByFish({ fish: progress.fish ?? {} }),
+    ...unlockedByRaid({ raid: progress.raid ?? emptyRaid() }),
+    ...unlockedBySeen({ seen: progress.seen ?? {} }),
+  ];
+  const unlocked = ids.filter((id) => !progress.achievements?.[id]);
+  if (!unlocked.length) return { progress, unlocked };
+  const next = { ...progress, achievements: { ...progress.achievements } };
+  for (const id of unlocked) next.achievements[id] = { at, mode: null };
+  // 称号は名乗っていなければ入れる。**名乗っているものは触らない** ──
+  // 後から足した実績で勝手に名前が変わると気味が悪い。
+  if (next.title == null) next.title = unlocked[0];
+  return { progress: next, unlocked };
+}
+
 export function loadProgress() {
   try {
-    return parseProgress(lsGet(KEY));
+    const parsed = parseProgress(lsGet(KEY));
+    // 後から足した実績のぶんを埋める。埋めたら保存しておく
+    // (毎回埋め直すと、取った日付が読み込むたびに変わってしまう)。
+    const { progress, unlocked } = reconcileAchievements(parsed);
+    if (unlocked.length) saveProgress(progress);
+    return progress;
   } catch {
     return emptyProgress(); // localStorage が使えない環境(プライベートモード等)
   }

@@ -12,7 +12,8 @@ import { chooseAction } from '../src/ai/cpu-player.js';
 import { computePoints } from '../src/rules/victory.js';
 import {
   ACC_MIN_SHOTS, MODES, addCatch, addContestResult, addRaidRun, addResult, emptyMeet, emptyProgress,
-  emptyRaid, noteSeen, parseProgress, resultOf, summarize, winRate, achievementCount,
+  emptyRaid, noteSeen, parseProgress, reconcileAchievements, resultOf, summarize, winRate,
+  achievementCount,
   currentTitle, setTitle,
 } from '../src/progress.js';
 import {
@@ -763,4 +764,54 @@ test('progress: 魚を釣ると図鑑の実績が積まれる', () => {
   // 進捗の棚にも出る
   assert.equal(summarize(r1.progress).bests.fishBiggest, 250);
   assert.equal(summarize(r1.progress).bests.fishSpecies, 1);
+});
+
+// **後から足した実績は、すでに達成しているぶんにも行き渡ること。**
+//
+// 集まり・釣り・蛮族・島の判定は「その遊びを次に終えたとき」しか走らない
+// ので、実績を後から足すと、条件を満たしている人に付かないまま残る
+// ── 実際、竜から5回逃げきっている画面に「5/3回」と出たまま鍵がかかっていた。
+test('progress: 後から足した実績が、すでに達成しているぶんに行き渡る', () => {
+  const p = {
+    ...emptyProgress(),
+    // 竜から5回逃げきっている(実績が無かったころに貯めた記録)
+    meets: { dragonhunt: { played: 9, won: 5, best: 90, last: null } },
+  };
+  const r = reconcileAchievements(p, 0);
+  assert.ok(r.unlocked.includes('hunt-survive'), `逃げきりが埋まらない: ${r.unlocked}`);
+  assert.ok(r.unlocked.includes('hunt-thrice'), `3回逃げきりが埋まらない: ${r.unlocked}`);
+  for (const id of r.unlocked) assert.ok(r.progress.achievements[id], `${id} が残っていない`);
+  // 何も無ければ progress をそのまま返す(読み込みのたびに書き換えない)
+  const again = reconcileAchievements(r.progress, 0);
+  assert.deepEqual(again.unlocked, []);
+  assert.equal(again.progress, r.progress, '変化が無いのに作り直している');
+});
+
+test('progress: 埋めても、名乗っている称号は勝手に変わらない', () => {
+  const p = {
+    ...emptyProgress(),
+    title: 'win-base',
+    achievements: { 'win-base': { at: 0, mode: 'base' } },
+    fish: { manbou: { n: 1, best: 250, at: 0 } },
+  };
+  const r = reconcileAchievements(p, 0);
+  assert.ok(r.unlocked.length > 0, '埋まっていない');
+  assert.equal(r.progress.title, 'win-base', '称号が書き換わった');
+});
+
+// 4つの入口ぜんぶを埋めること。1つ忘れると、その遊びだけ取り残される。
+test('progress: 埋める入口は集まり・釣り・蛮族・島のぜんぶ', () => {
+  const p = {
+    ...emptyProgress(),
+    meets: { logroll: { played: 1, won: 1, best: 99, last: null } },
+    fish: { manbou: { n: 1, best: 250, at: 0 } },
+    raid: { played: 1, best: 999, wave: 9, acc: 99, shots: 99, hits: 99 },
+    seen: { nest: true },
+  };
+  const { unlocked } = reconcileAchievements(p, 0);
+  const has = (id) => unlocked.includes(id);
+  assert.ok(has('roll-win'), `集まりが埋まらない: ${unlocked}`);
+  assert.ok(has('fish-lord'), `釣りが埋まらない: ${unlocked}`);
+  assert.ok(has('raid-wave-3'), `蛮族が埋まらない: ${unlocked}`);
+  assert.ok(has('nest-visit'), `島で見つけたものが埋まらない: ${unlocked}`);
 });
