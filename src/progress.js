@@ -7,7 +7,8 @@
 import { lsGet, lsSet, lsRemove } from './storage.js';
 import { computePoints } from './rules/victory.js';
 import {
-  ACHIEVEMENTS, marksOf, titleOf, unlockedBy, unlockedByMeet, unlockedByRaid, unlockedBySeen,
+  ACHIEVEMENTS, fishCounts, marksOf, titleOf, unlockedBy, unlockedByFish, unlockedByMeet,
+  unlockedByRaid, unlockedBySeen,
 } from './achievements.js';
 
 const KEY = 'progress';
@@ -99,6 +100,13 @@ export function summarize(progress) {
   bests.daifugoBest = daifugo.best ?? 0;
   // 丸太乗りは「何秒乗っていられたか」に進捗が出せる
   bests.rollBest = progress.meets?.logroll?.best ?? 0;
+  bests.fishingBest = progress.meets?.fishing?.best ?? 0;
+  bests.raidMeetBest = progress.meets?.raid?.best ?? 0;
+  bests.huntWon = progress.meets?.dragonhunt?.won ?? 0;
+  // 港での釣り(図鑑)。種類数といちばん大きかった1匹
+  const fish = fishCounts(progress.fish);
+  bests.fishSpecies = fish.species;
+  bests.fishBiggest = fish.biggest;
   return { byMode, total, bests };
 }
 
@@ -135,22 +143,30 @@ export function addResult(progress, result, ctx) {
 // 魚そのものの定義は minigame/fish.js にあり、ここは「何を何匹・自己最大」だけを持つ。
 
 // 1匹ぶんを足す。progress は書き換えず、新しいものと「初めて/自己記録」を返す。
+// 1匹釣った。**実績もここで見る** ── 図鑑は港でひとり釣っただけでも
+// 伸びるので、大会の締め(addContestResult)とは別の入口を通す。
 export function addCatch(progress, fishId, cm, now = Date.now()) {
   const prev = progress.fish?.[fishId] ?? null;
   const isNew = !prev;
   const isRecord = !prev || cm > prev.best;
-  const next = {
-    ...progress,
-    fish: {
-      ...(progress.fish ?? {}),
-      [fishId]: {
-        n: (prev?.n ?? 0) + 1,
-        best: isRecord ? cm : prev.best,
-        at: isRecord ? now : prev.at,
-      },
+  const fish = {
+    ...(progress.fish ?? {}),
+    [fishId]: {
+      n: (prev?.n ?? 0) + 1,
+      best: isRecord ? cm : prev.best,
+      at: isRecord ? now : prev.at,
     },
   };
-  return { progress: next, isNew, isRecord };
+  const next = { ...progress, fish, achievements: { ...progress.achievements } };
+  const unlocked = [];
+  for (const id of unlockedByFish({ fish })) {
+    if (next.achievements[id]) continue;   // すでに持っている
+    next.achievements[id] = { at: now, mode: null };
+    unlocked.push(id);
+  }
+  // ほかの入口と同じで、初めて取ったらその称号を自動で名乗らせる
+  if (next.title == null && unlocked.length) next.title = unlocked[0];
+  return { progress: next, isNew, isRecord, unlocked };
 }
 
 // ---- 釣り大会 ----

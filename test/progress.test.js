@@ -11,13 +11,16 @@ import { dispatch } from '../src/actions.js';
 import { chooseAction } from '../src/ai/cpu-player.js';
 import { computePoints } from '../src/rules/victory.js';
 import {
-  ACC_MIN_SHOTS, MODES, addContestResult, addRaidRun, addResult, emptyMeet, emptyProgress,
+  ACC_MIN_SHOTS, MODES, addCatch, addContestResult, addRaidRun, addResult, emptyMeet, emptyProgress,
   emptyRaid, noteSeen, parseProgress, resultOf, summarize, winRate, achievementCount,
   currentTitle, setTitle,
 } from '../src/progress.js';
 import {
-  ACHIEVEMENTS, TIERS, achievementById, marksOf, progressOf, titleOf, unlockedBy,
+  ACHIEVEMENTS, TIERS, achievementById, marksOf, progressOf, titleOf, unlockedBy, OTHER_GATES,
+  unlockedByFish, unlockedByMeet,
 } from '../src/achievements.js';
+import { MEETS } from '../src/minigame/meets.js';
+import { FISH } from '../src/minigame/fish.js';
 import { contestOutcome, placeOf } from '../src/minigame/contest.js';
 
 function game({
@@ -30,7 +33,9 @@ const noStats = () => summarize(emptyProgress());
 
 // 対戦の締め以外に入口を持つ実績の目印(src/achievements.js の OTHER_GATES と同じ)。
 // これが付いているものは mark を持っていても「対戦の数値もの」ではない。
-const OTHER_GATE_KEYS = ['checkMeet', 'checkSeen', 'checkRaid'];
+// 入口の一覧は achievements.js から読む。ここに書き写すと、入口を足した
+// ときに片方だけ古くなって「静かに見張らないテスト」になる。
+const OTHER_GATE_KEYS = OTHER_GATES;
 
 function playOut(mode, seed) {
   let s = createGame({ seed, playerCount: 4, humanIndex: 0, mode });
@@ -54,7 +59,11 @@ test('progress: 空の戦績でも全モードの枠が出る', () => {
   assert.equal(s.total.bestTurns, null);
   // 対戦の到達値は空。散策部屋の記録(蛮族を射る)は 0 から始まる
   assert.deepEqual(s.bests,
-    { raidScore: 0, raidWave: 0, raidAcc: 0, daifugoPlayed: 0, daifugoBest: 0, rollBest: 0 });
+    {
+      raidScore: 0, raidWave: 0, raidAcc: 0,
+      daifugoPlayed: 0, daifugoBest: 0, rollBest: 0,
+      fishingBest: 0, raidMeetBest: 0, huntWon: 0, fishSpecies: 0, fishBiggest: 0,
+    });
 });
 
 test('progress: モード別・難易度別に数える', () => {
@@ -110,8 +119,8 @@ test('achievements: 定義がそろっている(id 重複なし・称号・難�
     assert.ok(a.name && a.desc && a.icon, `${a.id}: 名前・説明・アイコンがない`);
     assert.ok(a.title, `${a.id}: 称号がない`);
     assert.ok(TIERS.includes(a.tier), `${a.id}: 難度(tier)が不正 ${a.tier}`);
-    assert.ok(a.check || a.mark || a.checkMeet || a.checkSeen || a.checkRaid,
-      `${a.id}: 解除の判定(check / mark / checkMeet / checkSeen / checkRaid)がない`);
+    assert.ok(a.check || a.mark || OTHER_GATES.some((k) => a[k]),
+      `${a.id}: 解除の判定(check / mark / ${OTHER_GATES.join(' / ')})がない`);
     if (a.mark) assert.equal(typeof a.goal, 'number', `${a.id}: goal がない`);
   }
   // アイコンはバッジの並びで実績を見分ける唯一の手がかり。
@@ -702,4 +711,56 @@ test('大富豪: 対戦の締めでは付かない', () => {
   for (const id of ['daifugo-win', 'daifugo-regular', 'daifugo-table4']) {
     assert.equal(ids.includes(id), false, `${id}: 対戦を終えただけで付いた`);
   }
+});
+
+// **どの集まりにも実績があること。**
+//
+// 遊びを足したときに忘れるのはここ ── 丸太乗りを足したときも、進行と
+// 見た目は作ったのに実績はゼロで、しかも contestOutcome が釣り大会
+// あつかいで落ちてきて優勝が一度も記録されていなかった。
+// meets.js に足した遊びは、必ず checkMeet を持つ実績を1つ以上持つこと。
+test('achievements: すべての集まりに実績がある', () => {
+  const kinds = [...new Set(Object.values(MEETS).map((m) => m.id))];
+  assert.ok(kinds.length >= 5, `集まりが少なすぎる: ${kinds}`);
+  for (const kind of kinds) {
+    // その遊びの通算だけを伸ばして、実績が1つでも解除できるか見る
+    const meets = { [kind]: { played: 99, won: 99, best: 9999, last: null } };
+    const ids = unlockedByMeet({ meets });
+    assert.ok(ids.length > 0, `${kind}: 集まりの実績が1つも無い`);
+  }
+});
+
+// 港での釣り(図鑑)にも実績があること。大会とは別の入口なので別に見る。
+test('achievements: 釣りの図鑑に実績がある', () => {
+  const book = {};
+  for (const f of FISH) book[f.id] = { n: 1, best: 999, at: 0 };
+  const ids = unlockedByFish({ fish: book });
+  assert.ok(ids.length >= 4, `図鑑の実績が少なすぎる: ${ids}`);
+  // 1匹も釣っていなければ何も付かない
+  assert.deepEqual(unlockedByFish({ fish: {} }), []);
+  // 図鑑を全部うめる実績は、全部そろうまで付かない
+  const short = { ...book };
+  delete short[FISH[0].id];
+  assert.ok(!unlockedByFish({ fish: short }).includes('fish-book'),
+    '1種欠けても図鑑の実績が付く');
+});
+
+// **釣った時点で実績が積まれること。** 判定があっても、addCatch が
+// それを見ていなければ何も起きない ── 実際、図鑑には長らく実績の入口が
+// 無く、釣っても何も付かなかった。
+test('progress: 魚を釣ると図鑑の実績が積まれる', () => {
+  let p = emptyProgress();
+  const r1 = addCatch(p, 'manbou', 250);   // 港のぬし、しかも 2m 超え
+  assert.ok(r1.unlocked.includes('fish-lord'), `ぬしの実績が付かない: ${r1.unlocked}`);
+  assert.ok(r1.unlocked.includes('fish-big'), `大物の実績が付かない: ${r1.unlocked}`);
+  // 戻り値だけでなく、progress にも焼き付いていること
+  for (const id of r1.unlocked) assert.ok(r1.progress.achievements[id], `${id} が残っていない`);
+  // 同じ魚をもう一度釣っても二重には付かない
+  const r2 = addCatch(r1.progress, 'manbou', 260);
+  assert.deepEqual(r2.unlocked, []);
+  // 初めて取った実績の称号を名乗る(ほかの入口と同じ作法)
+  assert.ok(r1.progress.title, '称号が名乗られていない');
+  // 進捗の棚にも出る
+  assert.equal(summarize(r1.progress).bests.fishBiggest, 250);
+  assert.equal(summarize(r1.progress).bests.fishSpecies, 1);
 });
