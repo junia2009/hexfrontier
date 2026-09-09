@@ -372,10 +372,20 @@ function sanitizeMeet(m) {
 // 残る ── 実際、竜から3回逃げきっている人の画面に「5/3回」と出たまま
 // 鍵がかかっていた。読み込むたびに保存してある記録と突き合わせて埋める。
 //
-// 対戦の締め(unlockedBy)はここでは見ない。あちらは「その1戦で何をしたか」
-// が要る(勝ったか・どのルールか)ので、保存してある集計からは決められない。
+// 対戦の締め(unlockedBy)も埋める。あちらは「その1戦で何をしたか」が要るが、
+// **1戦ぶんの記録(games)に marks ごと残してある**ので、そこを順に通せば
+// 同じ判定ができる ── 実績を足したときだけでなく、**しきい値を緩めたとき**も
+// 遡って付く(「50ターン以内」を 60 に緩めたら、55ターンで勝った過去の回にも
+// 付いてほしい)。
 export function reconcileAchievements(progress, at = Date.now()) {
+  const stats = summarize(progress);
+  const fromGames = [];
+  for (const g of progress.games ?? []) {
+    if (!g || typeof g !== 'object') continue;
+    fromGames.push(...unlockedBy({ marks: g.marks ?? {}, result: g, stats }));
+  }
   const ids = [
+    ...fromGames,
     ...unlockedByMeet({ meets: progress.meets ?? {} }),
     ...unlockedByFish({ fish: progress.fish ?? {} }),
     ...unlockedByRaid({ raid: progress.raid ?? emptyRaid() }),

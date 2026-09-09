@@ -815,3 +815,27 @@ test('progress: 埋める入口は集まり・釣り・蛮族・島のぜんぶ'
   assert.ok(has('raid-wave-3'), `蛮族が埋まらない: ${unlocked}`);
   assert.ok(has('nest-visit'), `島で見つけたものが埋まらない: ${unlocked}`);
 });
+
+// **しきい値を緩めたら、過去の対戦にも遡って付くこと。**
+//
+// 「50ターン以内に勝つ」は自己対戦 600 戦で 3% しか出ず(都市と騎士と
+// 航海者では 0%)、銀にしては金より珍しかったので 60 に緩めた。
+// 緩めた意味が出るのは、55ターンで勝った過去の回にも付いたとき。
+test('progress: 過去の対戦からも実績を埋め戻す', () => {
+  const past = {
+    at: 1, mode: 'base', difficulty: 'normal', players: 4, seed: 1,
+    won: true, points: 10, turns: 55, marks: { cities: 4 },
+  };
+  const p = { ...emptyProgress(), games: [past] };
+  const { progress, unlocked } = reconcileAchievements(p, 0);
+  assert.ok(unlocked.includes('win-fast'),
+    `55ターンの勝利に「電光石火」が付かない: ${unlocked}`);
+  assert.ok(progress.achievements['win-fast'], '残っていない');
+  // marks からの実績も同じ道で埋まる
+  assert.ok(unlocked.includes('all-cities'), `到達値のものが埋まらない: ${unlocked}`);
+  // 負けた回からは付かない
+  const lost = reconcileAchievements(
+    { ...emptyProgress(), games: [{ ...past, won: false }] }, 0,
+  );
+  assert.ok(!lost.unlocked.includes('win-fast'), '負けたのに付いた');
+});
