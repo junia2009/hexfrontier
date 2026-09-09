@@ -6,7 +6,7 @@
 // (WebGL コンテキストを2つ持つとモバイルで重すぎるため)。
 
 import * as THREE from 'three';
-import { makeRaft } from './logroll-fx.js';
+import { makeDrum } from './logroll-fx.js';
 import { courseGround, makeCourse, rollTime, startSpots } from './logroll.js';
 import {
   makeGround, spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
@@ -107,9 +107,11 @@ const AIM_CLOSER = 0.10;
 // どこから船が来ているのか分からない。広げすぎると的が小さくなる。
 const AIM_FOV = 64;
 // 丸太の上でカメラを引く割合と、見下ろす角(_placeCamera)。
-// 踏む場所を選ぶための視野。
-const ROLL_CAM = 1.8;
-const ROLL_PITCH = 0.66;
+// **丸太は直径 3.2 タイルある。** 既定の 1.05 タイルだと自分で画面が
+// 埋まって、足元の曲がりも、回ってくる切れ目も見えない ── 踏む場所を
+// 選ぶ遊びなのに選ぶ材料が映らない。丸太の太さがひととおり入るまで引く。
+const ROLL_CAM = 5.5;
+const ROLL_PITCH = 0.78;
 // 円卓に着いている間のカメラは**一人称**。
 // 卓を囲んで座っているのだから、自分の後頭部越しに見るより、そこに座って
 // いる目で見るほうが素直 ── 三人称だと自分の体が卓の手前を隠すし、
@@ -187,11 +189,11 @@ export class WalkMode {
   // look: すがた(species.js の番号)
   constructor(board3d, state, fishSeed = Date.now() >>> 0, seat = null, look = DEFAULT_SPECIES) {
     this.b = board3d;
-    // 島の地面。**丸太乗りの筏はこの上に被せる**ので、外へ渡すのは
+    // 島の地面。**丸太乗りの丸太はこの上に被せる**ので、外へ渡すのは
     // 下の包み(this.ground)のほう ── 包みを1つ通しておけば、歩き・
     // 他の人の描画・カメラの高さまで、全部が同じ足場を見る。
     this.islandGround = makeGround(state);
-    this.roll = null;      // { course, anchor, at } 回っている筏(無ければ null)
+    this.roll = null;      // { course, anchor, at } 回っている丸太(無ければ null)
     this.rollT = 0;        // 丸太が回りはじめてからの秒数
     this.ground = (x, z) => {
       if (this.rollAt) {
@@ -200,7 +202,7 @@ export class WalkMode {
       }
       return this.islandGround(x, z);
     };
-    this.rollAt = null;    // 筏の地面(その時刻ぶん)
+    this.rollAt = null;    // 丸太の地面(その時刻ぶん)
     // 港の看板は「盤を上から見たときの目印」の大きさで作られている。
     // 棒人間を縮めたぶんカメラも寄るので、そのままだと隣に立った看板が
     // 画面を埋めて、竿も浮きも見えなくなる。歩いている間だけ小さくする。
@@ -835,9 +837,14 @@ export class WalkMode {
     this.fx.update(dt, inWater ? { x: w.x, y: this.ground(0, 0).y + m.y, z: w.z } : null);
     this.onSink?.(r?.respawned ? 0 : sinkVeil(r?.depth ?? 0));
 
-    // 動いている間は、カメラをゆっくり後ろへ回り込ませる
+    // 動いている間は、カメラをゆっくり後ろへ回り込ませる。
+    // **丸太の上では回り込ませない。** 丸太の上で歩くのは主に太さ方向
+    // (流れに逆らう向き)なので、後ろへ回り込ませると丸太を真横から見る
+    // 絵になって、長さ方向のどこに切れ目が来ているかが映らなくなる。
+    // 向きを固定しておくと、スティックの上下が長さ方向(切れ目をよける)、
+    // 左右が太さ方向(流れに逆らう)に決まって操作も読みやすい。
     const speed = Math.hypot(this.walker.vel.x, this.walker.vel.z);
-    if (speed > WALK_SPEED * 0.35) {
+    if (!this.roll && speed > WALK_SPEED * 0.35) {
       const want = this.walker.facing;
       let d = ((want - this.camYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       this.camYaw += d * smooth(1.6, dt);
@@ -1148,12 +1155,10 @@ export class WalkMode {
     // アニメーションの上下がそのまま画面の揺れになる。
     const w = this.walker.pos;
     // 釣っている間は少し寄る(closer > 0)。手応えが伝わるように。
-    // 逆に**丸太の上では引く** ── 既定の 1.05 タイルだと本人で画面が埋まって、
-    // 足元の丸太も、隣へ回ってくる切れ目も見えない(踏む場所を選ぶ遊びなのに
-    // 選ぶ材料が映らない)。筏の幅(1.5 タイル)が入るところまで下げる。
+    // 逆に**丸太の上では引く**(ROLL_CAM のコメント)。
     const dist = this.camDist * (1 - closer * 0.35) * (this.roll ? ROLL_CAM : 1);
     // 丸太の上では見下ろす。歩きの 0.40 は水平線を入れるための角で、
-    // そのまま引くと手前の丸太が画面の下半分を塞いで、自分がどの丸太の
+    // そのままだと丸太の曲がりが画面の下半分を塞いで、自分が丸太の
     // どこに居るのかが読めない。踏む場所を選ぶあいだは足元を見る。
     const pitch = this.roll ? Math.max(this.camPitch, ROLL_PITCH) : this.camPitch;
     const h = Math.sin(pitch) * dist;
@@ -1237,7 +1242,7 @@ export class WalkMode {
 
   // ---- 丸太乗り ----
 
-  // その回の筏を組む。info が null なら片付ける。
+  // その回の丸太を組む。info が null なら片付ける。
   // seed と anchor は集まりが配るもの(logroll-contest.js)。
   setLogRoll(info) {
     if (!info?.seed || !info?.anchor) return this.clearLogRoll();
@@ -1251,13 +1256,13 @@ export class WalkMode {
     this.roll = { seed: info.seed, course, anchor, elapsed: info.elapsed ?? 0 };
     // 地面を差し替える。**時刻はフレームごとに入れ直す**(丸太は回っている)
     this._setRollTime(rollTime(this.roll.elapsed));
-    this.raft = makeRaft(this.b.scene, course, anchor);
+    this.drum = makeDrum(this.b.scene, course, anchor);
     return true;
   }
 
   clearLogRoll() {
-    this.raft?.dispose();
-    this.raft = null;
+    this.drum?.dispose();
+    this.drum = null;
     this.roll = null;
     this.rollAt = null;
     this.walker.motion.respawnPinned = false;
@@ -1276,10 +1281,10 @@ export class WalkMode {
   _setRollTime(t) {
     this.rollT = t;
     this.rollAt = courseGround(this.roll.course, this.roll.anchor, t);
-    this.raft?.setTime(t);
+    this.drum?.setTime(t);
   }
 
-  // 筏の上へ立たせる。**戻る先を岸に固定する**(落ちたら終わりなので、
+  // 丸太の上へ立たせる。**戻る先を岸に固定する**(落ちたら終わりなので、
   // 丸太の上を復帰先にしてしまうと、落ちても戻ってきて脱落しない)。
   standOnLogs(index, total, shore) {
     if (!this.roll) return false;
@@ -1287,8 +1292,11 @@ export class WalkMode {
       Math.max(0, index) % Math.max(1, total)];
     if (!spot) return false;
     this.walker.setPosition(spot.x, spot.z);
+    // 人は流れの逆を向き、**カメラは丸太の長さ方向を向く**(logroll.js の
+    // alongFace)── カメラまで流れの逆へ向けると丸太を真横から見ることに
+    // なって、筒であることも切れ目の来かたも映らない。
     this.walker.motion.facing = spot.face;
-    this.camYaw = spot.face;
+    this.camYaw = spot.view ?? spot.face;
     this.setStick(0, 0);
     if (shore) this.walker.motion.setRespawn(shore.x, shore.z, { pin: true });
     return true;
@@ -1341,7 +1349,7 @@ export class WalkMode {
     this._nestRestore();                                         // 巣の竜を盤に返す
     this.setDragon(null);
     this.desk?.dispose();
-    this.raft?.dispose();
+    this.drum?.dispose();
     this.archeryFx?.dispose();
     this.walker.dispose();
     this.remoteView.dispose();

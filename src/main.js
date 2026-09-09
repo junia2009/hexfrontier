@@ -1259,10 +1259,10 @@ function applyContest(c) {
 
 // ---- 丸太乗り ----
 //
-// 筏は**種から作る**(logroll.js)ので、届くのは種と浮かべた場所だけ。
+// 丸太は**種から作る**(logroll.js)ので、届くのは種と浮かべた場所だけ。
 // 回っている秒数は「制限時間 − 残り」から出す ── 端末の時計を突き合わせ
 // なくてよいし、途中から見に来た人も同じところから丸太が回る。
-let rollRound = null;   // 筏に乗せた回(同じ回で二度乗せない)
+let rollRound = null;   // 丸太に乗せた回(同じ回で二度乗せない)
 let rollOut = false;    // この回はもう落ちた
 
 function syncLogRoll(c) {
