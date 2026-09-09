@@ -40,7 +40,7 @@ import { islandNoteHtml, meetGuideHtml } from './render/meet-guide.js';
 import { LocalMeet, SOLO_SEAT, LOCAL_TICK_MS } from './minigame/meet/local.js';
 import { setHTML } from './render/dom.js';
 import { Bgm } from './audio/bgm.js';
-import { raceIntensity } from './audio/score.js';
+import { raceIntensity, raceScene } from './audio/score.js';
 import { computePoints as vpOf, pointsToWin } from './rules/victory.js';
 import { Sfx, sfxForAction, sfxForEnd, suspendAudio } from './audio/sfx.js';
 import { stepSound } from './audio/footsteps.js';
@@ -2372,6 +2372,21 @@ function applyViewMode() {
 // **いま何を鳴らすかの判断は、この2つに閉じる。** 場面の切り替えを
 // あちこちに書くと、増やしたときに必ずどこかが古くなる。
 
+// 上がりへの近さ。**公開されている点だけで作る** ── 隠し勝利点まで見ると、
+// 手札を見ていない人にも音で漏れてしまう(computePoints の既定は公開分のみ)。
+// 「自分が近い」ではなく「いちばん進んでいる人が近い」で見る。
+function racePoints() {
+  if (walk || screen !== 'game' || !state?.players) return null;
+  try {
+    return {
+      goal: pointsToWin(state),
+      best: Math.max(...state.players.map((_, i) => vpOf(state, i))),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // いまの状況に合う場面。名前は score.js の SCENES と meets.js の id に揃える
 function musicScene() {
   if (walk) {
@@ -2379,20 +2394,16 @@ function musicScene() {
     if (contest?.phase === 'running' && contest.kind) return contest.kind;
     return 'walk';
   }
-  return screen === 'game' ? 'game' : 'title';
+  if (screen !== 'game') return 'title';
+  // 対戦は「平常 / 接近 / 王手」で曲想ごと入れ替わる
+  const race = racePoints();
+  return race ? raceScene(race.best, race.goal) : 'game';
 }
 
-// 対戦の張り詰めぐあい。**公開されている点だけで作る** ──
-// 隠し勝利点まで見ると、手札を見ていない人にも音で漏れてしまう。
+// 段のなかでの細かい濃さ(主役は上の段の切り替え)
 function musicIntensity() {
-  if (walk || screen !== 'game' || !state?.players) return 0;
-  try {
-    const goal = pointsToWin(state);
-    const best = Math.max(...state.players.map((_, i) => vpOf(state, i)));
-    return raceIntensity(best, goal);
-  } catch {
-    return 0;
-  }
+  const race = racePoints();
+  return race ? raceIntensity(race.best, race.goal) : 0;
 }
 
 function syncMusic() {

@@ -23,6 +23,13 @@ const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
 // レイヤーの音量が追いつく速さ(秒)。速すぎると段差が聞こえる
 const LAYER_GLIDE = 1.6;
 
+// 刻みの最低音。**スマホのスピーカーで出ない高さまで下げない。**
+// 素直に「和音の根音の1オクターブ下」にすると、音域を下げた場面
+// (王手・竜)では 92Hz から 55Hz へ落ちる音になり、実測で刻みが
+// 消えていた ── いちばん刻んでほしい場面で拍が聞こえなくなる。
+const PULSE_FLOOR = 45;   // 110Hz。0.6倍まで落ちても 66Hz で残る
+const pulseNote = (root) => Math.max(PULSE_FLOOR, root - 12);
+
 
 export class Bgm {
   constructor() {
@@ -122,13 +129,25 @@ export class Bgm {
     this.bus.connect(this.master);
     this.bus.connect(conv);
 
+    // **刻みだけは残響をほとんど通さない。**
+    // 3.2秒の大聖堂リバーブに 260ms の打音を入れると、拍ではなく
+    // 響きの一部になってしまう ── 実測でも、刻みを 0 から 0.7 まで上げた
+    // 段で音の性格がほとんど変わっていなかった。拍は近くで鳴ってこそ拍。
+    this.dry = this.ctx.createGain();
+    this.dry.gain.value = 1;
+    this.dry.connect(this.master);
+    const send = this.ctx.createGain();
+    send.gain.value = 0.12;      // ほんの少しだけ響かせて場から浮かせない
+    this.dry.connect(send);
+    send.connect(conv);
+
     // **パートごとの音量つまみ。** score.js がここの値を決める。
     // 音を止めるのではなく音量を落とすので、抜き差ししても継ぎ目が出ない。
     this.layers = {};
     for (const part of ['drone', 'pad', 'harp', 'flute', 'pulse']) {
       const g = this.ctx.createGain();
       g.gain.value = 0;
-      g.connect(this.bus);
+      g.connect(part === 'pulse' ? this.dry : this.bus);
       this.layers[part] = g;
     }
     this._applyLayers(0);
@@ -203,7 +222,7 @@ export class Bgm {
     // 刻み。速い場面でだけ音量が乗る(score.js の pulse)
     const beats = Math.max(2, Math.round(dur / 0.7));
     for (let i = 0; i < beats; i++) {
-      this._pulse(chord.notes[0] - 12, t0 + (dur * i) / beats, i % 2 === 0);
+      this._pulse(pulseNote(chord.notes[0]), t0 + (dur * i) / beats, i % 2 === 0);
     }
 
     // ハープの分散和音(低→高、ときどき休符)
