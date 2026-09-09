@@ -48,7 +48,15 @@ export function makeBlocker(list) {
   const obs = list.filter((o) => o.r > 0);
   if (obs.length === 0) return () => ({ hit: false });
 
+  const maxR = obs.reduce((a, o) => Math.max(a, o.r), 0);
+
   return (fromX, fromZ, toX, toZ, selfR = WALKER_RADIUS, feetY = 0) => {
+    // 逃げ道をここまでに収める(下の nearestFree)。
+    // **なぜ 2 倍か**: いま自分に重なっている物は、どれも中心が
+    // (半径 + 体) 以内にある。その塊から出るには、いちばん遠い中心から
+    // さらに (半径 + 体) だけ離れれば足りる ── 合わせて 2 倍。
+    // これ以上遠くの縁は「別の場所」なので、逃げ道として採らない。
+    const escapeMax = 2 * (maxR + selfR);
     // 足より低い物は跳び越えている最中なので、当たらない
     const here = feetY > 0 ? obs.filter((o) => (o.h ?? Infinity) > feetY) : obs;
     if (here.length === 0) return { x: toX, z: toZ, hit: false };
@@ -83,24 +91,34 @@ export function makeBlocker(list) {
     if (!hit) return { x, z, hit: false };
 
     // 押し出しきれない場所がある ── 木が2本近すぎて、間に立てる余地が
-    // どこにも無い場合など。そこへは入れず、来た場所に留める。
+    // どこにも無い場合など。
     if (overlaps(here, x, z, selfR)) {
-      // 順に押し出すと、物が2つあるところでは互いの押し出しが打ち消し合って
-      // 行き場を失う。そのときは**1つずつの縁**を候補にして、行きたい所に
-      // いちばん近い「どこにも触れない点」へ逃がす。
-      const side = nearestFree(here, toX, toZ, selfR);
-      if (side) return { x: side.x, z: side.z, hit: true };
+      // **まず、来た場所に留まれるなら留まる。** ぶつかったら止まる、が
+      // いちばん素直で、目にも自然に見える。
+      //
+      // ここを後回しにして先に「逃げ道」を探していたのが、島で報告された
+      // ワープの正体だった ── 木2本のあいだに 0.009 だけめり込む一歩で
+      // 逃げ道探しが走り、**別の離れた木**の縁まで 0.38 タイル飛んでいた。
       if (!overlaps(here, fromX, fromZ, selfR)) return { x: fromX, z: fromZ, hit: true };
-      // 元の場所も重なっている(湧いた位置が物の中など)。
-      // 留まると永久に抜けられないので、押し出した先へ進める。
+
+      // 元の場所も物の中(湧いた位置が木の中など)。留まると永久に
+      // 抜けられないので、**すぐ近くの**逃げ道を探す。
+      const side = nearestFree(here, toX, toZ, selfR, escapeMax);
+      if (side) return { x: side.x, z: side.z, hit: true };
+      // どこにも逃げられない。押し出した先へ進める。
     }
     return { x, z, hit: true };
   };
 }
 
 // 行きたい所にいちばん近い「どこにも触れない点」を、物の縁の上から探す。
-// 挟まったときの逃げ道。見つからなければ null。
-function nearestFree(obs, toX, toZ, selfR) {
+// 物の中に湧いてしまったときの逃げ道。見つからなければ null。
+//
+// **max より遠い候補は採らない。** 上限が無いと、近くの物がどれも塞がって
+// いるときに遠くの物の縁が選ばれて、島の向こうへ飛ばされる。
+// いちばん大きい物から出るのに要る距離(半径 + 体)を上限にすれば、
+// 「いま埋まっている物から出る」には必ず足りる。
+function nearestFree(obs, toX, toZ, selfR, max = Infinity) {
   let best = null;
   for (const o of obs) {
     const need = o.r + selfR;
@@ -111,6 +129,7 @@ function nearestFree(obs, toX, toZ, selfR) {
     const cx = o.x + (dx / d) * need;
     const cz = o.z + (dz / d) * need;
     const far = (cx - toX) ** 2 + (cz - toZ) ** 2;
+    if (far > max * max) continue;
     if (best && far >= best.far) continue;
     if (overlaps(obs, cx, cz, selfR)) continue;
     best = { x: cx, z: cz, far };

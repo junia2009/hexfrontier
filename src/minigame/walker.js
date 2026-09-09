@@ -60,6 +60,9 @@ export class Walker {
     this.phase = 0;       // 歩行サイクル
   }
 
+  // 実際に足を置いている高さ(段差をならしたもの)。持ち主は motion。
+  get footY() { return this.motion.footY; }
+
   // すがたを取り替える。**島を歩いている最中でも選び直せる**ようにするため。
   // 居場所も動きも motion が持っているので、作り直すのはメッシュだけ ──
   // 次のフレームの _apply が今の姿勢をそのまま流し込むので、
@@ -105,6 +108,7 @@ export class Walker {
   fish(t, k) {
     this.phase = 0;
     const g = this.motion.groundAt(this.pos.x, this.pos.z);
+    this.motion.snapFoot();
     this._apply(fishPose(t, this.motion.facing, k), g.y);
   }
 
@@ -120,6 +124,7 @@ export class Walker {
     this.phase = 0;
     this.parts.bow.draw(draw);
     const g = this.motion.groundAt(this.pos.x, this.pos.z);
+    this.motion.snapFoot();
     this._apply(aimPose(t, this.motion.facing, draw), g.y);
   }
 
@@ -134,6 +139,7 @@ export class Walker {
   sit(t) {
     this.phase = 0;
     const g = this.motion.groundAt(this.pos.x, this.pos.z);
+    this.motion.snapFoot();
     this._apply(sitPose(t, this.motion.facing), g.y);
   }
 
@@ -147,6 +153,7 @@ export class Walker {
   emote(key, t, k) {
     this.phase = 0;
     const g = this.motion.groundAt(this.pos.x, this.pos.z);
+    this.motion.snapFoot();
     this._apply(emotePose(key, t, this.motion.facing, k), g.y + this.motion.y);
   }
 
@@ -159,7 +166,7 @@ export class Walker {
   update(dt, input, camYaw) {
     const m = this.motion;
     const r = m.update(dt, input, camYaw);
-    const y = r.groundY + m.y;
+    const y = r.footY + m.y;
 
     if (r.falling) {
       this._apply(

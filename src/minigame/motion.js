@@ -43,6 +43,19 @@ const JUMP_SPEED = (GRAVITY * AIR_TIME) / 2;
 // (この手のゲームでは定番の救済。無いと目測どおりに跳べない)。
 const COYOTE_TIME = 0.12;
 
+// 足元の高さが変わってよい速さ(高さ/秒)。**段差でガタつかせないための上限。**
+//
+// 数字トークンの円盤は縁が垂直なので、地面の高さはそこで階段状に跳ぶ。
+// 実測で島じゅうの段差は**全部**トークンの縁(455/455、ヘックスの継ぎ目は
+// 0 か所)で、跳ぶ高さは最大 0.053 ── 跳躍の高さの 2 割を 1 フレームで
+// 上下する。縁をまたぐたびに体が瞬間移動し、縁沿いを歩くと振動する。
+//
+// 上限は**本物の坂では効かない**ように決める ── いちばん急な地形(山)の
+// 傾きは 0.419 高さ/タイル、歩く速さ 0.95 タイル/秒 で 0.398 高さ/秒。
+// その倍にすれば坂は素通りで、トークンの段差だけが 4 フレームかけて登る
+// 「縁石をまたぐ」動きになる(実測 1フレーム 0.0416 → 0.0134)。
+export const FOOT_RATE = 0.8;
+
 export class WalkerMotion {
   // groundAt(x, z) → { y, ok }。ok が false なら「そこは地面でない」
   // blockAt: obstacles.js の makeBlocker() の戻り値(省略可)
@@ -70,6 +83,29 @@ export class WalkerMotion {
     // 接地するたびに丸太の上が復帰先になり、落ちても丸太に戻ってきてしまう
     // (落ちること自体が負けの遊びが成立しない)。
     this.respawnPinned = false;
+    // 実際に足を置く高さ。地面の高さを追いかけるが、急には変えない
+    // (FOOT_RATE)。描画はこれを使う ── 地面の高さをそのまま使うと、
+    // トークンの縁で 1 フレームぶん瞬間移動する。
+    this.footY = this.groundAt(0, 0).y;
+  }
+
+  // 足元の高さを、いまの地面へ即座に合わせる。
+  // 瞬間移動(復帰・席へ着く・釣り場へ立つ)のあとに呼ぶ ── 寄せていくと、
+  // 移った先で数フレームぶん浮くか沈むかする。
+  snapFoot() {
+    this.footY = this.groundAt(this.pos.x, this.pos.z).y;
+    return this.footY;
+  }
+
+  // 地面の高さへ、1 フレームぶんだけ寄せる。
+  // 空中(跳んでいる・落ちている)では寄せずに合わせる ── 下の地面が
+  // 変わっても体は放物線どおりに動くべきで、着地の高さは足し算で出る。
+  _footTo(groundY, step, grounded) {
+    if (!grounded) { this.footY = groundY; return this.footY; }
+    const max = FOOT_RATE * step;
+    const d = groundY - this.footY;
+    this.footY += Math.max(-max, Math.min(max, d));
+    return this.footY;
   }
 
   // 落ちたときに戻る場所。pin を立てると、そのあと接地しても書き換わらない
@@ -98,6 +134,7 @@ export class WalkerMotion {
       this.respawn.x = x;
       this.respawn.z = z;
     }
+    this.snapFoot();
   }
 
   // 海に落ちている最中(足場のない空中)。着地でも復帰でもない。
@@ -233,14 +270,15 @@ export class WalkerMotion {
         return {
           falling: false, respawned: true, grounded: true, landed: true, jumped,
           splashed, inWater: false, sinkT: 0, depth: 0,
-          y: 0, groundY: this.groundAt(x, z).y, speed: 0,
+          y: 0, groundY: this.groundAt(x, z).y, footY: this.footY, speed: 0,
         };
       }
       return {
         falling: true, respawned: false, grounded: false, landed: false, jumped,
         splashed, inWater: this.inWater, sinkT: this.sinkT,
         depth: Math.max(0, WATER_Y - this.y),
-        y: this.y, groundY: g.y, speed: Math.hypot(this.vel.x, this.vel.z),
+        y: this.y, groundY: g.y, footY: this._footTo(g.y, step, false),
+        speed: Math.hypot(this.vel.x, this.vel.z),
       };
     }
     this.inWater = false;
@@ -275,7 +313,8 @@ export class WalkerMotion {
     return {
       falling: false, respawned: false, grounded: this.grounded, landed, jumped,
       splashed: false, inWater: false, sinkT: 0, depth: 0,
-      y: this.y, groundY: g.y, speed: Math.hypot(this.vel.x, this.vel.z),
+      y: this.y, groundY: g.y, footY: this._footTo(g.y, step, this.grounded),
+      speed: Math.hypot(this.vel.x, this.vel.z),
     };
   }
 }
