@@ -21,7 +21,8 @@ import { TILE_TOP } from '../src/terrain.js';
 import {
   COURSE_L, COURSE_W, DRUM_AXIS, DRUM_BAND, DRUM_LEN, DRUM_R, DRUM_TOP, GRACE_MS,
   HOLE_ARC, angleAt, courseGround, findAnchor, holeOpen, makeCourse, rollTime, safeZ,
-  spinAt, startSpots, toLocal, toWorld, turnAt, turnOf, upstreamFace, withCourse,
+  ROLL_MS, slipRate, spinAt, startSpots, toLocal, toWorld, turnAt, turnOf,
+  upstreamFace, withCourse,
 } from '../src/minigame/logroll.js';
 
 const island = (seed = 7) => createGame({ seed, playerCount: 4, humanIndex: -1, mode: 'sea' });
@@ -59,31 +60,43 @@ function ride(fix, { input = { x: 0, y: 0 }, secs = 4, at = null, pin = true }) 
     worst = Math.max(worst, Math.abs(a));
     const inp = typeof input === 'function' ? input({ t, a, local, m }) : input;
     const r = m.update(dt, inp, 0);
-    if (r.respawned) { fell = true; break; }
+    // **水に触れた時点で負け**(main.js の onDrumFall と同じ物差し)。
+    // 沈みきるのを待つと、沈むあいだに漕いで丸太へ戻れてしまう。
+    if (r.inWater || r.respawned) { fell = true; break; }
   }
   return { m, fell, t, worst, local: toLocal(fix.anchor, m.pos.x, m.pos.z) };
 }
 
-// 「そこそこ上手い人」の操作。流れを打ち消しつつ、てっぺんへ戻る向きに歩く。
+// 腕前 skill の人の操作。流れと滑りに逆らいつつ、切れ目を先読みしてよける。
 //
-// 丸太の上に乗っている点は角速度そのままで運ばれるので、留まるのに要る
-// 歩きの速さは「上面が流れる速さ」= spin × R × cos(a)。そこへ、ずれた角を
-// 戻すぶんを足す。**式は実装の値(spinAt / DRUM_R)から組み立てる。**
+// **スティックは合計 1 まで。** よけるのに使ったぶんは流れに使えない ──
+// この取り合いが遊びの手ごたえそのものなので、片方だけを模すと
+// 「うまく乗れるか」ではなく「その1通りが当たるか」を測ってしまう。
 //
 // 入力から世界の動きへの対応は motion.js を実測して:
 //   world = WALK_SPEED × (-input.x, input.y)   (|input| ≤ 1)
-function rider(fix, gain = 1.2) {
+function rider(fix, { skill = 1, react = 0 } = {}) {
   const c = Math.cos(fix.anchor.angle);
   const sn = Math.sin(fix.anchor.angle);
   const dir = fix.course.dir;
-  return ({ t, a }) => {
-    // 局所 x 方向に出したい速さ(流れの逆 + てっぺんへ戻るぶん)
-    const vx = -dir * spinAt(t) * DRUM_R * Math.cos(a) - gain * a * DRUM_R;
-    let ix = -(vx * c) / WALK_SPEED;
-    let iy = (vx * sn) / WALK_SPEED;
+  let lag = 0;
+  let held = { x: 0, y: 0 };
+  return ({ t, a, local }) => {
+    lag -= 1 / 60;
+    if (lag > 0) return held;
+    lag = react;
+    // 局所 x へ出したい速さ(流れと滑りの逆 + てっぺんへ戻るぶん)
+    const vx = -(dir * spinAt(t) + slipRate(a)) * DRUM_R * Math.cos(a) - 1.4 * a * DRUM_R;
+    // 局所 z へ(切れ目から逃げる)
+    const want = safeZ(fix.course, a, t, 0.4 + skill, local.z);
+    const vz = want == null ? 0
+      : Math.max(-WALK_SPEED, Math.min(WALK_SPEED, (want - local.z) * 3));
+    let ix = (-(vx * c - vz * sn) / WALK_SPEED) * skill;
+    let iy = ((vx * sn + vz * c) / WALK_SPEED) * skill;
     const len = Math.hypot(ix, iy);
     if (len > 1) { ix /= len; iy /= len; }
-    return { x: ix, y: iy };
+    held = { x: ix, y: iy };
+    return held;
   };
 }
 
@@ -228,29 +241,55 @@ test('丸太: 立っているだけだと転がされて落ちる', () => {
   const fix = setup();
   const r = ride(fix, { input: { x: 0, y: 0 }, secs: 20 });
   assert.ok(r.fell, `20秒立っていても落ちない(角 ${Math.asin(r.local.x / DRUM_R).toFixed(2)})`);
-  // ただし**すぐには落ちない**。転がされる猶予があること
-  assert.ok(r.t > 4, `${r.t.toFixed(1)}秒で落ちた(短すぎて立て直せない)`);
+  // **棒立ちはすぐ負ける**(歩き続ける遊びなので、そこは厳しくてよい)。
+  // ただし一拍は要る ── 気づいて足を出す間もないと理不尽。
+  // ここは ride が回りはじめてから測っているので、始まりの猶予(GRACE_MS)は
+  // 別に付く。
+  assert.ok(r.t > 1, `${r.t.toFixed(1)}秒で落ちた(気づく間もない)`);
+  assert.ok(r.t < 4, `${r.t.toFixed(1)}秒も立っていられる(歩かなくてよくなる)`);
 });
 
-// **うまく歩けば最後まで残れる。** ここが成立しないと理不尽。
-test('丸太: 流れを見て歩けば最後まで残れる', () => {
+// **腕前で残る時間が変わり、誰も逃げ切らない。**
+//
+// 上面の流れは終盤に歩きを追い越すので、どれだけうまくても最後は押し負ける
+// ── これが無いと 90 秒がにらみ合いになって勝負が決まらない。
+test('丸太: 腕前で残る時間が変わる(そして誰も逃げ切らない)', () => {
   const fix = setup();
-  const r = ride(fix, { input: rider(fix), secs: 92 });
-  assert.equal(r.fell, false, `うまく歩いても落ちた(${r.t.toFixed(1)}秒)`);
-  assert.ok(r.worst < DRUM_BAND,
-    `端まで持っていかれた: 最大の角 ${r.worst.toFixed(2)}(限界 ${DRUM_BAND})`);
+  const ace = ride(fix, { input: rider(fix, { skill: 1, react: 0 }), secs: 95 });
+  const mid = ride(fix, { input: rider(fix, { skill: 0.85, react: 0.2 }), secs: 95 });
+  const bad = ride(fix, { input: rider(fix, { skill: 0.7, react: 0.3 }), secs: 95 });
+  assert.ok(ace.fell, `達人が ${ROLL_MS / 1000}秒 逃げ切った(勝負が決まらない)`);
+  assert.ok(ace.t > 30, `うまく歩いても ${ace.t.toFixed(1)}秒 しか残れない(理不尽)`);
+  assert.ok(ace.t > mid.t + 8, `達人とふつうの差が小さい: ${ace.t.toFixed(1)} vs ${mid.t.toFixed(1)}`);
+  assert.ok(mid.t > bad.t + 5, `ふつうとへたの差が小さい: ${mid.t.toFixed(1)} vs ${bad.t.toFixed(1)}`);
+  assert.ok(bad.t > GRACE_MS / 1000, `へたが猶予のうちに落ちた: ${bad.t.toFixed(1)}秒`);
 });
 
-// **下手だと落ちる。** 打ち消しきれない人が残り続けると勝負にならない。
-test('丸太: 打ち消しが甘いと落ちる', () => {
+// **滑り落ちるぶんが要る。** これが無いと、丸太が丸いことが
+// 「端のほうが安全」になってしまい(押す力が cos で弱まるのに歩きは水平で
+// 一定)、何をしても落ちなくなる。
+test('丸太: てっぺんを外れるほど外へ押される', () => {
   const fix = setup();
-  // 流れの 7 割しか返さない人
-  const weak = rider(fix, 0);
-  const r = ride(fix, {
-    input: (st) => { const i = weak(st); return { x: i.x * 0.7, y: i.y * 0.7 }; },
-    secs: 92,
-  });
-  assert.ok(r.fell, '7割しか返していないのに落ちない');
+  const at = (a) => {
+    const w = toWorld(fix.anchor, DRUM_R * Math.sin(a), 0);
+    return courseGround(fix.course, fix.anchor, 1)(w.x, w.z);
+  };
+  assert.equal(Math.abs(slipRate(0)), 0, 'てっぺんで滑る');
+  let last = 0;
+  for (const a of [0.2, 0.5, 0.9, 1.3]) {
+    const v = Math.abs(slipRate(a));
+    assert.ok(v > last, `角 ${a} で滑りが強くなっていない`);
+    last = v;
+  }
+  // 滑りは外向き(角の符号と同じ)
+  assert.ok(slipRate(0.5) > 0 && slipRate(-0.5) < 0, '滑りが内向き');
+  // 押される速さは、端のほうが強い(丸太の丸さで弱まりきらない)
+  const near = at(0.15);
+  const far = at(1.25);
+  if (near && far) {
+    assert.ok(Math.hypot(far.drift.x, far.drift.z) > Math.hypot(near.drift.x, near.drift.z),
+      '端のほうが押されない(端が安全地帯になっている)');
+  }
 });
 
 // **落ちたら丸太には戻らない。** 戻ると脱落が成立しない。
@@ -359,15 +398,33 @@ test('丸太: 世界と丸太の座標を往復しても戻る', () => {
   assert.equal(angleAt(DRUM_R * 1.01), null, '丸太の外に角がある');
 });
 
-test('丸太: 寸法の前後関係(遊びが成立する範囲に収まっている)', () => {
+test('丸太: 寸法と速さの前後関係(遊びが成立する範囲に収まっている)', () => {
   // **でっかい。** 棒人間の背丈(およそ sc(1.0) = 0.5)の何倍か
-  assert.ok(DRUM_R * 2 > 0.5 * 4, `丸太が細い: 直径 ${(DRUM_R * 2).toFixed(2)}`);
+  assert.ok(DRUM_R * 2 > 0.5 * 3.5, `丸太が細い: 直径 ${(DRUM_R * 2).toFixed(2)}`);
+  // ただし太すぎない ── 端まで遠いと、転がされても戻る余地がありすぎて
+  // 誰も落ちなくなる(半径 sc(3.2) で試したときが実際そうだった)
+  assert.ok(DRUM_BAND * DRUM_R < 2.0,
+    `てっぺんから端まで遠すぎる: ${(DRUM_BAND * DRUM_R).toFixed(2)} タイル`);
   // 何人か並べる長さがある
   assert.ok(DRUM_LEN > DRUM_R * 2, '長さより太さが勝っている(筒に見えない)');
-  // 上面の流れは歩きより遅い。同じだと歩いても進めない
-  const fastest = spinAt(1e9) * DRUM_R;
-  assert.ok(fastest < WALK_SPEED, `丸太のほうが歩きより速い: ${fastest} >= ${WALK_SPEED}`);
-  assert.ok(fastest > WALK_SPEED * 0.5, '最後まで遅くて、歩けば必ず残れてしまう');
-  // 切れ目はジャンプで越えられる幅を超える(歩いてよけるのが基本になる)
+  // **はじめは歩きより遅く、終わりは歩きより速い。**
+  // 遅いままだとスティックを倒しておくだけで誰も落ちず、
+  // はじめから速いと猶予が明けた瞬間に全員落ちる。
+  assert.ok(spinAt(0) * DRUM_R < WALK_SPEED * 0.6,
+    `はじめから速すぎる: ${(spinAt(0) * DRUM_R).toFixed(2)}`);
+  assert.ok(spinAt(1e9) * DRUM_R > WALK_SPEED,
+    `最後まで歩きより遅い: ${(spinAt(1e9) * DRUM_R).toFixed(2)} <= ${WALK_SPEED}`);
+  // 切れ目はよけられる幅(丸太の半分を覆わない)
   assert.ok(HOLE_ARC * DRUM_R < DRUM_LEN / 2, '切れ目が丸太の半分を覆っている');
+});
+
+// **見えない棚を作らない。** 足場を水面より内側で切ると、そこから水面までが
+// 「見えているのに立てない」帯になり、落ちた人が空中を歩いて丸太へ戻れる
+// (実測: 1.15 で切っていたときは達人が永久に落ちなかった)。
+test('丸太: 歩ける帯は水面まで届いている(見えない棚が無い)', () => {
+  const sea = TILE_TOP + WATER_Y;
+  const edge = DRUM_AXIS + DRUM_R * Math.cos(DRUM_BAND);
+  assert.ok(edge > sea, '足場の端が水没している');
+  assert.ok(edge - sea < DRUM_R * 0.1,
+    `足場の端と水面のあいだに ${(edge - sea).toFixed(3)} の棚がある`);
 });

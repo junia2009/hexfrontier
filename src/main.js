@@ -747,6 +747,9 @@ async function startWalk() {
   };
   walk.onSink = setDiveVeil;
   // 丸太乗り。海へ落ちて岸へ戻されたら、その回は終わり
+  // 丸太乗りの脱落は**着水した時点**で申告する(walk-mode の onDrumFall)。
+  // onRespawn は沈みきってからなので、そこまで待つと水中で漕いで戻れてしまう。
+  walk.onDrumFall = noteLogFall;
   walk.onRespawn = noteLogFall;
   walk.onSpot = onFishSpot;
   walk.onPost = onWatchPost;

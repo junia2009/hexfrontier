@@ -110,7 +110,7 @@ const AIM_FOV = 64;
 // **丸太は直径 3.2 タイルある。** 既定の 1.05 タイルだと自分で画面が
 // 埋まって、足元の曲がりも、回ってくる切れ目も見えない ── 踏む場所を
 // 選ぶ遊びなのに選ぶ材料が映らない。丸太の太さがひととおり入るまで引く。
-const ROLL_CAM = 5.5;
+const ROLL_CAM = 4.2;
 const ROLL_PITCH = 0.78;
 // 円卓に着いている間のカメラは**一人称**。
 // 卓を囲んで座っているのだから、自分の後頭部越しに見るより、そこに座って
@@ -368,6 +368,7 @@ export class WalkMode {
     this.camDist = sc(2.1);
     this.last = 0;
     this.onRespawn = null;
+    this.onDrumFall = null;   // 丸太乗りで水に触れた(= その回は負け)
     this.onJump = null;
     this.onSplash = null;
     this.onSink = null;    // 沈み具合(0〜1)。画面を暗くするのに使う
@@ -828,8 +829,14 @@ export class WalkMode {
     if (r?.splashed) {
       this.fx.splash(w.x, w.z);
       this.onSplash?.();
+      // **丸太乗りは、水に触れた時点で負け。** 沈みきるのを待つと、沈む
+      // あいだに水中で漕いで丸太へ戻れてしまう(水の抵抗は横の動きを
+      // 弱めるだけで、止めはしない ── 実測で達人が永久に落ちなかった)。
+      if (this.roll) this.onDrumFall?.();
     }
     if (r?.respawned) this.onRespawn?.();
+    // 落ちたあとは漕がせない。戻れないことが目に見えるようにする
+    if (this.roll && r?.inWater && !r.respawned) this.setStick(0, 0);
 
     // 沈んでいる間だけ泡を出す。画面の暗転は「もうすぐ戻る」ぶんだけ。
     const m = this.walker.motion;
