@@ -94,9 +94,21 @@ const SPIN_RAMP = 70;     // 秒。ここまでで SPIN_TO へ上がりきる
 // **よけるのに歩くぶんは、流れに逆らうぶんから引かれる**(スティックは
 // 合計 1 まで)── この取り合いが手ごたえそのものなので、よけるのに
 // 本気で歩かないと間に合わない広さにする。
-const HOLES = 6;
+//
+// 長さ方向は**2つ合わせても丸太を覆えない**広さに抑える(最大 2.0 が
+// 2つで 4.0 < 5.0)── 覆えると、逃げ場そのものが無くなる。
+const HOLES = 4;
 export const HOLE_ARC = 0.62;               // ラジアン。上に来ている間だけ抜ける
 const HOLE_LEN = [sc(2.0), sc(4.0)];        // 長さ方向の広さ(振れ幅)
+// 切れ目と切れ目のあいだに必ず残す「どこへでも歩ける」角。
+//
+// **これが無いと、腕前によらず落ちる回ができる。** 切れ目が上に居るあいだは
+// またげない(足元が抜けたら負け)ので、動けるのは切れ目と切れ目のあいだだけ。
+// 角の間隔を「切れ目の角 + わずか」しか空けないと、1つ目をよけた足で
+// そのまま2つ目へ踏み込むことになる ── 実測で、先読みを 1.0〜3.2 秒の
+// どれにしても 8〜17 秒で落ちる盤があった。
+// 回りきったときの速さでも 0.8 秒ほど自由に歩ける角を残す。
+export const FREE_TURN = 0.75;              // ラジアン
 
 // 落ちないでいられる時間の上限(集まりの制限時間)。逃げ切りと同じ長さにする
 export const ROLL_MS = 90000;
@@ -173,11 +185,13 @@ export function makeCourse(seed) {
   const dir = seedSign(seed);
   const holes = [];
   // 角を HOLES 等分した帯に1つずつ入れる。**帯いっぱいには振らない** ──
-  // 2つが近づきすぎると同時に上がってきて、長さ方向の逃げ場が無くなる。
-  // 振れ幅を (帯 − 切れ目の角 − 余白) に抑えると、どの2つも必ず
-  // 切れ目の角より離れる ＝ ある瞬間に効く切れ目はどこでも高々1つになる。
+  // 振れ幅を (帯 − 切れ目の角 − FREE_TURN) に抑えると、どの2つも
+  // 「切れ目の角 + FREE_TURN」以上離れる。これで
+  //   ・ある瞬間に効く切れ目は高々1つ(長さ方向の逃げ場が必ず残る)
+  //   ・切れ目と切れ目のあいだに、逃げ場まで歩く時間が必ず残る
+  // の両方が保証される。
   const band = (Math.PI * 2) / HOLES;
-  const jitter = Math.max(0, band - HOLE_ARC - 0.1);
+  const jitter = Math.max(0, band - HOLE_ARC - FREE_TURN);
   for (let i = 0; i < HOLES; i++) {
     const a = wrap(band * (i + 0.5) + (roll() - 0.5) * jitter);
     const len = HOLE_LEN[0] + roll() * (HOLE_LEN[1] - HOLE_LEN[0]);
@@ -301,8 +315,14 @@ export function withCourse(islandGround, courseAt) {
 // 同じ盤なら毎回同じ場所に浮かぶ(角度も半径も決め打ちで走査する)。
 //
 // 丸太のまわりに要る海の余白。**丸太の下だけでなく、まわりも海であること。**
-// 余白が足りないと、端から落ちた人が海ではなく隣の小島に降り立ってしまう。
-export const COURSE_CLEAR = DRUM_R * 0.6;
+//
+// 足りないと、端から落ちた人が海ではなく隣の**小島に降り立つ**。そうなると
+// 水に触れないので脱落にならず(落ちたのに生き残る)、しかもその小島は
+// 歩いては出られないので、回が終わったあと island に取り残される。
+// 実測: 0.66 タイルのときは、どの盤でも縁から陸まで 0.95 タイルしかなく、
+// ジャンプ(水平 0.76 タイル)＋空中の歩きで普通に届いていた。
+// 跳んで落ちても届かない広さにする。
+export const COURSE_CLEAR = 1.6;
 
 export function findAnchor(groundAt, { from = { x: 0, z: 0 } } = {}) {
   const fits = (x, z, angle) => {
@@ -319,8 +339,10 @@ export function findAnchor(groundAt, { from = { x: 0, z: 0 } } = {}) {
     return true;
   };
   let best = null;
-  // 島から近い順に見る。近すぎると岸に乗り上げ、遠すぎると見えない
-  for (let r = COURSE_W * 0.7; r <= 12; r += COURSE_W / 4) {
+  // 島から近い順に見る。近すぎると岸に乗り上げ、遠すぎると見えない。
+  // 余白を広く取ったぶん、見つかるのは島から 10 タイルほど沖になる
+  // (乗せるのは瞬間移動なので遠くてよく、島は背景に入る)。
+  for (let r = COURSE_W * 0.7; r <= 16; r += COURSE_W / 4) {
     for (let deg = 0; deg < 360; deg += 5) {
       const a = (deg * Math.PI) / 180;
       const x = from.x + Math.cos(a) * r;
@@ -338,21 +360,41 @@ export function findAnchor(groundAt, { from = { x: 0, z: 0 } } = {}) {
 // ---- 乗る場所 ----
 
 // これから ahead 秒のあいだ、角 a で切れ目が来ない長さ方向の位置。
-// from に近いものを返す。見つからなければ null。
+//
+// **切れ目をまたがずに行ける先を返す。** ただ近い安全地帯を返すと、
+// そこへ歩く途中で切れ目を踏むことがある ── 足元が抜けた時点で負けなので、
+// 「向こう岸は安全」は何の役にも立たない(実測: ある盤では、逃げ先へ
+// 歩き出した達人が 9 秒で切れ目に落ちた)。
+// from から両側へ順に見て、切れ目にぶつかったらその先は諦める。
 export function safeZ(course, a, t, ahead = 1.5, from = 0) {
   const step = DRUM_LEN / 28;
-  let best = null;
-  for (let lz = -DRUM_LEN / 2 + step; lz < DRUM_LEN / 2; lz += step) {
-    let okAll = true;
+  const half = DRUM_LEN / 2;
+  const safe = (lz) => {
     for (let k = 0; k <= 4; k++) {
-      const tk = t + (ahead * k) / 4;
-      if (holeOpen(course, a - turnOf(course, tk), lz)) { okAll = false; break; }
+      if (holeOpen(course, a - turnOf(course, t + (ahead * k) / 4), lz)) return false;
     }
-    if (!okAll) continue;
-    const d = Math.abs(lz - from);
-    if (!best || d < best.d) best = { lz, d };
+    return true;
+  };
+  let best = null;
+  for (const dir of [1, -1]) {
+    for (let d = 0; d <= DRUM_LEN; d += step) {
+      const lz = from + dir * d;
+      if (lz <= -half || lz >= half) break;      // 端まで来た
+      if (!safe(lz)) break;                      // ここから先は切れ目の向こう
+      if (!best || d < best.d) best = { lz, d };
+      if (d === 0) break;                        // その場が安全ならそれでよい
+    }
   }
-  return best ? best.lz : null;
+  if (best) return best.lz;
+  // どちらの側も塞がっている(いま立っているところが切れ目)。
+  // せめて近い安全地帯を返す ── 渡れなくても、向かうしかない。
+  let far = null;
+  for (let lz = -half + step; lz < half; lz += step) {
+    if (!safe(lz)) continue;
+    const d = Math.abs(lz - from);
+    if (!far || d < far.d) far = { lz, d };
+  }
+  return far ? far.lz : null;
 }
 
 // 始めるときに立たせる場所。**全員てっぺんに、長さ方向へ並べて散らす。**

@@ -20,7 +20,7 @@ import { WalkerMotion, WALK_SPEED, WATER_Y } from '../src/minigame/motion.js';
 import { TILE_TOP } from '../src/terrain.js';
 import {
   COURSE_L, COURSE_W, DRUM_AXIS, DRUM_BAND, DRUM_LEN, DRUM_R, DRUM_TOP, GRACE_MS,
-  HOLE_ARC, angleAt, courseGround, findAnchor, holeOpen, makeCourse, rollTime, safeZ,
+  FREE_TURN, HOLE_ARC, angleAt, courseGround, findAnchor, holeOpen, makeCourse, rollTime, safeZ,
   ROLL_MS, slipRate, spinAt, startSpots, toLocal, toWorld, turnAt, turnOf,
   upstreamFace, withCourse,
 } from '../src/minigame/logroll.js';
@@ -60,9 +60,10 @@ function ride(fix, { input = { x: 0, y: 0 }, secs = 4, at = null, pin = true }) 
     worst = Math.max(worst, Math.abs(a));
     const inp = typeof input === 'function' ? input({ t, a, local, m }) : input;
     const r = m.update(dt, inp, 0);
-    // **水に触れた時点で負け**(main.js の onDrumFall と同じ物差し)。
-    // 沈みきるのを待つと、沈むあいだに漕いで丸太へ戻れてしまう。
-    if (r.inWater || r.respawned) { fell = true; break; }
+    // **足元が抜けた時点で負け**(walk-mode の _watchDrumFall と同じ物差し)。
+    // 沈みきるのを待つと、沈むあいだに漕いで丸太へ戻れたり、まわりの
+    // 小島へ降り立って脱落しそこねたりする。
+    if (r.falling || r.inWater || r.respawned) { fell = true; break; }
   }
   return { m, fell, t, worst, local: toLocal(fix.anchor, m.pos.x, m.pos.z) };
 }
@@ -131,8 +132,24 @@ test('丸太: 切れ目どうしが角で離れている(逃げ場が消えな�
       for (let j = i + 1; j < c.holes.length; j++) {
         let d = Math.abs(c.holes[i].a - c.holes[j].a) % (Math.PI * 2);
         if (d > Math.PI) d = Math.PI * 2 - d;
-        assert.ok(d >= HOLE_ARC,
-          `${seed}: 切れ目 ${i},${j} の角が ${d.toFixed(2)} しか離れていない`);
+        // **切れ目の角 + 歩く時間**ぶん離れていること。切れ目が上に居る
+        // あいだはまたげないので、間隔が切れ目の角ぎりぎりだと、1つ目を
+        // よけた足でそのまま2つ目へ踏み込むことになる。
+        //
+        // 比べる先は**秒で書いた実数**にする ── FREE_TURN と比べると、
+        // FREE_TURN を縮めたときに期待値も一緒に縮んで何も見張らない。
+        // いちばん速く回っているときでも、これだけは自由に歩けること。
+        const freeSec = (d - HOLE_ARC) / (spinAt(1e9));
+        assert.ok(freeSec >= 0.6,
+          `${seed}: 切れ目 ${i},${j} のあいだに ${freeSec.toFixed(2)}秒 しか歩く間がない`);
+      }
+    }
+    // 切れ目2つ合わせても丸太を覆えない(覆うと逃げ場そのものが消える)
+    for (let i = 0; i < c.holes.length; i++) {
+      for (let j = i + 1; j < c.holes.length; j++) {
+        const both = (c.holes[i].z1 - c.holes[i].z0) + (c.holes[j].z1 - c.holes[j].z0);
+        assert.ok(both < DRUM_LEN,
+          `${seed}: 切れ目 ${i},${j} が合わせて丸太を覆う (${both.toFixed(2)})`);
       }
     }
     // どの時刻・どの角でも、長さ方向のどこかは踏める
@@ -179,9 +196,11 @@ test('丸太: 端の外は足場でない', () => {
   assert.equal(drum(side.x, side.z), null, '丸太の横に足場がある');
   const past = toWorld(fix.anchor, 0, DRUM_LEN * 0.6);
   assert.equal(drum(past.x, past.z), null, '丸太の端の外に足場がある');
-  // **回りこんだところも足場でない**(帯の外)
-  const under = toWorld(fix.anchor, DRUM_R * Math.sin(DRUM_BAND + 0.15), 0);
-  assert.equal(drum(under.x, under.z), null, '真横まで歩けてしまう');
+  // **帯のすぐ外は足場でない。** 帯は水面(ほぼ真横)まで届いているので、
+  // 「真横の手前で切れる」ではなく「丸太の輪郭を出たら終わり」で見る
+  // ── sin(帯) はもう 1 に近いので、角に足しても外側にならない。
+  const out = toWorld(fix.anchor, DRUM_R * (Math.sin(DRUM_BAND) + 0.01), 0);
+  assert.equal(drum(out.x, out.z), null, '丸太の輪郭の外に足場がある');
   // てっぺんは踏める
   const top = toWorld(fix.anchor, 0, 0);
   assert.ok(drum(top.x, top.z) || courseGround(fix.course, fix.anchor, 0.3)(top.x, top.z),
@@ -289,6 +308,19 @@ test('丸太: てっぺんを外れるほど外へ押される', () => {
   if (near && far) {
     assert.ok(Math.hypot(far.drift.x, far.drift.z) > Math.hypot(near.drift.x, near.drift.z),
       '端のほうが押されない(端が安全地帯になっている)');
+  }
+});
+
+// **どの盤でも理不尽な回にならない。** 切れ目の並びによっては、腕前に
+// かかわらず数秒で落ちる回ができていた(実測: 先読みを 1.0〜3.2 秒の
+// どれにしても 8〜17 秒で落ちる盤があった)。
+test('丸太: どの盤でも、うまく歩けばひととおり残れる', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const fix = setup(seed);
+    const r = ride(fix, { input: rider(fix, { skill: 1, react: 0 }), secs: 95 });
+    assert.ok(r.t > 30,
+      `種 ${seed}: うまく歩いても ${r.t.toFixed(1)}秒 で落ちた(理不尽な盤)`);
+    assert.ok(r.fell, `種 ${seed}: 逃げ切った(勝負が決まらない)`);
   }
 });
 
@@ -416,6 +448,28 @@ test('丸太: 寸法と速さの前後関係(遊びが成立する範囲に収�
     `最後まで歩きより遅い: ${(spinAt(1e9) * DRUM_R).toFixed(2)} <= ${WALK_SPEED}`);
   // 切れ目はよけられる幅(丸太の半分を覆わない)
   assert.ok(HOLE_ARC * DRUM_R < DRUM_LEN / 2, '切れ目が丸太の半分を覆っている');
+});
+
+// **落ちたら海であること。** 丸太のまわりに海の余白が足りないと、端から
+// 落ちた人が隣の小島に降り立つ ── 水に触れないので脱落にならず(落ちたのに
+// 生き残る)、しかもその小島は歩いては出られないので回のあとで詰む。
+test('丸太: 落ちた先は必ず海(まわりに小島が無い)', () => {
+  // 跳べる水平距離はおよそ 0.76 タイル。空中でも歩けるぶん、余裕を見る
+  const REACH = 1.2;
+  for (const seed of [1, 7, 13, 99]) {
+    const { ground, anchor } = setup(seed);
+    assert.ok(anchor, `${seed}: 浮かべる場所が見つからない`);
+    for (let lz = -DRUM_LEN / 2 - REACH; lz <= DRUM_LEN / 2 + REACH; lz += 0.2) {
+      for (let lx = -DRUM_R - REACH; lx <= DRUM_R + REACH; lx += 0.2) {
+        // 丸太の外側 REACH タイルまでに陸があってはいけない
+        const outside = Math.abs(lx) > DRUM_R || Math.abs(lz) > DRUM_LEN / 2;
+        if (!outside) continue;
+        const w = toWorld(anchor, lx, lz);
+        assert.equal(ground(w.x, w.z).ok, false,
+          `${seed}: 丸太のそば (${lx.toFixed(1)}, ${lz.toFixed(1)}) に陸がある`);
+      }
+    }
+  }
 });
 
 // **見えない棚を作らない。** 足場を水面より内側で切ると、そこから水面までが
