@@ -1,21 +1,27 @@
-// 丸太乗り(航海者たちの島の集まり)。進行の計算だけ。
+// 丸太乗り(航海者たちの島の集まり)。足場の計算だけ。
 //
 // THREE も DOM も知らない。見た目は logroll-fx.js、操作の受け口は walk-mode.js。
 //
 // 遊びかた:
-//   沖に丸太の筏が浮いている。丸太は横に並んで**回っている**ので、
-//   立ったままだと転がされて落ちる。回転に逆らって歩き続ける。
-//   丸太には**切れ目**があって、回って上に来ると足場が消える ──
-//   丸太の長さ方向へずれてよける。落ちたら海。最後まで残った人が勝ち。
+//   **でっかい丸太が1本**、海に半分沈んで浮かんでいる。みんなでその上に
+//   立ち、丸太は回っているので歩き続けないと横へ転がされて海に落ちる。
+//   丸太には**切れ目**があって、回って上がってくると足場が消える ──
+//   丸太の長さ方向へ歩いて逃げる。最後まで残った人が勝ち。
 //
 // **足場を「時間で変わる地面」として出すだけ**にしてある。
 // WalkerMotion は groundAt(x, z) を外から受け取る作りなので(motion.js)、
 // ここが返す地面を島の地面に被せれば、歩き・跳び・踏み外し・海に落ちる、
 // までが今までのコードのまま動く ── 丸太のために動きを作り直さない。
 //
-// 座標は**丸太の筏を基準にした向き**(local)で持ち、世界の座標との
-// 行き来は toLocal / toWorld 1組だけを通す。筏をどこに浮かべても、
-// 中の計算が向きを気にせずに済む。
+// 丸太が**丸い**ことも、そのまま地面の高さで表せる。WalkerMotion の y は
+// 「地面からの高さ」なので、地面が返す y を曲面にすれば、乗っている人は
+// 勝手に曲面をなぞる ── 坂の計算はどこにも要らない。
+//
+// 座標は**丸太を基準にした向き**(local)で持つ。
+//   local x … 丸太の太さ方向(回転で流される向き)
+//   local z … 丸太の長さ方向(切れ目から逃げる向き)
+//   角 a  … てっぺんを 0 とし、local +x 側を正とする角。x = R sin a
+// 世界の座標との行き来は toLocal / toWorld 1組だけを通す。
 //
 // 乱数はこの遊び専用の種。対戦の state.rng は絶対に回さない。
 
@@ -27,40 +33,42 @@ import { TILE_TOP } from '../terrain.js';
 // この遊びが開く島(meets.js と同じ考えかたで、1か所に置く)
 export const LOGROLL_MODES = ['sea'];
 
-// ---- 筏の寸法 ----
+// ---- 丸太の寸法 ----
 //
 // **人の寸法で書く(縮尺を掛ける)。** 丸太は盤の飾りではなく、人が乗って
-// 歩く床なので、太さも間隔も「歩幅に対してどうか」で決まる。
-export const LOG_R = sc(0.35);          // 丸太の半径
-export const LOG_LEN = sc(5.0);         // 長さ(この方向へよける)
-// 中心の間隔。**直径よりわずかに広いだけ**にする ── 隙間を空けると
-// 丸太のあいだに落ちるのが主な負けかたになって、回転をよける遊びでなくなる。
-export const LOG_PITCH = sc(0.78);
-export const LOG_COUNT = 7;             // 本数
-// 丸太の上面の高さ。**世界の高さで返す。**
+// 歩く床なので、太さも長さも「歩幅・背丈に対してどうか」で決まる。
+// 棒人間の背丈がおよそ sc(1.0) なので、直径 sc(6.4) は背丈の6倍強 ──
+// 「でっかい筒の上をみんなで行く」に見える太さ。
+export const DRUM_R = sc(3.2);        // 半径
+export const DRUM_LEN = sc(10);       // 長さ(この方向へ逃げる)
+
+// **軸を海面に置く。** 丸太は半分沈み、水から出ているところが
+// そのまま足場になる ── 足場の切れる角と、水に落ちる場所が一致するので、
+// 「まだ丸太が見えているのに落ちる」も「水の上を歩く」も起きない。
+export const DRUM_AXIS = TILE_TOP + WATER_Y;
+// 上から±この角までが足場。ここを越えたら海。
+// π/2(真横)まで許すと壁に立つことになるので、少し内側で切る。
+export const DRUM_BAND = 1.15;
+// てっぺんの高さ(世界の高さ)。見た目もここを使う
+export const DRUM_TOP = DRUM_AXIS + DRUM_R;
+
+// 置き場所を探すのに使う、丸太の占める広さ
+export const COURSE_W = DRUM_R * 2;
+export const COURSE_L = DRUM_LEN;
+
+// ---- 回る速さ ----
 //
-// motion.js の WATER_Y は「タイル上面を 0 とした高さ」で、地面の関数
-// (ground.js の makeGround)が返す y は世界の高さ ── 基準が違う。
-// 混ぜたまま返していたころは、判定の足場が海面より 0.26 低いところにあり、
-// 画面の丸太に乗っているのに足だけ沈んでいた。
-export const LOG_TOP = TILE_TOP + WATER_Y + LOG_R * 0.9;
+// **だんだん速くする。** 一定だと 90 秒がにらみ合いになって誰も落ちない。
+// 上面が流れる速さ = 角速度 × 半径 で、歩き(sc(1.9) = 0.95)に対して
+// はじめ 34%、終わりに 70% ── 最後は歩き通しでないと残れない。
+const SPIN_FROM = 0.20;   // ラジアン/秒
+const SPIN_TO = 0.42;
+const SPIN_RAMP = 45;     // 秒。ここまでで SPIN_TO へ上がりきる
 
-// 筏の広さ(端から端まで)。置き場所を探すのに使う
-export const COURSE_W = LOG_PITCH * (LOG_COUNT - 1) + LOG_R * 2;
-export const COURSE_L = LOG_LEN;
-
-// 回る速さ(ラジアン/秒)。**時間は縮尺を掛けない**(scale.js)。
-// 上面が動く速さ = 角速度 × 半径。歩き(sc(1.9))の半分ほどになるように選ぶ
-// ── 同じだと歩いても進めず、遅すぎると立っているだけで勝ててしまう。
-const SPIN_MIN = 1.7;
-const SPIN_MAX = 3.0;
-
-// 切れ目。1本あたりの数と、角の広さ・長さ方向の広さ
-const HOLES_PER_LOG = 2;
-export const HOLE_ARC = 0.85;                  // ラジアン。上に来ている間だけ抜ける
-const HOLE_LEN = sc(1.25);
-// 切れ目どうしが重ならないように、長さ方向はこの幅の枠に割り付ける
-const HOLE_SLOTS = 4;
+// 切れ目。数と、角の広さ・長さ方向の広さ
+const HOLES = 6;
+export const HOLE_ARC = 0.45;               // ラジアン。上に来ている間だけ抜ける
+const HOLE_LEN = [sc(1.6), sc(3.0)];        // 長さ方向の広さ(振れ幅)
 
 // 落ちないでいられる時間の上限(集まりの制限時間)。逃げ切りと同じ長さにする
 export const ROLL_MS = 90000;
@@ -74,62 +82,66 @@ function wrap(a) {
   return v - Math.PI;
 }
 
-// ---- 筏を作る ----
-
-// 種から筏の中身(丸太の回りかたと切れ目)を決める。
-// **同じ種なら誰の端末でも同じ筏**になるので、サーバーは中身を配らずに済む。
-// 流れる向き。種で決まるので、回によって左右が入れ替わる
-function seedSign(seed) {
-  const [, v] = rngNext(makeRng((seed ^ 0x5f3759df) >>> 0));
-  return v < 0.5 ? -1 : 1;
-}
-
-export function makeCourse(seed) {
-  let s = makeRng(seed);
-  const roll = () => { const [n, v] = rngNext(s); s = n; return v; };
-  const logs = [];
-  // 回る向きは**全部そろえる**。
-  //
-  // 隣どうしを逆に回すと、2本のあいだに「押し合って動かない谷」ができて、
-  // そこに立っているだけで落ちなくなる(実測: 8秒で 0.18 タイルしか動かない
-  // ＝遊びが成立しない)。そろえると筏ぜんたいが一方向へ流れる帯になり、
-  // **流れに逆らって足踏みし続ける**ことになる ── 丸太乗り(birling)は
-  // もともとそういう競技で、行きすぎれば上流の端から、緩めれば下流の端から
-  // 落ちる。速さだけを丸太ごとに変えて、渡る先で手加減が変わるようにする。
-  const dir = seedSign(seed);
-  for (let i = 0; i < LOG_COUNT; i++) {
-    const spin = dir * (SPIN_MIN + roll() * (SPIN_MAX - SPIN_MIN));
-    const holes = [];
-    // 長さ方向を HOLE_SLOTS 個の枠に割って、そのうち HOLES_PER_LOG 個へ入れる
-    const slots = [...Array(HOLE_SLOTS).keys()];
-    for (let h = 0; h < HOLES_PER_LOG; h++) {
-      const pick = Math.floor(roll() * slots.length);
-      const slot = slots.splice(pick, 1)[0];
-      const w = LOG_LEN / HOLE_SLOTS;
-      const mid = -LOG_LEN / 2 + w * (slot + 0.5);
-      holes.push({
-        // 上に来る位相。ばらけさせて、全部いっぺんに抜けないようにする
-        phase: roll() * Math.PI * 2,
-        z0: mid - HOLE_LEN / 2,
-        z1: mid + HOLE_LEN / 2,
-      });
-    }
-    logs.push({ x: (i - (LOG_COUNT - 1) / 2) * LOG_PITCH, spin, holes });
-  }
-  return { logs };
-}
+// ---- 時間と回転 ----
 
 // 丸太が回りはじめてからの秒数。**始まってすぐは回さない**(GRACE_MS)。
-// 乗った瞬間に転がされるのは理不尽なうえ、乗る前に落ちる人が出る。
 // サーバー・クライアント・CPU が同じ式を通すこと ── 別々に数えると、
 // 画面の丸太と当たり判定の丸太がずれる。
 export function rollTime(elapsedMs) {
   return Math.max(0, elapsedMs - GRACE_MS) / 1000;
 }
 
+// t 秒の時点の角速度(大きさ)
+export function spinAt(t) {
+  return SPIN_FROM + (SPIN_TO - SPIN_FROM) * Math.min(1, Math.max(0, t) / SPIN_RAMP);
+}
+
+// t 秒までに回った角の合計(大きさ)。**速さが変わるので積分で持つ** ──
+// spin × t で済ませると、速さを変えた瞬間に丸太が飛ぶ。
+export function turnAt(t) {
+  const v = Math.max(0, t);
+  const d = SPIN_TO - SPIN_FROM;
+  if (v <= SPIN_RAMP) return SPIN_FROM * v + (d * v * v) / (2 * SPIN_RAMP);
+  return SPIN_FROM * v + d * (SPIN_RAMP / 2 + (v - SPIN_RAMP));
+}
+
+// 向き込みの角速度・回った角。course.dir が回る向き(種で左右が決まる)
+export function spinOf(course, t) { return course.dir * spinAt(t); }
+export function turnOf(course, t) { return course.dir * turnAt(t); }
+
+// ---- 丸太を作る ----
+
+// 流れる向き。種で決まるので、回によって左右が入れ替わる
+function seedSign(seed) {
+  const [, v] = rngNext(makeRng((seed ^ 0x5f3759df) >>> 0));
+  return v < 0.5 ? -1 : 1;
+}
+
+// 種から丸太の中身(回る向きと切れ目)を決める。
+// **同じ種なら誰の端末でも同じ丸太**になるので、サーバーは中身を配らずに済む。
+export function makeCourse(seed) {
+  let s = makeRng(seed);
+  const roll = () => { const [n, v] = rngNext(s); s = n; return v; };
+  const dir = seedSign(seed);
+  const holes = [];
+  // 角を HOLES 等分した帯に1つずつ入れる。**帯いっぱいには振らない** ──
+  // 2つが近づきすぎると同時に上がってきて、長さ方向の逃げ場が無くなる。
+  // 振れ幅を (帯 − 切れ目の角 − 余白) に抑えると、どの2つも必ず
+  // 切れ目の角より離れる ＝ ある瞬間に効く切れ目はどこでも高々1つになる。
+  const band = (Math.PI * 2) / HOLES;
+  const jitter = Math.max(0, band - HOLE_ARC - 0.1);
+  for (let i = 0; i < HOLES; i++) {
+    const a = wrap(band * (i + 0.5) + (roll() - 0.5) * jitter);
+    const len = HOLE_LEN[0] + roll() * (HOLE_LEN[1] - HOLE_LEN[0]);
+    const mid = (roll() - 0.5) * (DRUM_LEN - len);
+    holes.push({ a, z0: mid - len / 2, z1: mid + len / 2 });
+  }
+  return { dir, holes };
+}
+
 // ---- 世界の座標との行き来 ----
 //
-// anchor は筏の置き場所と向き { x, z, angle }。
+// anchor は丸太の置き場所と向き { x, z, angle }。
 // angle は「丸太の長さ方向」が世界のどちらを向いているか。
 
 export function toLocal(anchor, x, z) {
@@ -152,54 +164,76 @@ export function toWorld(anchor, x, z) {
 // ここの anchor.angle とは基準も回り方も違う ── anchor.angle をそのまま
 // facing に入れると、そこそこ合っているように見えて盤によっては真横を向く。
 // 世界の向きベクトルへ落としてから atan2 する 1 か所だけを通す。
-export function upstreamFace(anchor, log) {
-  // 上面は局所 +x へ log.spin の符号で流れる。向くのはその逆
-  const s = log.spin >= 0 ? -1 : 1;
+export function upstreamFace(anchor, course) {
+  // 上面は局所 +x へ course.dir の向きに流れる。向くのはその逆
+  const s = course.dir >= 0 ? -1 : 1;
   const c = Math.cos(anchor.angle);
   const sn = Math.sin(anchor.angle);
   return Math.atan2(s * c, s * sn);
 }
 
-// ---- 足場 ----
-
-// その丸太の上に、いま足が乗る場所があるか。
-// t は始まってからの秒数。切れ目は回ってくるので時間で変わる。
-export function logSolid(log, lz, t) {
-  if (lz < -LOG_LEN / 2 || lz > LOG_LEN / 2) return false;
-  for (const h of log.holes) {
-    if (lz < h.z0 || lz > h.z1) continue;
-    // 切れ目がてっぺん(角 0)に来ているか
-    if (Math.abs(wrap(h.phase + log.spin * t)) < HOLE_ARC / 2) return false;
-  }
-  return true;
+// カメラを向ける先。**丸太の長さ方向へ、丸太のまん中を見る向き。**
+//
+// 人が向くのは流れの逆(upstreamFace)だが、カメラまでそちらを向けると
+// 丸太を**横から**見ることになって、筒であることも、長さ方向のどこに
+// 切れ目が回ってきているかも映らない ── 太さ方向に 3.2 タイルしかない
+// ものを、5 タイル離れて真横から見ている絵になる。
+// 長さ方向へ向けると、丸太が奥へ伸びて見え、他の人も一緒に入る。
+export function alongFace(anchor, lz = 0) {
+  const s = lz > 0 ? -1 : 1;             // まん中へ向かって見る
+  const c = Math.cos(anchor.angle);
+  const sn = Math.sin(anchor.angle);
+  // 局所 +z の世界向きは (-sn, c)。facing は +Z を 0 とする角
+  return Math.atan2(-s * sn, s * c);
 }
 
-// 筏の地面。(x, z) → { y, ok, drift }
+// ---- 足場 ----
+
+// 局所 x から、てっぺんを 0 とした角へ。丸太の外なら null
+export function angleAt(lx) {
+  const sinA = lx / DRUM_R;
+  if (Math.abs(sinA) > Math.sin(DRUM_BAND)) return null;
+  return Math.asin(sinA);
+}
+
+// その場所に切れ目が来ているか。
+// rest は「いま角 a に来ている丸太の、丸太自身での角」(= a − 回った角)。
+export function holeOpen(course, rest, lz) {
+  for (const h of course.holes) {
+    if (lz < h.z0 || lz > h.z1) continue;
+    if (Math.abs(wrap(h.a - rest)) < HOLE_ARC / 2) return true;
+  }
+  return false;
+}
+
+// 丸太の地面。(x, z) → { y, ok, drift }
 //
 // drift は**足場そのものが動いている速さ**。回っている丸太の上面は横へ
 // 流れているので、乗っている人はそのぶん運ばれる(motion.js が足す)。
 export function courseGround(course, anchor, t) {
+  const turn = turnOf(course, t);
+  const spin = spinOf(course, t);
   return (x, z) => {
     const p = toLocal(anchor, x, z);
-    // いちばん近い丸太
-    const i = Math.round(p.x / LOG_PITCH + (LOG_COUNT - 1) / 2);
-    if (i < 0 || i >= LOG_COUNT) return null;
-    const log = course.logs[i];
-    // 丸太の幅から外れていたら、そこは海(丸太のあいだ)
-    if (Math.abs(p.x - log.x) > LOG_R) return null;
-    if (!logSolid(log, p.z, t)) return null;
+    if (Math.abs(p.z) > DRUM_LEN / 2) return null;
+    const a = angleAt(p.x);
+    if (a == null) return null;
+    if (holeOpen(course, a - turn, p.z)) return null;
     // 上面が横へ流れる速さ。局所の +x 向き。
     // **猶予中(t <= 0)は流さない。** rollTime が猶予のあいだ 0 を返すので、
-    // 丸太は止まって見えているのに流れだけ効いていて、何もしていない人が
-    // 開始 2 秒で筏の外へ運ばれていた(実測 0.49 タイル/秒)。
-    const v = t > 0 ? log.spin * LOG_R : 0;
+    // 丸太は止まって見えているのに流れだけ効く、ということにならないように。
+    const v = t > 0 ? spin * DRUM_R * Math.cos(a) : 0;
     const c = Math.cos(anchor.angle);
     const sn = Math.sin(anchor.angle);
-    return { y: LOG_TOP, ok: true, drift: { x: v * c, z: v * sn } };
+    return {
+      y: DRUM_AXIS + DRUM_R * Math.cos(a),
+      ok: true,
+      drift: { x: v * c, z: v * sn },
+    };
   };
 }
 
-// 島の地面に筏を被せる。**筏が優先**(丸太は海の上にしか無いので、
+// 島の地面に丸太を被せる。**丸太が優先**(海の上にしか無いので、
 // 陸と取り合いになることはない)。
 export function withCourse(islandGround, courseAt) {
   return (x, z) => courseAt(x, z) ?? islandGround(x, z);
@@ -207,23 +241,23 @@ export function withCourse(islandGround, courseAt) {
 
 // ---- 浮かべる場所 ----
 
-// 筏をどこに浮かべるか。**盤の形から探す**(島ごとに海の空きかたが違う)。
+// 丸太をどこに浮かべるか。**盤の形から探す**(島ごとに海の空きかたが違う)。
 //
 // groundAt は島の地面(ground.js の makeGround)。ここは盤を知らずに、
-// 「その点が陸か海か」だけを頼りに、筏がまるごと海に収まる場所を探す。
+// 「その点が陸か海か」だけを頼りに、丸太がまるごと海に収まる場所を探す。
 //
 // 島の外周を回りながら、丸太の長さ方向が**岸と平行**になるように置く
-// ── 岸に向かって直角に並べると、端の丸太だけ陸に乗り上げる。
+// ── 岸に向かって直角に置くと、端が陸に乗り上げる。
 // 同じ盤なら毎回同じ場所に浮かぶ(角度も半径も決め打ちで走査する)。
-// 筏のまわりに要る海の余白。**筏の下だけでなく、まわりも海であること。**
-// 余白が足りないと、端から落ちた人が海ではなく隣の小島に降り立ってしまう
-// (実測: 落ちたはずが陸の上を 2 タイル歩き続けていた)。
-export const COURSE_CLEAR = LOG_LEN * 0.45;
+//
+// 丸太のまわりに要る海の余白。**丸太の下だけでなく、まわりも海であること。**
+// 余白が足りないと、端から落ちた人が海ではなく隣の小島に降り立ってしまう。
+export const COURSE_CLEAR = DRUM_R * 0.6;
 
 export function findAnchor(groundAt, { from = { x: 0, z: 0 } } = {}) {
   const fits = (x, z, angle) => {
     const a = { x, z, angle };
-    // 筏 + 余白の枠を格子で見る。四隅だけだと、小島が辺の途中へ食い込む
+    // 丸太 + 余白の枠を格子で見る。四隅だけだと、小島が辺の途中へ食い込む
     const hx = COURSE_W / 2 + COURSE_CLEAR;
     const hz = COURSE_L / 2 + COURSE_CLEAR;
     for (let ix = -1; ix <= 1.001; ix += 0.25) {
@@ -235,8 +269,8 @@ export function findAnchor(groundAt, { from = { x: 0, z: 0 } } = {}) {
     return true;
   };
   let best = null;
-  // 島から近い順に見る。近すぎると岸に乗り上げ、遠すぎると泳いで行けない
-  for (let r = COURSE_W; r <= 9; r += COURSE_W / 3) {
+  // 島から近い順に見る。近すぎると岸に乗り上げ、遠すぎると見えない
+  for (let r = COURSE_W * 0.7; r <= 12; r += COURSE_W / 4) {
     for (let deg = 0; deg < 360; deg += 5) {
       const a = (deg * Math.PI) / 180;
       const x = from.x + Math.cos(a) * r;
@@ -244,7 +278,7 @@ export function findAnchor(groundAt, { from = { x: 0, z: 0 } } = {}) {
       // 丸太の長さ方向は岸と平行(半径の向きに直角)
       const angle = a + Math.PI / 2;
       if (!fits(x, z, angle)) continue;
-      if (!best) best = { x, z, angle, r, deg };
+      if (!best) best = { x, z, angle };
     }
     if (best) break;
   }
@@ -253,38 +287,57 @@ export function findAnchor(groundAt, { from = { x: 0, z: 0 } } = {}) {
 
 // ---- 乗る場所 ----
 
-// 始めるときに立たせる場所。人数ぶん、筏の上に散らす。
-// **切れ目の無い枠のまん中**に置く ── 立った瞬間に穴の上で落ちるのを防ぐ。
-export function startSpots(course, anchor, n) {
-  const out = [];
-  const total = Math.max(1, n);
-  for (let i = 0; i < total; i++) {
-    // 丸太は順に、長さ方向は端に寄せて散らす
-    const log = course.logs[i % LOG_COUNT];
-    const lane = Math.floor(i / LOG_COUNT);
-    const want = (lane % 2 === 0 ? 1 : -1) * LOG_LEN * (0.3 + 0.08 * Math.floor(lane / 2));
-    // **そこが切れ目なら、いちばん近い安全な場所へ寄せる。** 寄せないと、
-    // 立った瞬間に穴の上に居て、何もしていないのに落ちる人が出る。
-    const lz = safeZ(log, 0, GRACE_MS / 1000, want) ?? want;
-    const w = toWorld(anchor, log.x, lz);
-    out.push({ ...w, face: upstreamFace(anchor, log) });
-  }
-  return out;
-}
-
-// いま安全な場所(CPU が逃げ込む先)。その丸太で、これから ahead 秒のあいだ
-// 抜けない長さ方向の位置を返す。見つからなければ null。
-export function safeZ(log, t, ahead = 1.2, from = 0) {
-  const step = LOG_LEN / 24;
+// これから ahead 秒のあいだ、角 a で切れ目が来ない長さ方向の位置。
+// from に近いものを返す。見つからなければ null。
+export function safeZ(course, a, t, ahead = 1.5, from = 0) {
+  const step = DRUM_LEN / 28;
   let best = null;
-  for (let lz = -LOG_LEN / 2 + step; lz < LOG_LEN / 2; lz += step) {
+  for (let lz = -DRUM_LEN / 2 + step; lz < DRUM_LEN / 2; lz += step) {
     let okAll = true;
     for (let k = 0; k <= 4; k++) {
-      if (!logSolid(log, lz, t + (ahead * k) / 4)) { okAll = false; break; }
+      const tk = t + (ahead * k) / 4;
+      if (holeOpen(course, a - turnOf(course, tk), lz)) { okAll = false; break; }
     }
     if (!okAll) continue;
     const d = Math.abs(lz - from);
     if (!best || d < best.d) best = { lz, d };
   }
   return best ? best.lz : null;
+}
+
+// 始めるときに立たせる場所。**全員てっぺんに、長さ方向へ並べて散らす。**
+//
+// 切れ目に当たらない場所だけを候補に拾ってから配るので、
+// 「立った瞬間に穴の上に居て、何もしていないのに落ちる」も、
+// 「2人が同じところに立つ」も起きない。
+export function startSpots(course, anchor, n) {
+  const total = Math.max(1, n);
+  const grace = GRACE_MS / 1000;
+  const cand = [];
+  const step = DRUM_LEN / 16;
+  for (let lz = -DRUM_LEN * 0.42; lz <= DRUM_LEN * 0.42 + 1e-9; lz += step) {
+    let okAll = true;
+    for (let k = 0; k <= 4; k++) {
+      if (holeOpen(course, -turnOf(course, (grace * k) / 4), lz)) { okAll = false; break; }
+    }
+    if (okAll) cand.push(lz);
+  }
+  const face = upstreamFace(anchor, course);
+  const used = new Set();
+  const out = [];
+  const spread = DRUM_LEN * 0.8;
+  for (let i = 0; i < total; i++) {
+    const want = total === 1 ? 0 : -spread / 2 + (spread * i) / (total - 1);
+    // 空いている候補のうち、いちばん近いもの
+    let pick = null;
+    for (let j = 0; j < cand.length; j++) {
+      if (used.has(j)) continue;
+      const d = Math.abs(cand[j] - want);
+      if (!pick || d < pick.d) pick = { j, d, lz: cand[j] };
+    }
+    const lz = pick ? pick.lz : want;
+    if (pick) used.add(pick.j);
+    out.push({ ...toWorld(anchor, 0, lz), face, view: alongFace(anchor, lz) });
+  }
+  return out;
 }

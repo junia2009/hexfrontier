@@ -1,124 +1,132 @@
-// 丸太乗りの見た目。回る丸太の筏を海に浮かべる。
+// 丸太乗りの見た目。でっかい丸太を1本、海に半分沈めて浮かべる。
 //
 // 当たり判定は logroll.js が持っていて、ここは**それを映すだけ**。
 // 「見えている切れ目」と「抜ける切れ目」がずれると、何もないところで
-// 落ちることになるので、位相の合わせかたはここのコメントに残す。
+// 落ちることになるので、角の合わせかたはここのコメントに残す。
 //
-// 丸太の向きの作りかた(親から順に):
-//   root  … 筏の場所へ移し、筏の向き(anchor.angle)へ回す
-//   tilt  … X を +90° 回して、円柱の軸(THREE では Y)を筏の Z へ倒す
+// 組み立て(親から順に):
+//   root  … 丸太の場所へ移し、丸太の向きへ回す
+//   tilt  … X を +90° 回して、円柱の軸(THREE では Y)を丸太の Z へ倒す
 //   spin  … その軸まわりに回す。これが「丸太が転がる」
 //
 // **root の回転は -anchor.angle。符号を落としやすいので理由を書いておく。**
 //   THREE の rotation.y は行列が [cosθ, sinθ; -sinθ, cosθ] で、
 //   logroll.js の toWorld が使う [cosθ, -sinθ; sinθ, cosθ] と**逆向き**。
-//   +anchor.angle のままだと、丸太の中心(toWorld で置いている)は合うのに
-//   長さ方向だけ逆へ開いて、丸太が斜めに交差する筏が描かれる。
-//   実測では中心から 0.5 タイル離れるともう当たり判定と重ならなかった。
+//   +anchor.angle のままだと、丸太の中心は合うのに長さ方向だけ逆へ開く。
 //   -anchor.angle にすると root の座標系が logroll.js の local と一致する
 //   (root の +x → 局所 +x、+z → 局所 +z、+y → 上)。
 //
-// 切れ目の位相合わせ:
+// 角の合わせかた:
 //   THREE の CylinderGeometry は角 θ の点が (r sinθ, y, r cosθ)。
-//   tilt で +Z が下を向くので、**てっぺんは θ = π**。
-//   logroll.js は「h.phase + spin·t が 0 のとき、その切れ目が上」なので、
-//   欠けを θ = π − h.phase に置いて、spin.rotation.y = −spin·t で回せば、
-//   両者はいつでも一致する。
+//   tilt で +Z が下を向くので、root では (r sinθ, -r cosθ, y) ──
+//   局所 x = r sinθ、高さ = -r cosθ。
+//   logroll.js の角 a は x = R sin a、高さ = +R cos a なので **θ = π - a**。
+//   spin.rotation.y = φ は θ を φ だけ進めるので、丸太自身の角 a0 の点を
+//   時刻 t に a0 + turn へ持っていくには φ = -turn。
 
 import * as THREE from 'three';
 import {
-  HOLE_ARC, LOG_COUNT, LOG_LEN, LOG_R, LOG_TOP, toWorld,
+  DRUM_AXIS, DRUM_LEN, DRUM_R, HOLE_ARC, toWorld, turnOf,
 } from './logroll.js';
 
-// 丸太の見た目。当たり判定より気持ち太く見せる ── 細いと、乗っているのに
-// 落ちそうに見えて、実際の判定より厳しく感じる。
-const DRAW_R = LOG_R * 1.02;
-const RADIAL = 14;
+// 当たり判定より気持ち太く見せる ── 細いと、乗っているのに落ちそうに見えて、
+// 実際の判定より厳しく感じる。
+const DRAW_R = DRUM_R * 1.01;
 
-// 木口(切り口)の色。切れ目の断面が黒くなると穴に見えないので、明るくする
-const WOOD = 0x8a5a32;
-const BARK = 0x6b4423;
-
-// 木肌の筋。**これが無いと丸太が回って見えない。**
+// **面で回転を見せる。** のっぺり滑らかな円柱は、回しても輪郭が変わらない
+// ので止まって見える ── 「どちらへどれだけ流れているか」を目で読んで足を
+// 出す遊びなのに、回っているのが画面に出ない。
 //
-// のっぺりした円柱は、回しても輪郭が変わらないので止まって見える
-// (実測: 動画にすると人だけが滑っていて、丸太は板に見えた)。
-// 遊びのほうは「どちらへどれだけ流れているか」を目で読んで足を出す
-// ものなので、回っているのが見えないと、何が起きているのか分からない。
-// 長さ方向の細い筋を数本、円周に散らして貼る ── 回ると筋が上を横切る。
-// **細いと見えない。** 0.16 ラジアン(= 幅 3cm)で試したところ、
-// 0.25 秒違いの2枚を並べても絵が変わらなかった ── 遊ぶ距離では
-// 線が細すぎて、回転が画面に出ていない。上面を横切るのが分かる幅にする。
-const RIDGE = 0x3f2512;
-const RIDGES = 6;              // 1本あたりの筋の数
-const RIDGE_W = 0.38;          // ラジアン(約22°)。上面をひと筋ずつ横切る
+// はじめは木肌の筋を別のメッシュで貼っていたが、筋は切れ目の上も通るので
+// **開いた穴の上に板が浮く**ことになった(判定と食い違う点として実測で
+// 出た)。切れ目ごとに筋を切ると 100 枚を超えるメッシュになる。
+// 分割を粗くして平面シェーディングにすれば、面の明るさが回転で移り変わって
+// 同じことが**1枚も足さずに**できる ── 島と同じローポリの見た目にも合う。
+const RADIAL = 24;          // 円周の分割。粗いほど面がはっきり出る
 
-// 筏を海に浮かべる。course / anchor は logroll.js のもの。
-// **高さは LOG_TOP をそのまま使う**(世界の高さ)── 判定と同じ数を通す。
-export function makeRaft(scene, course, anchor) {
+const BARK = 0x6b4423;      // 木肌
+const WOOD = 0x9a6a3c;      // 木口(切り口)
+
+// 角 a の弧を描く円柱を1つ作る(a1 < a2)。θ = π - a なので向きは逆になる
+function arcGeo(a1, a2, len) {
+  return new THREE.CylinderGeometry(
+    DRAW_R, DRAW_R, len,
+    Math.max(3, Math.round((RADIAL * (a2 - a1)) / (Math.PI * 2))),
+    1, false, Math.PI - a2, a2 - a1,
+  );
+}
+
+// 丸太を海に浮かべる。course / anchor は logroll.js のもの。
+export function makeDrum(scene, course, anchor) {
   const group = new THREE.Group();
-  const bark = new THREE.MeshStandardMaterial({ color: BARK, roughness: 0.95 });
+  const bark = new THREE.MeshStandardMaterial({
+    color: BARK, roughness: 0.95, flatShading: true,
+  });
   const wood = new THREE.MeshStandardMaterial({ color: WOOD, roughness: 0.85 });
-  const ridge = new THREE.MeshStandardMaterial({ color: RIDGE, roughness: 1 });
   const geos = [];
-  const spins = [];
 
-  for (const log of course.logs) {
-    const w = toWorld(anchor, log.x, 0);
-    const root = new THREE.Group();
-    root.position.set(w.x, LOG_TOP - LOG_R, w.z);
-    root.rotation.y = -anchor.angle;   // 上のコメント参照(THREE は逆回り)
-    const tilt = new THREE.Group();
-    tilt.rotation.x = Math.PI / 2;
-    const spin = new THREE.Group();
-    tilt.add(spin);
-    root.add(tilt);
-    group.add(root);
-    spins.push({ spin, log });
+  const root = new THREE.Group();
+  const w = toWorld(anchor, 0, 0);
+  root.position.set(w.x, DRUM_AXIS, w.z);
+  root.rotation.y = -anchor.angle;   // 上のコメント参照(THREE は逆回り)
+  const tilt = new THREE.Group();
+  tilt.rotation.x = Math.PI / 2;
+  const spin = new THREE.Group();
+  tilt.add(spin);
+  root.add(tilt);
+  group.add(root);
 
-    // 長さ方向を、切れ目とそれ以外に切り分ける
-    const holes = [...log.holes].sort((a, b) => a.z0 - b.z0);
-    const spans = [];
-    let at = -LOG_LEN / 2;
-    for (const h of holes) {
-      if (h.z0 > at) spans.push({ z0: at, z1: h.z0, hole: null });
-      spans.push({ z0: Math.max(at, h.z0), z1: h.z1, hole: h });
-      at = h.z1;
+  // 長さ方向を、切れ目のふちで区切る。区間ごとに「その区間で抜けている角」が
+  // 決まるので、残っている角の弧だけを筒として描く。
+  const edges = new Set([-DRUM_LEN / 2, DRUM_LEN / 2]);
+  for (const h of course.holes) {
+    edges.add(Math.max(-DRUM_LEN / 2, Math.min(DRUM_LEN / 2, h.z0)));
+    edges.add(Math.max(-DRUM_LEN / 2, Math.min(DRUM_LEN / 2, h.z1)));
+  }
+  const cuts = [...edges].sort((a, b) => a - b);
+
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const z0 = cuts[i];
+    const z1 = cuts[i + 1];
+    const len = z1 - z0;
+    if (len <= 1e-6) continue;
+    const mid = (z0 + z1) / 2;
+    // この区間で抜けている切れ目。makeCourse が角を離して置いているので
+    // 重なることはなく、残りは切れ目と切れ目のあいだの弧になる
+    const act = course.holes
+      .filter((h) => mid > h.z0 && mid < h.z1)
+      .map((h) => h.a)
+      .sort((a, b) => a - b);
+    const arcs = [];
+    if (act.length === 0) {
+      arcs.push([0, Math.PI * 2]);
+    } else {
+      for (let k = 0; k < act.length; k++) {
+        const from = act[k] + HOLE_ARC / 2;
+        const to = (k + 1 < act.length ? act[k + 1] : act[0] + Math.PI * 2) - HOLE_ARC / 2;
+        if (to > from + 1e-4) arcs.push([from, to]);
+      }
     }
-    if (at < LOG_LEN / 2) spans.push({ z0: at, z1: LOG_LEN / 2, hole: null });
-
-    for (const sp of spans) {
-      const len = sp.z1 - sp.z0;
-      if (len <= 1e-6) continue;
-      // 切れ目のところは、欠けたぶんだけ足りない筒にする
-      const geo = sp.hole
-        ? new THREE.CylinderGeometry(
-          DRAW_R, DRAW_R, len, RADIAL, 1, false,
-          Math.PI - sp.hole.phase + HOLE_ARC / 2, Math.PI * 2 - HOLE_ARC,
-        )
-        : new THREE.CylinderGeometry(DRAW_R, DRAW_R, len, RADIAL, 1, false);
+    for (const [a1, a2] of arcs) {
+      const geo = arcGeo(a1, a2, len);
       geos.push(geo);
-      const mesh = new THREE.Mesh(geo, sp.hole ? wood : bark);
+      const mesh = new THREE.Mesh(geo, bark);
       // 円柱は自分の中心が原点。長さ方向(いまは Y)へずらして並べる
-      mesh.position.y = (sp.z0 + sp.z1) / 2;
+      mesh.position.y = mid;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       spin.add(mesh);
     }
+  }
 
-    // 木肌の筋。丸太の全長に通す(切れ目のところも通ってよい ── 筋は
-    // 飾りで、足場があるかは logroll.js が決める)。少しだけ外へ出して
-    // Z ファイティングを避ける。
-    for (let k = 0; k < RIDGES; k++) {
-      const at = (k / RIDGES) * Math.PI * 2;
-      const geo = new THREE.CylinderGeometry(
-        DRAW_R * 1.02, DRAW_R * 1.02, LOG_LEN, 3, 1, true, at, RIDGE_W,
-      );
-      geos.push(geo);
-      const m = new THREE.Mesh(geo, ridge);
-      m.castShadow = false;
-      spin.add(m);
-    }
+  // 木口。両端に丸を貼ると「筒」がひと目で分かる
+  for (const end of [-1, 1]) {
+    const geo = new THREE.CircleGeometry(DRAW_R, RADIAL);
+    geos.push(geo);
+    const m = new THREE.Mesh(geo, wood);
+    m.position.y = (DRUM_LEN / 2) * end;
+    m.rotation.x = end > 0 ? -Math.PI / 2 : Math.PI / 2;
+    spin.add(m);
   }
 
   scene.add(group);
@@ -127,17 +135,12 @@ export function makeRaft(scene, course, anchor) {
     // t は丸太が回りはじめてからの秒数(logroll.js の rollTime)。
     // **判定と同じ t を渡すこと** ── 別々に数えると、見えている切れ目と
     // 抜ける切れ目がずれて、何もないところで落ちる。
-    setTime(t) {
-      for (const { spin, log } of spins) spin.rotation.y = -log.spin * t;
-    },
+    setTime(t) { spin.rotation.y = -turnOf(course, t); },
     dispose() {
       group.removeFromParent();
       for (const g of geos) g.dispose();
       bark.dispose();
       wood.dispose();
-      ridge.dispose();
     },
   };
 }
-
-export { LOG_COUNT };

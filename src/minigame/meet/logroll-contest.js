@@ -11,7 +11,7 @@
 // 申告できるのは「落ちた」だけで、時刻はサーバーが打つので、生き残った時間を
 // 水増しすることはできない。
 //
-// 筏そのものは**種から作る**(logroll.js の makeCourse)ので配らない。
+// 丸太そのものは**種から作る**(logroll.js の makeCourse)ので配らない。
 // 配るのは種と、島のどこに浮かべたか(anchor)だけ。
 
 import { MeetCore, RESULT_MS, MIN_PLAYERS } from './meet-core.js';
@@ -21,7 +21,7 @@ import { ROLL_MS, GRACE_MS, findAnchor, makeCourse, startSpots } from '../logrol
 
 export { RESULT_MS, MIN_PLAYERS, ROLL_MS, GRACE_MS };
 
-// その回の筏を決める種。部屋の種と「何回目か」から作るので、
+// その回の丸太を決める種。部屋の種と「何回目か」から作るので、
 // 同じ部屋で2回目を開いても同じ並びにならない。
 export function courseSeed(base, round) {
   let s = makeRng(base);
@@ -34,8 +34,8 @@ export class LogRollContest extends MeetCore {
     super({ ms: ROLL_MS, ...opts });
     this.kind = 'logroll';
     this.base = 1;        // 部屋の種
-    this.seed = 0;        // その回の筏の種。始まるまでは 0
-    this.anchor = null;   // 筏を浮かべた場所 { x, z, angle }
+    this.seed = 0;        // その回の丸太の種。始まるまでは 0
+    this.anchor = null;   // 丸太を浮かべた場所 { x, z, angle }
     this.shore = { x: 0, z: 0 };  // 落ちた人が戻る岸
     this.endedAt = 0;     // 回が終わった時刻(生き残りの記録をここで止める)
     this.startedAt = 0;
@@ -47,7 +47,7 @@ export class LogRollContest extends MeetCore {
     this.base = makeRng(Number(seed) || 1);
   }
 
-  // 島の形。**筏を浮かべる場所はここで決める** ── 盤ごとに海の空きかたが
+  // 島の形。**丸太を浮かべる場所はここで決める** ── 盤ごとに海の空きかたが
   // 違うので、島を渡されて初めて決まる(器が持つ setIsland に相乗りする)。
   setIsland(state) {
     super.setIsland(state);
@@ -71,7 +71,7 @@ export class LogRollContest extends MeetCore {
 
   _onEnd(now) { this.endedAt = now; }
 
-  // CPU が乗る筏を渡し直す(人数が変わっても同じ筏の上に立たせる)
+  // CPU が乗る丸太を渡し直す(人数が変わっても同じ丸太の上に立たせる)
   _syncCourse() {
     if (!this.anchor || !this.seed) return;
     this._crowd().setCourse?.(makeCourse(this.seed), this.anchor, {
@@ -143,7 +143,7 @@ export class LogRollContest extends MeetCore {
     return placeByAlive(rows);
   }
 
-  // 筏を組み立てるのに要るものだけ配る(丸太そのものは種から作れる)
+  // 丸太を組み立てるのに要るものだけ配る(丸太そのものは種から作れる)
   _extraView() {
     return {
       seed: this.seed,

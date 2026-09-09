@@ -21,7 +21,7 @@ import { RaidContest } from '../src/minigame/meet/raid-contest.js';
 import { DragonHunt, GRACE_MS } from '../src/minigame/meet/dragon-hunt.js';
 import { LogRollContest, ROLL_MS } from '../src/minigame/meet/logroll-contest.js';
 import {
-  COURSE_W, LOG_COUNT, LOG_PITCH, logSolid, makeCourse, toLocal,
+  DRUM_BAND, DRUM_LEN, DRUM_R, angleAt, holeOpen, makeCourse, toLocal,
 } from '../src/minigame/logroll.js';
 import { LocalMeet, SOLO_SEAT } from '../src/minigame/meet/local.js';
 import { makeGround, tableSeats, meetHome, watchPost, fishingSpots } from '../src/minigame/ground.js';
@@ -400,21 +400,23 @@ class MeetCoreStub extends MeetCore {
 
 // ---- 丸太乗り ----
 
-// **CPU が筏に乗って、落ちること。** 乗らなければ順位表に並ぶだけになり、
+// **CPU が丸太に乗って、落ちること。** 乗らなければ順位表に並ぶだけになり、
 // 落ちなければ人がどう乗っても勝てなくなる。
-test('CPU: 丸太乗りでは筏に乗り、腕前ぶん残って落ちる', () => {
+test('CPU: 丸太乗りでは丸太に乗り、腕前ぶん残って落ちる', () => {
   const { e } = withCpus(LogRollContest, 'sea', 5);
   e.enter(0, 1_000_000);
   const at = 1_000_000;
   assert.ok(e.start(0, at).ok, 'はじめられない');
-  // 乗った直後は全員が筏の上(足場の上)にいる
+  // 乗った直後は全員が丸太の上(足場の上)にいる
   e.tick(at + 100);
   const course = makeCourse(e.seed);
   for (const [seat, x, z] of e.cpuPositions()) {
     const p = toLocal(e.anchor, x, z);
-    assert.ok(Math.abs(p.x) <= COURSE_W / 2, `席${seat} が筏の外に立った (${p.x.toFixed(2)})`);
-    const i = Math.round(p.x / LOG_PITCH + (LOG_COUNT - 1) / 2);
-    assert.ok(logSolid(course.logs[i], p.z, 0), `席${seat} が切れ目の上に立った`);
+    const a = angleAt(p.x);
+    assert.notEqual(a, null, `席${seat} が丸太の外に立った (${p.x.toFixed(2)})`);
+    assert.ok(Math.abs(a) < DRUM_BAND && Math.abs(p.z) < DRUM_LEN / 2,
+      `席${seat} が足場の外に立った`);
+    assert.equal(holeOpen(course, a, p.z), false, `席${seat} が切れ目の上に立った`);
   }
   // 進めると、順に落ちていく
   run(e, ROLL_MS + 5000, 100, at);
@@ -453,7 +455,7 @@ test('CPU: 落ちた CPU は海の上に残らない', () => {
   run(e, 40000, 100, at);
   const ground = makeGround(st);
   for (const [seat, x, z] of e.cpuPositions()) {
-    if (!e.scores.get(seat)?.outAt) continue;   // まだ乗っている子は筏の上
+    if (!e.scores.get(seat)?.outAt) continue;   // まだ乗っている子は丸太の上
     assert.equal(ground(x, z).ok, true, `落ちた席${seat} が海の上に立っている`);
   }
 });
