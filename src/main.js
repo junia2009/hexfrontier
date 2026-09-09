@@ -40,6 +40,8 @@ import { islandNoteHtml, meetGuideHtml } from './render/meet-guide.js';
 import { LocalMeet, SOLO_SEAT, LOCAL_TICK_MS } from './minigame/meet/local.js';
 import { setHTML } from './render/dom.js';
 import { Bgm } from './audio/bgm.js';
+import { raceIntensity } from './audio/score.js';
+import { computePoints as vpOf, pointsToWin } from './rules/victory.js';
 import { Sfx, sfxForAction, sfxForEnd, suspendAudio } from './audio/sfx.js';
 import { stepSound } from './audio/footsteps.js';
 import { contestOutcome } from './minigame/contest.js';
@@ -778,6 +780,7 @@ async function startWalk() {
   resetFishHud();
   document.getElementById('walk-hud')?.classList.remove('moved');
   setScreen('walk');
+  syncMusic();
   applyViewMode();
   updateWalkHud();
 }
@@ -1265,6 +1268,8 @@ function applyContest(c) {
   syncLogRoll(c);
   renderContest();
   renderDfgRules();
+  // 集まりが始まる/終わるとその遊びの曲へ切り替わる(次の和音から)
+  syncMusic();
 }
 
 // ---- 丸太乗り ----
@@ -2362,7 +2367,41 @@ function applyViewMode() {
   document.getElementById('view-reset').style.display = is3d ? 'block' : 'none';
 }
 
+// ---- インタラクティブミュージック ----
+//
+// **いま何を鳴らすかの判断は、この2つに閉じる。** 場面の切り替えを
+// あちこちに書くと、増やしたときに必ずどこかが古くなる。
+
+// いまの状況に合う場面。名前は score.js の SCENES と meets.js の id に揃える
+function musicScene() {
+  if (walk) {
+    // ミニゲームが走っている間だけ、その遊びの曲になる
+    if (contest?.phase === 'running' && contest.kind) return contest.kind;
+    return 'walk';
+  }
+  return screen === 'game' ? 'game' : 'title';
+}
+
+// 対戦の張り詰めぐあい。**公開されている点だけで作る** ──
+// 隠し勝利点まで見ると、手札を見ていない人にも音で漏れてしまう。
+function musicIntensity() {
+  if (walk || screen !== 'game' || !state?.players) return 0;
+  try {
+    const goal = pointsToWin(state);
+    const best = Math.max(...state.players.map((_, i) => vpOf(state, i)));
+    return raceIntensity(best, goal);
+  } catch {
+    return 0;
+  }
+}
+
+function syncMusic() {
+  bgm.setScene(musicScene());
+  bgm.setIntensity(musicIntensity());
+}
+
 function refresh() {
+  syncMusic();
   syncUi();
   setPlayerTitle(currentTitle(progress));
   if (screen !== 'game') {
