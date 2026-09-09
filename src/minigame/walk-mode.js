@@ -368,7 +368,10 @@ export class WalkMode {
     this.camDist = sc(2.1);
     this.last = 0;
     this.onRespawn = null;
-    this.onDrumFall = null;   // 丸太乗りで水に触れた(= その回は負け)
+    this.onDrumFall = null;   // 丸太乗りで足元が抜けた(= その回は負け)
+    this.rollShore = null;    // 落ちた人が戻る岸
+    this.drumOut = false;     // その回はもう落ちている
+    this.wasOnDrum = false;   // 前のフレームで丸太に乗っていたか
     this.onJump = null;
     this.onSplash = null;
     this.onSink = null;    // 沈み具合(0〜1)。画面を暗くするのに使う
@@ -829,14 +832,9 @@ export class WalkMode {
     if (r?.splashed) {
       this.fx.splash(w.x, w.z);
       this.onSplash?.();
-      // **丸太乗りは、水に触れた時点で負け。** 沈みきるのを待つと、沈む
-      // あいだに水中で漕いで丸太へ戻れてしまう(水の抵抗は横の動きを
-      // 弱めるだけで、止めはしない ── 実測で達人が永久に落ちなかった)。
-      if (this.roll) this.onDrumFall?.();
     }
     if (r?.respawned) this.onRespawn?.();
-    // 落ちたあとは漕がせない。戻れないことが目に見えるようにする
-    if (this.roll && r?.inWater && !r.respawned) this.setStick(0, 0);
+    if (this.roll) this._watchDrumFall(r);
 
     // 沈んでいる間だけ泡を出す。画面の暗転は「もうすぐ戻る」ぶんだけ。
     const m = this.walker.motion;
@@ -1268,11 +1266,20 @@ export class WalkMode {
   }
 
   clearLogRoll() {
+    const shore = this.rollShore;
     this.drum?.dispose();
     this.drum = null;
     this.roll = null;
     this.rollAt = null;
+    this.rollShore = null;
+    this.drumOut = false;
+    this.wasOnDrum = false;
     this.walker.motion.respawnPinned = false;
+    // **丸太が消えたら、乗っていた人は海の上に立っていることになる。**
+    // 岸へ返す ── 返さないと落ちて、復帰先が「海の上」に書き換わる。
+    if (shore && !this.islandGround(this.walker.pos.x, this.walker.pos.z).ok) {
+      this.walker.setPosition(shore.x, shore.z);
+    }
     return false;
   }
 
@@ -1305,8 +1312,37 @@ export class WalkMode {
     this.walker.motion.facing = spot.face;
     this.camYaw = spot.view ?? spot.face;
     this.setStick(0, 0);
+    this.rollShore = shore ? { x: shore.x, z: shore.z } : null;
+    this.drumOut = false;
+    this.wasOnDrum = false;
     if (shore) this.walker.motion.setRespawn(shore.x, shore.z, { pin: true });
     return true;
+  }
+
+  // 丸太乗りの脱落を見る。
+  //
+  // **足元が抜けたら、その時点で負け。** 跳んだのではなく足場が消えたとき
+  // (切れ目が回ってきた・端から転がされた)は、落ちながら空中を歩いて
+  // 丸太へ戻ることも、まわりの小島へ降り立つこともさせない ── 沈みきるのを
+  // 待っていたころは、切れ目が回り過ぎて足場が戻ってくると着地し直せたし、
+  // 近くの小島に降りれば水に触れないので脱落にすらならなかった。
+  _watchDrumFall(r) {
+    if (!r) return;
+    if (!this.drumOut && ((this.wasOnDrum && !r.grounded && !r.jumped) || r.splashed)) {
+      this.drumOut = true;
+      this.onDrumFall?.();
+    }
+    if (this.drumOut) {
+      // 落ちたあとは漕がせない。戻れないことが目に見えるようにする
+      this.setStick(0, 0);
+      // **落ちた人はどこに着いても岸へ返す。** 近くの小島に降りると
+      // そこは歩いては出られないので置き去りになるし、切れ目が回り過ぎた
+      // 丸太の上に降り直すと脱落したまま乗っていることになる。
+      if (r.grounded && !r.respawned && this.rollShore) {
+        this.walker.setPosition(this.rollShore.x, this.rollShore.z);
+      }
+    }
+    this.wasOnDrum = !!r.grounded && !!this.rollAt?.(this.walker.pos.x, this.walker.pos.z);
   }
 
   // ---- 散策部屋 ----
