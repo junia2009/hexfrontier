@@ -27,6 +27,8 @@ const MODES = {
   major: [0, 2, 4, 5, 7, 9, 11],
   // 不穏(2度が低い)。竜から逃げろ
   phrygian: [0, 1, 3, 5, 7, 8, 10],
+  // 短調寄り(6度が低い)。張り詰めた終盤
+  aeolian: [0, 2, 3, 5, 7, 8, 10],
   // 素朴で懐かしい。5音しかないので何を弾いても濁らない
   pentatonic: [0, 2, 4, 7, 9],
 };
@@ -61,14 +63,42 @@ export const SCENES = {
     layers: { drone: L(1), pad: L(1), harp: L(0.9), flute: L(0.8), pulse: L(0) },
     melody: 0.75,
   },
-  // 対戦の本筋。荘厳に構えて、勝利が近づくと張り詰める
+  // 対戦の本筋。**勝利への近さで3段階に切り替わる**(下の RACE を見よ)。
+  // 平常。荘厳に構える
   game: {
-    mode: 'dorian', cadence: 'grand', dur: 5.6, rush: 0.72, octave: 0,
+    mode: 'dorian', cadence: 'grand', dur: 5.6, rush: 0.88, octave: 0,
     layers: {
-      drone: L(1, 0.2), pad: L(0.85, 0.35), harp: L(0.5, 0.5),
-      flute: L(0.35, 0.35), pulse: L(0, 0.9),
+      drone: L(0.85, 0.1), pad: L(0.8, 0.1), harp: L(0.45, 0.15),
+      flute: L(0.35, 0.1), pulse: L(0),
     },
     melody: 0.6,
+  },
+  // 接近。誰かの手が上がりに届く。刻みが入り、和音進行が押し出す側へ変わる。
+  //
+  // **持続音は平常より薄くする。** ここは「拍が入ってくる」段なので、
+  // 持続音を厚いままにすると刻みが埋もれて、平常との差が実測でほぼ
+  // 消えていた(重心も揺れも動かなかった)。刻みに場所を空ける。
+  // **旋律を引っこめるのが効く。** 笛が歌うのをやめて刻みが出てくると、
+  // 「曲の濃さが変わった」ではなく「曲が変わった」と聞こえる。
+  'game-close': {
+    mode: 'dorian', cadence: 'drive', dur: 3.9, rush: 0.85, octave: 0,
+    layers: {
+      drone: L(0.7), pad: L(0.5), harp: L(0.75, 0.1),
+      flute: L(0.2), pulse: L(0.9, 0.1),
+    },
+    melody: 0.2,
+  },
+  // 王手。次の手番で決まる。低く・速く・短調寄りへ倒して張り詰めさせる。
+  //
+  // **持続音はむしろ減らす。** 全部を最大にすると低音が刻みを覆って、
+  // 実測では接近の段より拍が聞こえなくなった。張り詰めた感じは
+  // 音の量ではなく「粒立ち(刻みと撥弦)」から出る。
+  'game-final': {
+    mode: 'aeolian', cadence: 'drive', dur: 3.2, rush: 0.85, octave: -12,
+    layers: {
+      drone: L(0.65), pad: L(0.55), harp: L(0.75), flute: L(0.15), pulse: L(1),
+    },
+    melody: 0.1,
   },
   // 島の散策。明るく、まばらに。歩くのが気持ちいい側へ
   walk: {
@@ -162,19 +192,37 @@ export function melodyChance(name, intensity = 0) {
   return Math.min(1, sceneOf(name).melody + 0.2 * clamp01(intensity));
 }
 
-// ---- 高まりを決める ----
+// ---- 勝利への近さ ----
 
-// **勝利への近さ。** いちばん進んでいる人が上がりに何点まで迫ったか。
+// いちばん進んでいる人が上がりに何点まで迫ったか。
 //
-// 「自分が近い」ではなく「誰かが近い」で上げる ── 追う側にとっても
+// 「自分が近い」ではなく「誰かが近い」で見る ── 追う側にとっても
 // 張り詰める場面なので、卓ぜんたいの緊張を音にする。
-// 残り LEAD_FROM 点で鳴り始め、あと1点で最大になる。
-const LEAD_FROM = 4;
+//
+// **段で切り替える。濃さを連続に動かすだけでは耳に届かない。**
+// はじめは音量と速さだけを 0〜1 で滑らかに動かしていたが、それだと
+// 「どの音が鳴るか」が最後まで変わらないので、実際に遊んでも気づけなかった。
+// いまは段ごとに旋法・和音進行・音域・速さ・編成を丸ごと入れ替える
+// (場面の切り替えと同じ仕組みに乗せてある = 次の和音の頭で変わる)。
+const RACE = [
+  // [ここから下の残り点で, 場面名]
+  [1, 'game-final'],   // 王手。次の手番で上がられる
+  [3, 'game-close'],   // 接近。上がりに手が届く
+];
 
+export function raceScene(best, goal) {
+  if (!Number.isFinite(best) || !Number.isFinite(goal) || goal <= 0) return 'game';
+  const left = goal - best;
+  for (const [at, name] of RACE) if (left <= at) return name;
+  return 'game';
+}
+
+// 段のなかでの細かい濃さ。段が上がるほど下地も濃くしておく
+// (段の切り替えが主役で、こちらは味つけ)。
 export function raceIntensity(best, goal) {
   if (!Number.isFinite(best) || !Number.isFinite(goal) || goal <= 0) return 0;
   const left = goal - best;
   if (left <= 1) return 1;
-  if (left >= LEAD_FROM) return 0;
-  return (LEAD_FROM - left) / (LEAD_FROM - 1);
+  if (left >= RACE[RACE.length - 1][0] + 1) return 0;
+  return 0.5;
 }

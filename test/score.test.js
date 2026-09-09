@@ -8,7 +8,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_SCENE, SCENES, chordAt, chordDur, layerGains, melodyChance, raceIntensity, sceneOf,
+  DEFAULT_SCENE, SCENES, chordAt, chordDur, layerGains, melodyChance,
+  raceIntensity, raceScene, sceneOf,
 } from '../src/audio/score.js';
 import { MEETS } from '../src/minigame/meets.js';
 
@@ -142,8 +143,14 @@ test('譜面: 高まると速く・厚くなる', () => {
   const lo = layerGains('game', 0);
   const hi = layerGains('game', 1);
   assert.ok(Object.keys(hi).some((k) => hi[k] > lo[k]), '高まっても厚くならない');
-  assert.ok(hi.pulse > lo.pulse, '高まっても刻みが出てこない');
   assert.ok(melodyChance('game', 1) > melodyChance('game', 0), '旋律の出番が増えない');
+  // **足しぶんが頭打ちで捨てられていないこと。** base + add が 1 を超えていると、
+  // 宣言したぶんだけ動かない(実際これで対戦のドローンが不動になっていた)。
+  for (const [name, s] of Object.entries(SCENES)) {
+    for (const [part, { base, add }] of Object.entries(s.layers)) {
+      assert.ok(base + add <= 1, `${name}.${part}: 足しぶんが頭打ちで捨てられる`);
+    }
+  }
   // 音量は 0〜1 に収まる(足しすぎて割れない)
   for (const name of Object.keys(SCENES)) {
     for (const k of [0, 0.5, 1]) {
@@ -158,16 +165,79 @@ test('譜面: 高まると速く・厚くなる', () => {
   }
 });
 
-// **勝利への近さ。** 誰かが上がりに迫るほど張り詰める。
-test('譜面: 勝利への近さが高まりになる', () => {
-  assert.equal(raceIntensity(4, 10), 0, '序盤から張り詰めている');
-  assert.equal(raceIntensity(6, 10), 0, '残り4点で鳴りはじめている');
-  assert.ok(raceIntensity(8, 10) > 0, '残り2点で何も起きない');
-  assert.equal(raceIntensity(9, 10), 1, '王手で最大にならない');
-  assert.equal(raceIntensity(10, 10), 1, '上がっているのに最大でない');
+// **勝利への近さで段が変わる。** 誰かが上がりに迫ると曲想ごと入れ替わる。
+test('譜面: 勝利への近さで段が変わる', () => {
+  assert.equal(raceScene(4, 10), 'game', '序盤から張り詰めている');
+  assert.equal(raceScene(6, 10), 'game', '残り4点で早くも切り替わる');
+  assert.equal(raceScene(7, 10), 'game-close', '残り3点で接近にならない');
+  assert.equal(raceScene(8, 10), 'game-close', '残り2点で接近にならない');
+  assert.equal(raceScene(9, 10), 'game-final', '王手にならない');
+  assert.equal(raceScene(10, 10), 'game-final', '上がっているのに王手でない');
   // 目標が違うルールでも同じ形になる(都市と騎士は13点)
-  assert.equal(raceIntensity(12, 13), 1, '13点ルールで王手が最大でない');
-  assert.equal(raceIntensity(9, 13), 0, '13点ルールで早く鳴りすぎる');
+  assert.equal(raceScene(12, 13), 'game-final', '13点ルールで王手にならない');
+  assert.equal(raceScene(10, 13), 'game-close', '13点ルールで接近にならない');
+  assert.equal(raceScene(9, 13), 'game', '13点ルールで早く切り替わりすぎる');
+  // 段は戻らない(点が増えて曲が緩むことはない)
+  const rank = { game: 0, 'game-close': 1, 'game-final': 2 };
+  let prev = -1;
+  for (let p = 0; p <= 10; p++) {
+    const r = rank[raceScene(p, 10)];
+    assert.ok(r >= prev, `点が増えたのに段が下がった: ${p}点`);
+    prev = r;
+  }
+  // 壊れた値でも平常に倒す
+  for (const bad of [NaN, undefined, null]) assert.equal(raceScene(bad, 10), 'game');
+  assert.equal(raceScene(5, 0), 'game');
+});
+
+// **段が本当に別の曲になっていること。** ここが弱いと、段を分けた意味がない
+// ── 実際、はじめは音量と速さだけを動かしていて、遊んでも気づけなかった。
+test('譜面: 対戦の3段が別の曲になっている', () => {
+  const stages = ['game', 'game-close', 'game-final'];
+  const pcs = (n) => [...new Set(chordAt(n, 0).scale.map((m) => ((m % 12) + 12) % 12))]
+    .sort((a, b) => a - b).join(',');
+
+  // 段が上がるほど速くなる
+  for (let i = 1; i < stages.length; i++) {
+    assert.ok(chordDur(stages[i], 0) < chordDur(stages[i - 1], 0),
+      `${stages[i]}: 前の段より速くない`);
+  }
+  // **和音進行が入れ替わる。** 平常と接近は同じ旋法なので、ここが唯一の手がかり
+  assert.notDeepEqual(chordAt('game', 1).notes, chordAt('game-close', 1).notes,
+    '平常と接近で和音進行が同じ');
+  // 王手は使う音そのものが変わる(短調寄りへ)
+  assert.notEqual(pcs('game-final'), pcs('game'), '王手で使う音が変わらない');
+  // 王手は低く鳴る
+  assert.ok(chordAt('game-final', 0).notes[0] < chordAt('game', 0).notes[0] - 6,
+    '王手が十分低くない');
+  // 刻みは平常では出ず、段が上がるごとに増える
+  assert.equal(layerGains('game', 0).pulse, 0, '平常に刻みが出ている');
+  assert.ok(layerGains('game-close', 0).pulse > 0.5, '接近に刻みが無い');
+  assert.ok(layerGains('game-final', 0).pulse > layerGains('game-close', 0).pulse,
+    '王手で刻みが増えない');
+  // **速さの差が耳に分かる大きさか。** 平常と王手で 1.5 倍以上
+  assert.ok(chordDur('game', 0) / chordDur('game-final', 0) >= 1.5,
+    `平常と王手の速さの差が小さい: ${chordDur('game', 0)} → ${chordDur('game-final', 0)}`);
+
+  // **段が上がるほど旋律は引っこむ。** 笛が歌うのをやめて刻みが出てくると、
+  // 「濃さが変わった」ではなく「曲が変わった」と聞こえる ── 実測でも、
+  // ここを動かして初めて平常と接近の差が基準の切り替えに並んだ。
+  for (let i = 1; i < stages.length; i++) {
+    assert.ok(melodyChance(stages[i], 0) < melodyChance(stages[i - 1], 0),
+      `${stages[i]}: 前の段より旋律が引っこんでいない`);
+    assert.ok(layerGains(stages[i], 0).flute < layerGains(stages[i - 1], 0).flute,
+      `${stages[i]}: 前の段より笛が引っこんでいない`);
+  }
+  // 平常だけが「歌う」側(旋律が半分以上の和音で出る)
+  assert.ok(melodyChance('game', 0) > 0.5, '平常で旋律が出てこない');
+  assert.ok(melodyChance('game-final', 0) < 0.25, '王手でまだ旋律が歌っている');
+});
+
+// 段のなかの細かい濃さ。段の切り替えが主役なので、こちらは味つけ
+test('譜面: 段のなかの濃さが段と食い違わない', () => {
+  assert.equal(raceIntensity(4, 10), 0, '序盤から濃い');
+  assert.ok(raceIntensity(8, 10) > 0, '接近で濃さが動かない');
+  assert.equal(raceIntensity(9, 10), 1, '王手で最大にならない');
   // 単調に増える
   let prev = -1;
   for (let p = 0; p <= 10; p++) {
@@ -175,7 +245,13 @@ test('譜面: 勝利への近さが高まりになる', () => {
     assert.ok(v >= prev, `点が増えたのに下がった: ${p}点`);
     prev = v;
   }
-  // 壊れた値でも 0 に倒す
+  // 段が上がる点で濃さも上がっている(ちぐはぐに鳴らない)
+  for (let p = 1; p <= 10; p++) {
+    if (raceScene(p, 10) !== raceScene(p - 1, 10)) {
+      assert.ok(raceIntensity(p, 10) > raceIntensity(p - 1, 10),
+        `${p}点: 段が上がったのに濃さが据え置き`);
+    }
+  }
   for (const bad of [NaN, undefined, null]) assert.equal(raceIntensity(bad, 10), 0);
   assert.equal(raceIntensity(5, 0), 0);
 });
