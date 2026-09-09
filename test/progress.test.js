@@ -54,7 +54,7 @@ test('progress: 空の戦績でも全モードの枠が出る', () => {
   assert.equal(s.total.bestTurns, null);
   // 対戦の到達値は空。散策部屋の記録(蛮族を射る)は 0 から始まる
   assert.deepEqual(s.bests,
-    { raidScore: 0, raidWave: 0, raidAcc: 0, daifugoPlayed: 0, daifugoBest: 0 });
+    { raidScore: 0, raidWave: 0, raidAcc: 0, daifugoPlayed: 0, daifugoBest: 0, rollBest: 0 });
 });
 
 test('progress: モード別・難易度別に数える', () => {

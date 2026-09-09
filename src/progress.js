@@ -97,6 +97,8 @@ export function summarize(progress) {
   const daifugo = progress.meets?.daifugo ?? {};
   bests.daifugoPlayed = daifugo.played ?? 0;
   bests.daifugoBest = daifugo.best ?? 0;
+  // 丸太乗りは「何秒乗っていられたか」に進捗が出せる
+  bests.rollBest = progress.meets?.logroll?.best ?? 0;
   return { byMode, total, bests };
 }
 

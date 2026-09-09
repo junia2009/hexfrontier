@@ -39,6 +39,9 @@ export function fishbookHtml(progress, { walk = false } = {}) {
   const meet = [
     ['fishing', '🏆 釣り大会', (v) => `自己最高 <b>${v}</b> cm`],
     ['dragonhunt', '🐉 ドラゴンから逃げろ', (v) => `最長 <b>${v}</b> 秒`],
+    ['logroll', '🪵 丸太乗り', (v) => `最長 <b>${v}</b> 秒`],
+    ['raid', '🏹 蛮族を射る(大会)', (v) => `自己最高 <b>${v}</b> 点`],
+    ['daifugo', '🃏 大富豪', (v) => `いちばん大きい卓 <b>${v}</b> 人`],
   ].map(([kind, label, best]) => {
     const m = progress.meets?.[kind];
     if (!m?.played) return '';

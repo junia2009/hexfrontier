@@ -68,7 +68,7 @@ const UNIT = {
   cities: 'つ', roadLen: '', knights: '体', ships: '隻',
   metropolis: 'つ', defender: '回', maxTrack: 'Lv', treasures: 'つ', islands: 'つ',
   raidScore: '点', raidWave: '波', raidAcc: '%',
-  daifugoPlayed: '回', daifugoBest: '人',
+  daifugoPlayed: '回', daifugoBest: '人', rollBest: '秒',
 };
 
 // そのモードで勝った実績(5モードぶん自動で作る)
@@ -285,6 +285,25 @@ export const ACHIEVEMENTS = [
     icon: '🎩', tier: 'gold', scope: '散策部屋',
     mark: 'daifugoBest', goal: 4,
     checkMeet: ({ meets }) => (meets.daifugo?.best ?? 0) >= 4,
+  },
+  {
+    id: 'roll-win',
+    name: '丸太を制す',
+    desc: '散策部屋の丸太乗りで最後まで残る',
+    title: '丸太乗り',
+    icon: '🪵', tier: 'silver', scope: '散策部屋',
+    checkMeet: ({ meets }) => (meets.logroll?.won ?? 0) > 0,
+  },
+  {
+    id: 'roll-minute',
+    name: '流れに逆らう',
+    desc: '丸太乗りで 60 秒以上落ちずに乗り続ける',
+    title: '川渡り',
+    icon: '🌀', tier: 'gold', scope: '散策部屋',
+    // 丸太は終盤に歩きより速くなるので、60 秒は「押し負けるところまで
+    // 粘った」の線(実測: 達人でおよそ 65 秒)。
+    mark: 'rollBest', goal: 60,
+    checkMeet: ({ meets }) => (meets.logroll?.best ?? 0) >= 60,
   },
   {
     id: 'raid-meet-win',
