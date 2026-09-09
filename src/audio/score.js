@@ -54,19 +54,27 @@ const L = (base, add = 0) => ({ base, add });
 
 // 場面の一覧。**ここが「場面ごとに別の曲想」の全て。**
 //
-// dur は和音1つの長さ(秒)。短いほど急いた感じになる。
-// rush は高まり 1 のときに何割まで詰めるか(0.7 なら 3割速くなる)。
+// bpm   … 拍の速さ。**これが本物のテンポ。**
+// beats … 和音1つを何拍で持つか(和音の長さ = beats × 60/bpm で決まる)
+// sub   … 1拍を何分割して刻むか(2 なら裏拍も打つ)
+// rush  … 高まり 1 のときに何割まで詰めるか(0.85 なら 15% 速くなる)
+//
+// **和音の長さを短くしても速くはならない。** 以前は dur(和音の長さ)だけを
+// 持っていて、拍は bgm.js が 0.7 秒に固定して打っていた。和音を詰めても
+// 「1和音あたりの拍数が減る」だけで、拍の速さは 86 → 83 → 88 BPM と
+// ほぼ動いておらず、遊んでも速くなったと分からなかった。
+// テンポを動かしたいなら bpm を動かすこと。
 export const SCENES = {
   // タイトル・メニュー。いまの中世風をそのまま残す(このゲームの顔)
   title: {
-    mode: 'dorian', cadence: 'grand', dur: 5.6, rush: 1, octave: 0,
+    mode: 'dorian', cadence: 'grand', bpm: 66, beats: 6, sub: 1, rush: 1, octave: 0,
     layers: { drone: L(1), pad: L(1), harp: L(0.9), flute: L(0.8), pulse: L(0) },
     melody: 0.75,
   },
   // 対戦の本筋。**勝利への近さで3段階に切り替わる**(下の RACE を見よ)。
   // 平常。荘厳に構える
   game: {
-    mode: 'dorian', cadence: 'grand', dur: 5.6, rush: 0.88, octave: 0,
+    mode: 'dorian', cadence: 'grand', bpm: 66, beats: 6, sub: 1, rush: 0.92, octave: 0,
     layers: {
       drone: L(0.85, 0.1), pad: L(0.8, 0.1), harp: L(0.45, 0.15),
       flute: L(0.35, 0.1), pulse: L(0),
@@ -81,20 +89,25 @@ export const SCENES = {
   // **旋律を引っこめるのが効く。** 笛が歌うのをやめて刻みが出てくると、
   // 「曲の濃さが変わった」ではなく「曲が変わった」と聞こえる。
   'game-close': {
-    mode: 'dorian', cadence: 'drive', dur: 3.9, rush: 0.85, octave: 0,
+    mode: 'dorian', cadence: 'drive', bpm: 108, beats: 7, sub: 1, rush: 0.9, octave: 0,
     layers: {
       drone: L(0.7), pad: L(0.5), harp: L(0.75, 0.1),
       flute: L(0.2), pulse: L(0.9, 0.1),
     },
     melody: 0.2,
   },
-  // 王手。次の手番で決まる。低く・速く・短調寄りへ倒して張り詰めさせる。
+  // 王手。次の手番で決まる。**速さと短調寄りの旋法**で張り詰めさせる。
   //
   // **持続音はむしろ減らす。** 全部を最大にすると低音が刻みを覆って、
   // 実測では接近の段より拍が聞こえなくなった。張り詰めた感じは
   // 音の量ではなく「粒立ち(刻みと撥弦)」から出る。
+  //
+  // **音域は下げない。** 一度 1 オクターブ下げてみたが、和音もドローンも
+  // 刻みも同じ低い帯域に集まって濁り、狙った刻みの周期での相関が
+  // 0.04(丸太乗りの同じ速さでは 0.21)まで落ちた ── いちばん刻んで
+  // ほしい場面で拍が埋まる。低さではなく速さで張り詰めさせる。
   'game-final': {
-    mode: 'aeolian', cadence: 'drive', dur: 3.2, rush: 0.85, octave: -12,
+    mode: 'aeolian', cadence: 'drive', bpm: 152, beats: 8, sub: 2, rush: 0.9, octave: 0,
     layers: {
       drone: L(0.65), pad: L(0.55), harp: L(0.75), flute: L(0.15), pulse: L(1),
     },
@@ -102,37 +115,39 @@ export const SCENES = {
   },
   // 島の散策。明るく、まばらに。歩くのが気持ちいい側へ
   walk: {
-    mode: 'lydian', cadence: 'calm', dur: 7.2, rush: 1, octave: 0,
+    mode: 'lydian', cadence: 'calm', bpm: 56, beats: 7, sub: 1, rush: 1, octave: 0,
     layers: { drone: L(0.5), pad: L(0.7), harp: L(1), flute: L(0.55), pulse: L(0) },
     melody: 0.5,
   },
   // 釣り大会。凪いだ水面。動くものを減らして間を空ける
   fishing: {
-    mode: 'major', cadence: 'drift', dur: 8.4, rush: 1, octave: 0,
+    mode: 'major', cadence: 'drift', bpm: 48, beats: 7, sub: 1, rush: 1, octave: 0,
     layers: { drone: L(0.6), pad: L(0.9), harp: L(0.55), flute: L(0.7), pulse: L(0) },
     melody: 0.45,
   },
-  // ドラゴンから逃げろ。不穏に、速く、低く
+  // ドラゴンから逃げろ。不穏に、速く。
+  // 不穏さはフリギア(低い2度)が持つので、音域は下げない ── 下げていたときは
+  // 狙った拍での相関が 0.02(同じ行進調の蛮族は 0.31)で、拍が埋まっていた。
   dragonhunt: {
-    mode: 'phrygian', cadence: 'drive', dur: 3.6, rush: 1, octave: -12,
-    layers: { drone: L(1), pad: L(0.8), harp: L(0.3), flute: L(0.2), pulse: L(0.85) },
+    mode: 'phrygian', cadence: 'drive', bpm: 132, beats: 8, sub: 1, rush: 1, octave: 0,
+    layers: { drone: L(0.7), pad: L(0.55), harp: L(0.4), flute: L(0.2), pulse: L(1) },
     melody: 0.3,
   },
   // 蛮族を射る。行進曲の側。拍をはっきり出す
   raid: {
-    mode: 'dorian', cadence: 'drive', dur: 3.2, rush: 1, octave: 0,
+    mode: 'dorian', cadence: 'drive', bpm: 120, beats: 7, sub: 1, rush: 1, octave: 0,
     layers: { drone: L(0.7), pad: L(0.6), harp: L(0.5), flute: L(0.5), pulse: L(1) },
     melody: 0.5,
   },
   // 丸太乗り。いちばん速く、跳ねる。笛は引っ込める
   logroll: {
-    mode: 'pentatonic', cadence: 'drive', dur: 2.8, rush: 1, octave: 0,
+    mode: 'pentatonic', cadence: 'drive', bpm: 150, beats: 7, sub: 2, rush: 1, octave: 0,
     layers: { drone: L(0.4), pad: L(0.4), harp: L(1), flute: L(0.25), pulse: L(0.9) },
     melody: 0.35,
   },
   // 大富豪。円卓で軽く。刻みは出さず、ハープ主体
   daifugo: {
-    mode: 'pentatonic', cadence: 'calm', dur: 4.4, rush: 1, octave: 0,
+    mode: 'pentatonic', cadence: 'calm', bpm: 84, beats: 6, sub: 1, rush: 1, octave: 0,
     layers: { drone: L(0.5), pad: L(0.6), harp: L(1), flute: L(0.6), pulse: L(0) },
     melody: 0.6,
   },
@@ -170,10 +185,27 @@ export function chordAt(name, index) {
   };
 }
 
-// 和音1つの長さ。高まるほど詰まる
-export function chordDur(name, intensity = 0) {
+// **1拍の長さ(秒)。テンポの実体はここ。**
+// 高まるほど詰まる。bgm.js は刻みもハープもこの拍に乗せる。
+export function beatDur(name, intensity = 0) {
   const s = sceneOf(name);
-  return s.dur * (1 - (1 - s.rush) * clamp01(intensity));
+  return (60 / s.bpm) * (1 - (1 - s.rush) * clamp01(intensity));
+}
+
+// いまのテンポ(BPM)。テストと確認用
+export function bpmOf(name, intensity = 0) {
+  return 60 / beatDur(name, intensity);
+}
+
+// 刻みの間隔(秒)。sub が 2 なら裏拍も打つ
+export function pulseDur(name, intensity = 0) {
+  return beatDur(name, intensity) / Math.max(1, sceneOf(name).sub ?? 1);
+}
+
+// 和音1つの長さ。**拍の整数倍**にそろえる ── そうしないと和音の変わり目で
+// 拍がずれて、拍子が取れなくなる
+export function chordDur(name, intensity = 0) {
+  return sceneOf(name).beats * beatDur(name, intensity);
 }
 
 // パートの音量。**0 のパートは鳴らさない**
