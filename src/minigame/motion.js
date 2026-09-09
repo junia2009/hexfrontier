@@ -12,7 +12,14 @@ import { s as sc } from './scale.js';
 
 // 長さは縮尺を掛ける(scale.js)。時間と角速度は掛けない ──
 // 掛けると歩き出しや向き変えのテンポまで変わってしまう。
-export const WALK_SPEED = sc(1.9);   // タイル/秒
+//
+// **1.9 から 1.25 へ落としてある。** 速さと脚の長さが釣り合っていないと、
+// 歩きは必ずどこかで破綻する ── 1.9 では、足を地面に着けたまま歩くのに
+// 秒 6.4 歩が要り、体が秒 6.4 回沈んで**画面が振動して見えた**
+// (人の歩きは秒 2 回。振れ幅は背丈の 7% で人と同じくらいなので、
+//  速すぎたのは深さではなく回数のほう)。
+// いまは秒 4.2 歩。散策なので、急ぐより落ち着いて歩けるほうを採った。
+export const WALK_SPEED = sc(1.25);  // タイル/秒
 const TURN_SPEED = 9;            // 向き変えの速さ
 const ACCEL = sc(9);             // 加速(小さいほどぬるっと動く)
 const AIR_ACCEL = sc(3.5);       // 空中での効き(地上より鈍く。跳んだ勢いが残る)
@@ -51,8 +58,8 @@ const COYOTE_TIME = 0.12;
 // 上下する。縁をまたぐたびに体が瞬間移動し、縁沿いを歩くと振動する。
 //
 // 上限は**本物の坂では効かない**ように決める ── いちばん急な地形(山)の
-// 傾きは 0.419 高さ/タイル、歩く速さ 0.95 タイル/秒 で 0.398 高さ/秒。
-// その倍にすれば坂は素通りで、トークンの段差だけが 4 フレームかけて登る
+// 傾きは 0.419 高さ/タイル、歩く速さ 0.625 タイル/秒 で 0.262 高さ/秒。
+// 0.8 なら坂は素通りで、トークンの段差だけが数フレームかけて登る
 // 「縁石をまたぐ」動きになる(実測 1フレーム 0.0416 → 0.0134)。
 export const FOOT_RATE = 0.8;
 
@@ -87,6 +94,9 @@ export class WalkerMotion {
     // (FOOT_RATE)。描画はこれを使う ── 地面の高さをそのまま使うと、
     // トークンの縁で 1 フレームぶん瞬間移動する。
     this.footY = this.groundAt(0, 0).y;
+    // 歩く速さ。**場面ごとに差し替えられる** ── 島の散策は落ち着いた速さ、
+    // 丸太の上は踏ん張る速さ(logroll.js の ROLL_WALK)。
+    this.speed = WALK_SPEED;
   }
 
   // 足元の高さを、いまの地面へ即座に合わせる。
@@ -175,8 +185,8 @@ export class WalkerMotion {
       // 画面右は -X 方向。カメラは +Z を向いて置いてあるので、
       // 入力の x をそのまま使うと左右が逆になる(符号を反転させる)。
       const dir = Math.atan2(-input.x, input.y) + camYaw;
-      wantX = Math.sin(dir) * WALK_SPEED * mag;
-      wantZ = Math.cos(dir) * WALK_SPEED * mag;
+      wantX = Math.sin(dir) * this.speed * mag;
+      wantZ = Math.cos(dir) * this.speed * mag;
       this.facing = approachAngle(this.facing, dir, TURN_SPEED * step);
     }
 

@@ -7,7 +7,9 @@
 
 import * as THREE from 'three';
 import { makeDrum } from './logroll-fx.js';
-import { courseGround, makeCourse, rollTime, startSpots } from './logroll.js';
+import {
+  ROLL_WALK, courseGround, makeCourse, rollTime, startSpots,
+} from './logroll.js';
 import {
   makeGround, spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
   watchPost, POST_RADIUS, POST_CLEAR, DESK_RADIUS, DESK_REACH, DESK_CLEAR,
@@ -1168,7 +1170,11 @@ export class WalkMode {
     const pitch = this.roll ? Math.max(this.camPitch, ROLL_PITCH) : this.camPitch;
     const h = Math.sin(pitch) * dist;
     const flat = Math.cos(pitch) * dist;
-    const groundY = this.ground(w.x, w.z).y;
+    // **地面の生の高さではなく、棒人間が足を置いている高さを使う。**
+    // 生の高さは数字トークンの縁で階段状に跳ぶので、カメラと視線が
+    // その段差ぶん一瞬で動いて画面が跳ねる(motion.js の FOOT_RATE で
+    // 体のほうはならしてあるのに、カメラだけ生を見ていた)。
+    const groundY = this.walker.motion.footY;
     // ジャンプには半分だけ付いていく。1:1 で追うと画面全体が跳ねて酔うし、
     // 全く追わないと跳んだ本人が画面から出ていく。
     // 立っているときは y = 0 なので、歩いている間の揺れはこれまでどおり無い。
@@ -1259,6 +1265,10 @@ export class WalkMode {
     const course = makeCourse(info.seed);
     const anchor = { ...info.anchor };
     this.roll = { seed: info.seed, course, anchor, elapsed: info.elapsed ?? 0 };
+    // **丸太の上は島より速く歩く。** 島の散策は落ち着いた速さにしてあるが、
+    // ここは流れに押し負けまいと踏ん張る遊びで、手ごたえは丸太の回転と
+    // 釣り合わせて実測してある(logroll.js の ROLL_WALK)。
+    this.walker.motion.speed = ROLL_WALK;
     // 地面を差し替える。**時刻はフレームごとに入れ直す**(丸太は回っている)
     this._setRollTime(rollTime(this.roll.elapsed));
     this.drum = makeDrum(this.b.scene, course, anchor);
@@ -1267,6 +1277,7 @@ export class WalkMode {
 
   clearLogRoll() {
     const shore = this.rollShore;
+    this.walker.motion.speed = WALK_SPEED;   // 島の速さへ戻す
     this.drum?.dispose();
     this.drum = null;
     this.roll = null;
