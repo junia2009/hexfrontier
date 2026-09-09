@@ -24,8 +24,8 @@ import {
   makeGround, meetHome, fishingSpots, watchPost, tableSeats, spawnPoint,
 } from '../ground.js';
 import {
-  DRUM_BAND, DRUM_LEN, DRUM_R, holeOpen, rollTime, safeZ, spinOf, startSpots, toLocal,
-  toWorld, turnOf, upstreamFace,
+  DRUM_BAND, DRUM_LEN, DRUM_R, holeOpen, rollTime, safeZ, slipRate, spinOf, startSpots,
+  toLocal, toWorld, turnOf, upstreamFace,
 } from '../logroll.js';
 
 // 入れられる人数の上限。席の数から自分のぶんを引いたぶんまで
@@ -66,12 +66,19 @@ const MAX_DT = 0.25;
 // 大富豪で、CPU が考えているふりをする時間
 export const THINK_MS = 900;
 
-// 丸太乗り: 流れをどれだけ打ち消せるか。
-// 下手でも 0.78 は返す ── 返せないと数秒で全員が同じ側から落ちて勝負にならない。
-// **上手い子でも打ち消しきらない**(0.97)── 完全に返せると永久に落ちず、
-// 人がどれだけうまく乗っても CPU に勝てなくなる。この幅だと、残る時間は
-// おおよそ 10秒(下手)〜制限時間いっぱい(上手)に散る。
-const ROLL_HOLD = [0.78, 0.97];
+// 丸太乗り: 歩く速さのうち、どれだけを「留まる」ことに使えるか。
+//
+// **人と同じ壁に当たること。** 人は歩き以上の速さでは押し返せないので、
+// 上面の流れが歩きを超える終盤には誰も残れない。CPU を「押されるぶんの
+// ○%を打ち消す」で書くと、%が小さい子は**いつまでも落ちない** ──
+// 人がどれだけうまく乗っても勝てない相手ができてしまう。
+// そこで CPU も「歩く速さの上限まで押し返す」と書く。
+// 上の端でも 1.0 にしない ── 切れ目をよけるのにも足を使うので、
+// 全部を留まることに回せる人はいない。
+//
+// 人を実際に乗せて測ると「へた 13秒 / ふつう 40秒 / うまい 57秒 /
+// 達人 65秒」。CPU もこの幅に散らばってほしい。
+const ROLL_HOLD = [0.50, 1.0];
 // 立て直しの揺らぎ(人が足踏みでずれるぶん)。**角の速さ**(ラジアン/秒)で
 // 持つ ── 丸太の上の位置は角で持っているので、ここもそろえる。
 const ROLL_WOBBLE = 0.10;
@@ -227,10 +234,18 @@ export class CpuCrowd {
     // 丸太の上に乗っている点は角速度そのままで運ばれる(半径によらない)。
     // **猶予中(t <= 0)は流れない。** 人の側(courseGround)と揃える
     const drift = t > 0 ? spinOf(this.course, t) : 0;
-    const hold = lerp(ROLL_HOLD[0], ROLL_HOLD[1], b.skill);
     b.wob += dt * lerp(ROLL_WOBBLE_HZ[0], ROLL_WOBBLE_HZ[1], 1 - b.skill) * Math.PI * 2;
     const wobble = Math.sin(b.wob) * ROLL_WOBBLE;
-    b.a += (drift * (1 - hold) + wobble) * dt;
+    // 滑り落ちるぶん。てっぺんを外れるほど強くなるので、遅れた子ほど戻れない
+    const slip = t > 0 ? slipRate(b.a) : 0;
+    // 押されるぶんを、歩ける範囲で押し返す。
+    // 押し返せる角の速さ = 歩く速さ ÷ (R cos a) ── 人が水平に歩く速さを
+    // 角の速さへ直したもの(courseGround が流れを水平へ直すのと逆向き)。
+    const push = drift + slip;
+    const hold = lerp(ROLL_HOLD[0], ROLL_HOLD[1], b.skill);
+    const canHold = (CPU_SPEED * hold) / (DRUM_R * Math.max(0.05, Math.cos(b.a)));
+    const net = Math.sign(push) * Math.max(0, Math.abs(push) - canHold);
+    b.a += (net + wobble) * dt;
 
     // 切れ目をよける。腕前が高いほど早く読む
     const look = lerp(ROLL_LOOK[0], ROLL_LOOK[1], b.skill);
