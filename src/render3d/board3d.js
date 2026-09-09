@@ -477,7 +477,75 @@ function makeTerrainCap(hid, terrain) {
   return mesh;
 }
 
-function decorateHex(group, hid, terrain) {
+// 光る苔。**夜の足元の目印**。
+//
+// 月明かりを上げても、地面はどうしても暗い側に寄る ── そこで、
+// 自分で光るものを地面に散らして「そこに地面がある」と分かるようにする。
+// 発光(emissive)はライトと関係なく色が乗るので、暗い夜ほど目立つ。
+//
+// **昼は光らせない。** emissiveIntensity を夜の濃さ(night)で動かすので、
+// 昼はただの苔むした地面、夜だけ淡く光る(_tickSky が動かす)。
+// 材質は**1つを全部で使い回す** ── 1か所いじれば島じゅうの苔が変わるし、
+// 盤に何百個あってもドローコールと更新は増えない。
+function makeMossMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0x2f5c3a,          // 昼は暗い苔の緑
+    emissive: 0x46d98a,       // 夜に光る色。白く飛ばないよう緑を濃いめに
+    emissiveIntensity: 0,     // _tickSky が夜の濃さで動かす
+    roughness: 1,
+    flatShading: true,
+  });
+}
+
+// 苔を1株ぶん、置き場所を書き出す。**メッシュはここでは作らない** ──
+// 島じゅうで 1000 を超えるので、1つずつ置くとそのぶん描画の呼び出しが増える。
+// 全部まとめて 1 つの InstancedMesh にする(下の buildMoss)。
+function addMoss(out, rng, x, z) {
+  // **粒を離して散らす。** 重ねて潰すと隣どうしが溶けて1枚の面になり、
+  // 苔ではなく塗料をこぼした跡に見える(実際そうなって撮り直した)。
+  const n = 5 + Math.floor(rng() * 5);
+  for (let i = 0; i < n; i++) {
+    const s = 0.028 + rng() * 0.026;
+    // 株のなかで円形にばらけさせる(四角く固まらないよう極座標で)
+    // 半径は粒の大きさの3倍以上とる ── これより詰めると近くで見たとき
+    // 粒どうしがくっついて、ひとつの大きな緑の面になる
+    const a = rng() * Math.PI * 2;
+    const r = 0.075 + rng() * 0.145;
+    out.push({
+      x: x + Math.cos(a) * r,
+      // 高さは他の飾りと同じくタイル上面から(地表の起伏ぶんは同じように無視する)
+      y: TILE_TOP + 0.008,
+      z: z + Math.sin(a) * r,
+      // 少しだけ潰す。平たくしすぎると陰影が消えて、ただの緑の丸になる
+      sx: s, sy: s * (0.45 + rng() * 0.25), sz: s * (0.8 + rng() * 0.5),
+      ry: rng() * Math.PI,
+    });
+  }
+}
+
+const MOSS_UP = new THREE.Vector3(0, 1, 0);
+
+// 溜めた置き場所から、苔をまとめて 1 つのメッシュにする。
+// 材質も形も同じで、置いたあと動かないので、これで描画の呼び出しは 1 回で済む。
+function buildMoss(spots, mossMat) {
+  if (!spots.length) return null;
+  const mesh = new THREE.InstancedMesh(GEO.sphere, mossMat, spots.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const pos = new THREE.Vector3();
+  const scl = new THREE.Vector3();
+  spots.forEach((o, i) => {
+    q.setFromAxisAngle(MOSS_UP, o.ry);
+    mesh.setMatrixAt(i, m.compose(pos.set(o.x, o.y, o.z), q, scl.set(o.sx, o.sy, o.sz)));
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  // 苔は自分で光る。影を落としても受けても意味がないので切る(そのぶん軽い)
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
+function decorateHex(group, hid, terrain, moss = null) {
   const rng = localRng(hashStr(hid + terrain));
   const c = hexCenterOf(hid);
   const add = (obj, dx, dz) => {
@@ -486,6 +554,16 @@ function decorateHex(group, hid, terrain) {
     obj.position.y += TILE_TOP;
     group.add(obj);
   };
+
+  // 苔は地形を問わず、どの陸にも散らす ── 夜に「ここは歩ける」と
+  // 分かることが目的なので、森だけにあっても足りない。
+  // 中心は数字トークンが載るので空けておく(トークンの下に潜って見えない)。
+  if (moss && terrain !== 'desert') {
+    // 内側と外側の2重に散らす。1重だとヘックスの縁にだけ並んで、
+    // 輪郭をなぞる不自然な模様に見える
+    for (const [dx, dz] of ringPositions(rng, 5, 0.46, 0.82)) addMoss(moss, rng, dx + c.x, dz + c.y);
+    for (const [dx, dz] of ringPositions(rng, 3, 0.16, 0.4)) addMoss(moss, rng, dx + c.x, dz + c.y);
+  }
 
   if (terrain === 'forest') {
     // 大小・色違いの木を2重リングで(森の密度)
@@ -840,14 +918,34 @@ function makeMerchant(colorHex) {
 // 昼 → 夕暮れ → 星夜 → 昼 をゆっくり巡る。太陽の光暈と夜の星は
 // シェーダーで手続き生成。ライト・霧・海の縁の色も同じパレットに連動する。
 const SKY_CYCLE_SEC = 300; // 1周の長さ
+// 真夜中に光る苔がどれだけ光るか。
+// **強すぎると色が飛んで白い染みになる** ── 1.15 で試したら、緑ではなく
+// 白い斑点が地面に散っているように見えた。色が残るところまで落とす。
+// 月明かりを上げたぶん背景が明るくなったので、少しだけ戻してある。
+const MOSS_GLOW = 0.95;
 const SKY_PHASES = [
   // t: サイクル内の位置, zenith: 天頂, horizon: 地平線,
   // sun: 太陽光の色, sunI: 強さ, hemi: 半球光の強さ, night: 星の濃さ
-  { t: 0.0, zenith: 0x2a5d94, horizon: 0x9cc4d8, sun: 0xfff2dd, sunI: 2.4, hemi: 1.05, hemiC: 0xcfe3ff, night: 0 },
-  { t: 0.35, zenith: 0x1c4173, horizon: 0xe8a35e, sun: 0xffc27a, sunI: 1.9, hemi: 0.85, hemiC: 0xe8d2b8, night: 0 },
-  { t: 0.5, zenith: 0x0a1d3a, horizon: 0x35507a, sun: 0x9fb8ff, sunI: 0.4, hemi: 0.62, hemiC: 0x7089b8, night: 1 },
-  { t: 0.65, zenith: 0x14355f, horizon: 0xd88a6a, sun: 0xffcf95, sunI: 1.7, hemi: 0.8, hemiC: 0xe0cdb8, night: 0.15 },
-  { t: 1.0, zenith: 0x2a5d94, horizon: 0x9cc4d8, sun: 0xfff2dd, sunI: 2.4, hemi: 1.05, hemiC: 0xcfe3ff, night: 0 },
+  // hemiC: 半球光の空側の色, hemiG: 地面側の色
+  //
+  // **hemiG は「下からの照り返し」**。空を向いていない面 ── 崖の側面、
+  // 木の下、物のかげ ── はここでしか照らされない。ずっと 0x46617a 固定で、
+  // 夜になると真っ先に潰れていたのがここ。
+  { hemiG: 0x46617a, t: 0.0, zenith: 0x2a5d94, horizon: 0x9cc4d8, sun: 0xfff2dd, sunI: 2.4, hemi: 1.05, hemiC: 0xcfe3ff, night: 0 },
+  { hemiG: 0x5a5f78, t: 0.35, zenith: 0x1c4173, horizon: 0xe8a35e, sun: 0xffc27a, sunI: 1.9, hemi: 0.85, hemiC: 0xe8d2b8, night: 0 },
+  // **夜。** 遊べる明るさまで月明かりを上げてある ──「暗すぎてほぼ見えない
+  // ところがある」と報告された。足元の地面の明るさ(中央値)は真昼の 18% で、
+  // いまは 45%。青い月明かりの色は残るので、明るくしても夜には見える。
+  //
+  // **効くのは強さより色のほう。** 夜は太陽が弱いので、地面の色はほぼ
+  // 半球光で決まる。とくに hemiG(下からの照り返し)── 空を向いていない面は
+  // ここでしか照らされないので、ここが暗いと崖の側面や木の下が真っ黒に潰れる。
+  //
+  // **上げすぎない。** 一度 65% まで上げたら夕方にしか見えなくなった。
+  // 夜は夜に見えること(実際の絵を並べて 45% に決めた)。
+  { hemiG: 0x94b0c8, t: 0.5, zenith: 0x0a1d3a, horizon: 0x35507a, sun: 0x9fb8ff, sunI: 0.6, hemi: 1.1, hemiC: 0xa6c4ea, night: 1 },
+  { hemiG: 0x566079, t: 0.65, zenith: 0x14355f, horizon: 0xd88a6a, sun: 0xffcf95, sunI: 1.7, hemi: 0.8, hemiC: 0xe0cdb8, night: 0.15 },
+  { hemiG: 0x46617a, t: 1.0, zenith: 0x2a5d94, horizon: 0x9cc4d8, sun: 0xfff2dd, sunI: 2.4, hemi: 1.05, hemiC: 0xcfe3ff, night: 0 },
 ];
 
 function skyAt(phase) {
@@ -868,6 +966,7 @@ function skyAt(phase) {
     horizon: lerpC(a.horizon, b.horizon),
     sun: lerpC(a.sun, b.sun),
     hemiC: lerpC(a.hemiC, b.hemiC),
+    hemiG: lerpC(a.hemiG, b.hemiG),
     sunI: a.sunI + (b.sunI - a.sunI) * e,
     hemi: a.hemi + (b.hemi - a.hemi) * e,
     night: a.night + (b.night - a.night) * e,
@@ -1476,6 +1575,10 @@ export class Board3D {
     this.skyPhaseOverride = null; // デバッグ用: 0..1 で時刻を固定
 
     // ライティング
+    // 光る苔の材質。**全部の苔で1つを使い回す**ので、_tickSky が
+    // これ1つの emissiveIntensity を動かせば島じゅうの苔が一緒に光る。
+    this.mossMat = makeMossMaterial();
+
     this.hemi = new THREE.HemisphereLight(0xcfe3ff, 0x46617a, 1.05);
     this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
@@ -1820,12 +1923,17 @@ export class Board3D {
     this.sun.intensity = s.sunI;
     this.hemi.intensity = s.hemi;
     this.hemi.color.copy(s.hemiC);
+    this.hemi.groundColor.copy(s.hemiG);
 
     // 霧・背景・海の縁も地平線の色へ寄せる(空との継ぎ目を消す)
     const fogCol = s.horizon.clone().lerp(s.zenith, 0.55);
     this.scene.fog.color.copy(fogCol);
     this.scene.background.copy(fogCol);
     if (this.seaUniforms) this.seaUniforms.uBg.value.copy(fogCol);
+
+    // **光る苔は夜だけ光る。** 昼はただの苔むした地面(emissive 0)。
+    // 夜の濃さ(night)をそのまま使うので、夕暮れに向けて自然に消えていく。
+    this.mossMat.emissiveIntensity = s.night * MOSS_GLOW;
 
     // 影の濃さも時刻に連動(日が沈めば影は消える)
     if (this.seaShadowMat) this.seaShadowMat.opacity = 0.03 + (1 - s.night) * 0.21;
@@ -2179,6 +2287,8 @@ export class Board3D {
     this.staticGroup.add(shadowCatcher);
 
     // 砂浜 + タイル + 装飾 + トークン
+    // 苔だけは置き場所を溜めておいて、最後に1つのメッシュにまとめる
+    const mossSpots = [];
     for (const hid of state.board.hexIds) {
       const c = hexCenterOf(hid);
       const hex = state.board.hexes[hid];
@@ -2211,7 +2321,7 @@ export class Board3D {
 
       const cap = makeTerrainCap(hid, hex.terrain);
       if (cap) this.staticGroup.add(cap);
-      decorateHex(this.staticGroup, hid, hex.terrain);
+      decorateHex(this.staticGroup, hid, hex.terrain, mossSpots);
 
       if (hex.token) {
         const token = new THREE.Mesh(GEO.token, [
@@ -2236,6 +2346,9 @@ export class Board3D {
         this.staticGroup.add(sign);
       }
     }
+
+    const moss = buildMoss(mossSpots, this.mossMat);
+    if (moss) this.staticGroup.add(moss);
 
     // 漁師たち: 漁場(港のない海岸辺)
     for (const f of state.board.fisheries ?? []) {
