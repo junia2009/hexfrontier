@@ -15,7 +15,7 @@
 import { lsGet, lsSet } from '../storage.js';
 import { audioCtx, wantsKeepAlive } from './ctx.js';
 import {
-  DEFAULT_SCENE, chordAt, chordDur, layerGains, melodyChance,
+  DEFAULT_SCENE, beatDur, chordAt, chordDur, layerGains, melodyChance, pulseDur,
 } from './score.js';
 
 const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
@@ -219,15 +219,20 @@ export class Bgm {
     // 弦楽パッド(ゆっくり立ち上がる持続和音)
     for (const m of chord.notes) this._pad(m, t0, dur + 1.6);
 
-    // 刻み。速い場面でだけ音量が乗る(score.js の pulse)
-    const beats = Math.max(2, Math.round(dur / 0.7));
-    for (let i = 0; i < beats; i++) {
-      this._pulse(pulseNote(chord.notes[0]), t0 + (dur * i) / beats, i % 2 === 0);
+    // 刻み。**score.js の拍に乗せる** ── ここを 0.7 秒に固定していたせいで、
+    // 場面をいくら速くしても拍だけは 86BPM のまま動いていなかった。
+    const beat = beatDur(this.scene, this.intensity);
+    const step0 = pulseDur(this.scene, this.intensity);
+    for (let i = 0; i * step0 < dur - 1e-6; i++) {
+      // 表拍(拍の頭)だけ強く打つ。裏拍は軽く
+      const strong = Math.abs((i * step0) % beat) < 1e-6;
+      this._pulse(pulseNote(chord.notes[0]), t0 + i * step0, strong, step0);
     }
 
-    // ハープの分散和音(低→高、ときどき休符)
+    // ハープの分散和音(低→高、ときどき休符)。**これも拍に乗せる**ので、
+    // テンポが上がると音の粒も一緒に速くなる
     const tones = [...chord.notes.slice(1), chord.notes[1] + 12, chord.notes[2] + 12];
-    const step = Math.max(0.22, dur / 12);
+    const step = Math.max(0.16, beat / 2);
     for (let i = 0; i < Math.round(dur / step) - 2; i++) {
       if (Math.random() < 0.3) continue;
       const note = tones[i % tones.length] + (Math.random() < 0.12 ? 12 : 0);
@@ -302,19 +307,24 @@ export class Bgm {
 
   // 刻み。低い短音で拍を出す ── 速い場面(丸太乗り・蛮族・竜)の芯になる。
   // strong は表拍(気持ち強く・低く)
-  _pulse(midi, t0, strong) {
+  // **打音は自分の間隔に収める。** 減衰を 0.26 秒に固定していたら、
+  // 速い場面(王手の 0.178 秒間隔)では前の打音の尾に次が重なって
+  // 一続きの低音になり、実測でその周期の相関がほぼ 0 になっていた
+  // ── いちばん刻んでほしい場面で拍が消えるという逆の結果。
+  _pulse(midi, t0, strong, gap = 0.7) {
+    const fall = Math.min(0.26, gap * 0.7);
     const osc = this.ctx.createOscillator();
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(midiHz(midi) * (strong ? 1 : 1.5), t0);
-    osc.frequency.exponentialRampToValueAtTime(midiHz(midi) * 0.6, t0 + 0.12);
+    osc.frequency.exponentialRampToValueAtTime(midiHz(midi) * 0.6, t0 + fall * 0.46);
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(strong ? 0.16 : 0.075, t0 + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + fall);
     osc.connect(g);
     g.connect(this.layers.pulse);
     osc.start(t0);
-    osc.stop(t0 + 0.3);
+    osc.stop(t0 + fall + 0.04);
   }
 
   _flute(midi, t0, dur) {

@@ -8,16 +8,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_SCENE, SCENES, chordAt, chordDur, layerGains, melodyChance,
-  raceIntensity, raceScene, sceneOf,
+  DEFAULT_SCENE, SCENES, beatDur, bpmOf, chordAt, chordDur, layerGains, melodyChance,
+  pulseDur, raceIntensity, raceScene, sceneOf,
 } from '../src/audio/score.js';
 import { MEETS } from '../src/minigame/meets.js';
 
 test('譜面: 場面の定義がそろっている', () => {
   for (const [name, s] of Object.entries(SCENES)) {
     assert.ok(s.mode && s.cadence, `${name}: 旋法か和音進行がない`);
-    assert.ok(s.dur > 1 && s.dur < 12, `${name}: 和音の長さが極端 ${s.dur}`);
+    assert.ok(s.bpm >= 40 && s.bpm <= 200, `${name}: テンポが極端 ${s.bpm}`);
+    assert.ok(Number.isInteger(s.beats) && s.beats >= 2, `${name}: 拍数が変 ${s.beats}`);
+    assert.ok(Number.isInteger(s.sub) && s.sub >= 1 && s.sub <= 4, `${name}: 分割が変 ${s.sub}`);
+    assert.ok(chordDur(name, 0) > 1 && chordDur(name, 0) < 12,
+      `${name}: 和音の長さが極端 ${chordDur(name, 0)}`);
     assert.ok(s.rush > 0 && s.rush <= 1, `${name}: 詰めかたが範囲外 ${s.rush}`);
+    // **和音は拍の整数倍。** ずれると和音の変わり目で拍子が取れなくなる
+    const n = chordDur(name, 0) / beatDur(name, 0);
+    assert.ok(Math.abs(n - Math.round(n)) < 1e-9, `${name}: 和音が拍の整数倍でない ${n}`);
     // どの場面でも、鳴っているパートが1つ以上ある
     const on = Object.values(layerGains(name, 0)).filter((v) => v > 0).length;
     assert.ok(on >= 2, `${name}: 高まり 0 で鳴るパートが ${on} しかない`);
@@ -83,8 +90,25 @@ test('譜面: 場面ごとに使う音が入れ替わる', () => {
   for (const name of ['logroll', 'daifugo']) {
     assert.equal(pcs(name).split(',').length, 5, `${name}: 5音になっていない`);
   }
-  // 竜は低く鳴らす(オクターブ下げ)
-  assert.ok(chordAt('dragonhunt', 0).notes[0] < chordAt('game', 0).notes[0], '竜が低くない');
+  // 竜の不穏さは旋法(低い2度)が持つ。速さでも引き離す
+  assert.ok(bpmOf('dragonhunt', 0) > bpmOf('game', 0) * 1.5, '竜が対戦より十分速くない');
+});
+
+// **刻みは持続音より前に出ていること。**
+//
+// これで三度つまずいた(王手・接近・竜)。「盛り上げたいから全部を最大に」
+// すると、ドローンとパッドが拍を覆って逆に聞こえなくなる。実測でも、
+// ドローン 1.0 / パッド 0.8 に対して刻み 0.85 だった竜は、狙った拍での
+// 相関が 0.02 しかなかった(同じ行進調で刻みが前に出ている蛮族は 0.31)。
+test('譜面: 刻みのある場面は刻みが持続音より前に出ている', () => {
+  for (const name of Object.keys(SCENES)) {
+    const g = layerGains(name, 1);
+    if (g.pulse < 0.5) continue;      // 刻みを使わない場面は対象外
+    assert.ok(g.pulse >= g.drone, `${name}: ドローンが刻みより大きい(拍が埋まる)`);
+    assert.ok(g.pulse >= g.pad, `${name}: パッドが刻みより大きい(拍が埋まる)`);
+    // 打音が自分の間隔に収まる速さか(重なると一続きの低音になる)
+    assert.ok(pulseDur(name, 1) > 0.1, `${name}: 刻みが速すぎて音が繋がる`);
+  }
 });
 
 // **進行が 4 和音で巡回すること。** ここが揺れると、場面を鳴らし直す
@@ -207,17 +231,38 @@ test('譜面: 対戦の3段が別の曲になっている', () => {
     '平常と接近で和音進行が同じ');
   // 王手は使う音そのものが変わる(短調寄りへ)
   assert.notEqual(pcs('game-final'), pcs('game'), '王手で使う音が変わらない');
-  // 王手は低く鳴る
-  assert.ok(chordAt('game-final', 0).notes[0] < chordAt('game', 0).notes[0] - 6,
-    '王手が十分低くない');
+  // **刻みのある段では音域を下げない。**
+  // 一度 王手 を 1 オクターブ下げたが、和音・ドローン・刻みが同じ低い帯域に
+  // 集まって濁り、実測で狙った刻みの周期の相関が 0.04(同じ速さの丸太乗りは
+  // 0.21)まで落ちた ── いちばん刻んでほしい場面で拍が埋まる。
+  for (const name of Object.keys(SCENES)) {
+    if (layerGains(name, 1).pulse < 0.5) continue;
+    assert.ok((SCENES[name].octave ?? 0) >= 0,
+      `${name}: 刻みが強いのに音域を下げている(低音で拍が埋まる)`);
+  }
   // 刻みは平常では出ず、段が上がるごとに増える
   assert.equal(layerGains('game', 0).pulse, 0, '平常に刻みが出ている');
   assert.ok(layerGains('game-close', 0).pulse > 0.5, '接近に刻みが無い');
   assert.ok(layerGains('game-final', 0).pulse > layerGains('game-close', 0).pulse,
     '王手で刻みが増えない');
-  // **速さの差が耳に分かる大きさか。** 平常と王手で 1.5 倍以上
-  assert.ok(chordDur('game', 0) / chordDur('game-final', 0) >= 1.5,
-    `平常と王手の速さの差が小さい: ${chordDur('game', 0)} → ${chordDur('game-final', 0)}`);
+  // **テンポそのものが上がること。**
+  //
+  // ここが今回いちばん大事。以前は和音の長さ(和声リズム)だけを詰めていて、
+  // 拍は bgm.js が 0.7 秒に固定して打っていたため、実測の拍は
+  // 86 → 83 → 88 BPM とほとんど動いていなかった ── 「速くなった」と
+  // 感じられないのは当然だった。和音の長さではなく BPM を見る。
+  for (let i = 1; i < stages.length; i++) {
+    assert.ok(bpmOf(stages[i], 0) > bpmOf(stages[i - 1], 0) * 1.25,
+      `${stages[i]}: 前の段よりテンポが上がっていない`
+      + ` (${Math.round(bpmOf(stages[i - 1], 0))} → ${Math.round(bpmOf(stages[i], 0))} BPM)`);
+  }
+  // 平常と王手で 2 倍以上。ここまで離れれば「速くなった」と分かる
+  assert.ok(bpmOf('game-final', 1) / bpmOf('game', 0) >= 2,
+    `平常と王手のテンポ差が小さい:`
+    + ` ${Math.round(bpmOf('game', 0))} → ${Math.round(bpmOf('game-final', 1))} BPM`);
+  // 刻みの間隔も実際に詰まる(拍だけ速くて刻みが据え置きでは意味がない)
+  assert.ok(pulseDur('game-final', 1) < pulseDur('game-close', 0) / 2,
+    '王手で刻みが詰まらない');
 
   // **段が上がるほど旋律は引っこむ。** 笛が歌うのをやめて刻みが出てくると、
   // 「濃さが変わった」ではなく「曲が変わった」と聞こえる ── 実測でも、
