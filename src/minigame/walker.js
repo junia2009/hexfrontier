@@ -30,7 +30,10 @@ export { makeWalker };
 // 自分の体(Walker)と、散策部屋で描く他の人(remote-view.js)の両方が通る。
 // 2か所に書くと、片方だけ項目を足したときに静かにずれる。
 export function applyPose(parts, pose, x, y, z) {
-  parts.group.position.set(x, y, z);
+  // lift は歩きの上下動(腰の沈み)。足を地面に着けるために要る。
+  // **カメラは motion の座標を追っている**ので、ここで体を上下させても
+  // 画面は揺れない(walk-mode.js の「カメラは足元の座標を追う」)。
+  parts.group.position.set(x, y + (pose.lift ?? 0), z);
   for (const part of ['group', 'hips', 'chest', 'head']) {
     const a = pose[part];
     parts[part].rotation.set(a.x, a.y, a.z);

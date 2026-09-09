@@ -8,9 +8,13 @@
 // test/minigame.test.js が「全ての姿勢の項目が揃っていること」を見ている。
 
 // s は各姿勢の中で左右の符号にも使っている名前なので、別名で取り込む
-import { s as sc, HIP_Y } from './scale.js';
+import { s as sc, HIP_Y, THIGH, SHIN, SOLE_DROP, SOLE_AHEAD } from './scale.js';
 
 const JOINT = (x = 0, y = 0, z = 0) => ({ x, y, z });
+// 体全体の上下(タイル単位)。下げる向きが負。
+// **足を地面に着けるために要る** ── 脚を θ 振ると足先は L(1-cosθ) だけ
+// 上がるので、腰を同じだけ下げないと体が浮く(下の walkPose を見よ)。
+const LIFT = (v = 0) => v;
 const LIMB = (rootX = 0, rootZ = 0, knee = 0) => ({ rootX, rootZ, knee });
 // 口。0 = にっこり / 1 = 「お」の口(驚き)
 const MOUTH = (open = 0) => ({ open });
@@ -26,35 +30,98 @@ const MOUTH = (open = 0) => ({ open });
 // 変えても比が動かないようにする。
 export const LEG_SWING = 0.78;   // 腰の振り(ラジアン)。大きいほど大股
 
+// 脚の長さ(腰の高さ)。振ったときの足先の上下も、前後の移動もこれで決まる。
+export const LEG_LEN = sc(HIP_Y);
+
+// ---- 足の裏がどこに来るか ----
+//
+// 腰 →(rootX 回す)→ 太もも →(さらに knee 回す)→ すね → 足首 → 靴の裏。
+// body.js の組み立てとまったく同じ順で辿る(寸法は scale.js が持っている)。
+//
+// **見た目の位置を数で出せることが要る。** 「脚を θ 振ると足は L(1-cosθ)
+// 上がる」で済ませようとしたが、靴が足首より前と下に付いているぶんが
+// 抜けていて、実機で測ると接地しているはずの足が 0.012 も上下していた。
+// 当てずっぽうをやめて、本物のつなぎ目をそのまま計算する。
+const rotX = (y, z, a) => ({
+  y: y * Math.cos(a) - z * Math.sin(a),
+  z: y * Math.sin(a) + z * Math.cos(a),
+});
+
+// 腰を原点としたときの足の裏。y は下が負、z は前が正。
+export function solePos(rootX, knee) {
+  const hip = rotX(-sc(THIGH), 0, rootX);
+  const foot = rotX(-sc(SHIN) - sc(SOLE_DROP), sc(SOLE_AHEAD), rootX + knee);
+  return { y: hip.y + foot.y, z: hip.z + foot.z };
+}
+
+// 足の裏の、地面からの高さ(腰が LEG_LEN の高さにあるとして)
+export const soleHeight = (rootX, knee) => LEG_LEN + solePos(rootX, knee).y;
+
 // 足が1歩で前後に動く距離。腰を ±LEG_SWING 振ったときの足先の移動量。
-export const FOOT_TRAVEL = 2 * sc(HIP_Y) * Math.sin(LEG_SWING);
+export const FOOT_TRAVEL = 2 * LEG_LEN * Math.sin(LEG_SWING);
 
 // 1歩で進む距離を、足の振れ幅の何倍まで許すか。
-// 1.0 なら足はぴたりと地面に留まるが、この体格でこの速さ(体の 16 倍/秒)だと
-// 秒 14 歩になって脚が見えなくなる。**3 倍**で「小さい生きものが忙しなく
-// 駆けている」ところに収めた(秒 3.8 歩)。
-export const STEP_SLIP = 3;
+// 1.0 なら足はぴたりと地面に留まるが、この体格でこの速さ(脚の長さの
+// 16 倍/秒)だと秒 11 歩になって脚が見えなくなる。
+//
+// **3 倍にしていたら、進んだ距離の 93% を足が滑っていた**(実測)。
+// 1.8 倍まで詰めて 44% に落とし、そのぶん歩数が秒 3.8 → 6.4 に増える。
+// 小さい生きものが小走りしている見え方になる ── ここは速さと脚の長さの
+// 釣り合いの話で、これ以上詰めるには歩く速さを落とすか脚を伸ばすしかない。
+export const STEP_SLIP = 1.8;
 export const STEP_DIST = FOOT_TRAVEL * STEP_SLIP;
 
 // 進んだ距離 → 歩行サイクルの位相。1歩(左右のどちらか)が π。
 export const PHASE_PER_UNIT = Math.PI / STEP_DIST;
 
-// 歩き。手足を交互に振るだけの素直なもの。
-// 体は上下しない ── カメラが追うので、揺らすと画面全体が揺れて見づらい。
+// 膝の曲げ。**曲げるのは「前へ振り出している最中」の脚だけ。**
+//
+// もとは足の**位置**(後ろにあるか)で決めていたが、それだと 1/4 周ずれる。
+// 振り出しかどうかは位置ではなく**動く向き**で決まるので、rootX を
+// 微分して符号を見る。
+//
+// **向きの取り違えに注意。** この骨格は rootX が正のとき足が**後ろ**へ行く
+// (根が -Y に垂れていて、X 軸まわりの正回転で足先が -Z = 後ろへ回る)。
+// rootX = sin(t) なので、足が後ろへ動く(= 接地して体を送り出す)のは
+// cos(t)·s > 0 のあいだ。膝を曲げるのはその**逆**の半周。
+// 実測で確かめること ── 符号を1つ取り違えると、接地した足が前へ滑る
+// いちばん見苦しい歩きになる(実際そうなっていた)。
+//
+// **速さで浅くしない。** 浅くすると、ゆっくり歩くときに振り出した足が
+// 地面すれすれを通り、どちらの足が接地しているのか決まらなくなる ──
+// 実測で、遅いと滑りが 32% から 100% に戻っていた。
+// 1歩の形は速さで変えず、速さは歩数が受け持つ。
+const kneeOf = (t, s) => Math.max(0, -Math.cos(t) * s) * 0.9;
+
+// 歩き。手足を交互に振る。
+// **体は1歩ごとに沈む**(lift)── 脚を振ると足が浮くので、そのぶん下げないと
+// 宙に浮いて滑って見える。カメラは motion の座標を追っているので画面は揺れない。
 export function walkPose(phase, gait, facing) {
   const t = phase;
+  // **振り幅は速さで縮めない。** 縮めると、ゆっくり歩くほど歩幅だけが
+  // 小さくなって滑りが増える ── 実測でも遅いほど悪く(93% → 98%)なっていた。
+  // 速さは歩数(位相の進み)が受け持つので、1歩の形は変えない。
+  const swingAmp = LEG_SWING;
+  const angle = Math.sin(t) * swingAmp;
   return {
     group: JOINT(0, facing, 0),
     mouth: MOUTH(0),
+    // **低いほうの足が地面にぴったり着くように、体ごと下げる。**
+    // これが無いと体が宙に浮き、足は1周に2度そっと触れるだけになる
+    // (実測: 1周 16 コマのうち、接地していたのは 2 コマだけ)。
+    // 結果として腰は1歩に1回沈む ── 歩きの上下動はこれで自然に出る。
+    lift: LIFT(-Math.min(
+      soleHeight(angle, kneeOf(t, 1)),
+      soleHeight(-angle, kneeOf(t, -1)),
+    )),
     // 走るほど前傾する(それらしく見せるのはこれだけで足りる)
     hips: JOINT(gait * 0.12, 0, 0),
     chest: JOINT(0, 0, 0),
     head: JOINT(0, 0, 0),
-    // 脚: 交互に振る。膝は振り出しのときだけ曲げる
+    // 脚: 交互に振る(膝の曲げは kneeOf)
     legs: [0, 1].map((i) => {
       const s = i === 0 ? 1 : -1;
-      const swing = Math.sin(t) * s;
-      return LIMB(swing * LEG_SWING * gait, 0, Math.max(0, -swing) * 0.9 * gait);
+      return LIMB(Math.sin(t) * s * swingAmp, 0, kneeOf(t, s));
     }),
     // 腕: 脚と逆位相
     arms: [0, 1].map((i) => {
@@ -77,6 +144,7 @@ export function airPose(vy, facing) {
   const drop = Math.max(0, -up);
   return {
     group: JOINT(0, facing, 0),
+    lift: LIFT(0),
     mouth: MOUTH(1),   // 跳んでいる間は「お」
     hips: JOINT(tuck * 0.3 - drop * 0.1, 0, 0),
     chest: JOINT(0, 0, 0),
@@ -105,6 +173,7 @@ export function tumblePose(spin, facing) {
   const t = spin * 2.4;
   return {
     group: JOINT(Math.sin(spin * 1.7) * 0.45, facing, spin),
+    lift: LIFT(0),
     mouth: MOUTH(1),   // 落ちている間は「お」
     hips: JOINT(-0.25, 0, 0),
     chest: JOINT(Math.sin(t * 1.3) * 0.2, 0, Math.sin(t) * 0.12),
@@ -137,6 +206,7 @@ export function sinkPose(t, facing, spin) {
       facing + spin * 1.2,
       Math.sin(t * 0.7) * 0.26,
     ),
+    lift: LIFT(0),
     mouth: MOUTH(1),   // 水の中でも口は開いたまま
     hips: JOINT(-0.12 + Math.sin(t * 1.1) * 0.06, 0, 0),
     chest: JOINT(0.12, 0, Math.sin(t * 0.9) * 0.1),
@@ -199,6 +269,7 @@ export function fishPose(t, facing, k = {}) {
 
   return {
     group: JOINT(0, facing, 0),
+    lift: LIFT(0),
     // 大物と格闘している間と、釣れた瞬間は口が開く
     mouth: MOUTH((fighting && tension > 0.55) || landed ? 1 : 0),
     // 引かれるぶんだけ体を反らす。逃げられたら前へうなだれる
@@ -238,6 +309,7 @@ export function aimPose(t, facing, draw = 0) {
   const strain = Math.sin(t * 26) * 0.02 * k;
   return {
     group: JOINT(0, facing, 0),
+    lift: LIFT(0),
     mouth: MOUTH(k > 0.75 ? 1 : 0),            // 満まで引くと口が開く
     hips: JOINT(0, 0, 0),
     // 左肩を的へ向ける(体を半身に開く)。引くほど深くひねる
@@ -268,6 +340,7 @@ export function sitPose(t, facing) {
   const lean = Math.sin(t * 0.37) * 0.05;   // ときどき体を傾ける
   return {
     group: JOINT(0, facing, 0),
+    lift: LIFT(0),
     mouth: MOUTH(0),
     hips: JOINT(0, 0, 0),
     chest: JOINT(0.10 + breathe, lean, 0),
@@ -285,6 +358,7 @@ export function sitPose(t, facing) {
 function standPose(facing) {
   return {
     group: JOINT(0, facing, 0),
+    lift: LIFT(0),
     mouth: MOUTH(0),
     hips: JOINT(0, 0, 0),
     chest: JOINT(0, 0, 0),
@@ -305,8 +379,10 @@ export function blendPose(a, b, k) {
   return {
     // 向きは混ぜない(同じ値が入っている。回り込みで暴れるのを避ける)
     group: JOINT(mix(a.group.x, b.group.x), b.group.y, mix(a.group.z, b.group.z)),
+    lift: LIFT(0),
     // 口は開いているか閉じているかの2択。混ぜられないので近いほうを採る
     mouth: MOUTH(t < 0.5 ? a.mouth.open : b.mouth.open),
+    lift: LIFT(mix(a.lift ?? 0, b.lift ?? 0)),
     hips: joint(a.hips, b.hips),
     chest: joint(a.chest, b.chest),
     head: joint(a.head, b.head),
@@ -399,6 +475,7 @@ function rawEmotePose(key, t, facing) {
         ...base,
         // 体ごと少しひねる。後ろから見て動いていると分かるのはこれが一番強い
         group: JOINT(0, facing + shake * 0.22, 0),
+        lift: LIFT(0),
         hips: JOINT(0.1, 0, shake * 0.05),
         // **横回転(y)だけでは、後ろから見て何も動かない。**
         // 頭は丸い球で、しかも回転の軸の上に載っているので、首をひねっても

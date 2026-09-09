@@ -10,9 +10,10 @@ import { LAYOUT } from '../src/rules/board.js';
 import { isLandHex } from '../src/rules/sea.js';
 import { makeGround, spawnPoint } from '../src/minigame/ground.js';
 import {
-  WalkerMotion, WALK_SPEED, JUMP_HEIGHT, WATER_Y, FOOT_RATE,
+  WalkerMotion, WALK_SPEED, JUMP_HEIGHT, WATER_Y, FOOT_RATE, MAX_DT,
 } from '../src/minigame/motion.js';
 import { makeBlocker, WALKER_RADIUS } from '../src/minigame/obstacles.js';
+import { LEG_LEN, PHASE_PER_UNIT, solePos } from '../src/minigame/pose.js';
 import {
   SEAT_R, SPAWN_RING, TABLE_CLEAR, TABLE_RADIUS, TABLE_REACH, tableSeats,
 } from '../src/minigame/ground.js';
@@ -933,4 +934,114 @@ test('walk: 瞬間移動したら足元はすぐその場の高さになる', ()
   assert.equal(w.footY, 0, '平地で足元が合っていない');
   w.setPosition(0, 0);          // 円盤の上へ飛ばす
   assert.equal(w.footY, 0.05, '移った先の高さに合っていない(数フレーム沈む)');
+});
+
+// ---- 歩きかた(足が地面を滑らないか)----
+//
+// 「滑っている」と実機で報告された歩きを、数で押さえる。
+// solePos は本物のメッシュと 0.0095 以内で一致することを確認済み。
+
+// 平らな地面を歩かせて、1コマずつ足の裏の位置を出す
+function walkFrames(mag = 1, frames = 900) {
+  const m = new WalkerMotion(() => ({ y: 0, ok: true }));
+  m.setPosition(0, 0);
+  const dt = 1 / 60;
+  let phase = 0;
+  const out = [];
+  for (let i = 0; i < frames; i++) {
+    const r = m.update(dt, { x: 0, y: mag }, 0);
+    phase += r.speed * Math.min(dt, MAX_DT) * PHASE_PER_UNIT;
+    const p = walkPose(phase, Math.min(1, r.speed / WALK_SPEED), 0);
+    const feet = p.legs.map((L) => {
+      const q = solePos(L.rootX, L.knee);
+      return { y: LEG_LEN + q.y + p.lift, z: m.pos.z + q.z };
+    });
+    out.push({ feet, speed: r.speed, dt, z: m.pos.z, phase });
+  }
+  return out;
+}
+
+// 接地している足が世界で動いた量 ÷ 進んだ距離
+function slipRatio(mag) {
+  const fr = walkFrames(mag);
+  let slide = 0;
+  let dist = 0;
+  let prevLow = -1;
+  let prevZ = 0;
+  for (const f of fr) {
+    dist += f.speed * f.dt;
+    const low = f.feet[0].y < f.feet[1].y ? 0 : 1;
+    if (low === prevLow) slide += Math.abs(f.feet[low].z - prevZ);
+    prevLow = low;
+    prevZ = f.feet[low].z;
+  }
+  return slide / dist;
+}
+
+// **接地している足は、地面の上で止まっているのが正しい。**
+// 直す前は進んだ距離の 93% を滑っていた(= ほとんど接地していなかった)。
+test('walk: 接地している足が地面を滑りすぎない', () => {
+  const r = slipRatio(1);
+  assert.ok(r < 0.45, `足が滑りすぎ(進んだ距離の ${(r * 100).toFixed(0)}%)`);
+});
+
+// **ゆっくり歩いても悪くならないこと。**
+// 1歩の形を速さで縮めていたころは、遅いほど滑りが増えていた(93% → 98%)。
+// 速さは歩数が受け持ち、1歩の形は変えない。
+test('walk: ゆっくり歩いても滑りが増えない', () => {
+  const fast = slipRatio(1);
+  const slow = slipRatio(0.35);
+  assert.ok(slow < fast + 0.3,
+    `遅いほうが滑る(速い ${(fast * 100).toFixed(0)}% → 遅い ${(slow * 100).toFixed(0)}%)`);
+});
+
+// **どちらかの足は必ず地面に着いていること。**
+// 直す前は、脚を振ったぶん腰を下げていなかったので体が宙に浮き、
+// 1周 16 コマのうち接地していたのは 2 コマだけだった。
+test('walk: いつもどちらかの足が地面に着いている', () => {
+  let worst = 0;
+  for (let k = 0; k < 64; k++) {
+    const t = (k / 64) * Math.PI * 2;
+    const p = walkPose(t, 1, 0);
+    const low = Math.min(...p.legs.map((L) => LEG_LEN + solePos(L.rootX, L.knee).y + p.lift));
+    worst = Math.max(worst, Math.abs(low));
+  }
+  // 脚の長さのごく一部。ここが開くと「浮いて滑る」に見える
+  assert.ok(worst < LEG_LEN * 0.02,
+    `低いほうの足が地面から ${worst.toFixed(4)} 離れている(脚の長さ ${LEG_LEN.toFixed(4)})`);
+});
+
+// **振り出す足はちゃんと持ち上がること。** 上がらないと地面を擦って歩く。
+test('walk: 振り出す足は地面から持ち上がる', () => {
+  let best = 0;
+  for (let k = 0; k < 64; k++) {
+    const t = (k / 64) * Math.PI * 2;
+    const p = walkPose(t, 1, 0);
+    const ys = p.legs.map((L) => LEG_LEN + solePos(L.rootX, L.knee).y + p.lift);
+    best = Math.max(best, Math.max(...ys));
+  }
+  assert.ok(best > LEG_LEN * 0.15,
+    `振り出す足が上がらない(最高 ${best.toFixed(4)} / 脚の長さ ${LEG_LEN.toFixed(4)})`);
+});
+
+// **接地している足は前から後ろへ抜けること。**
+// 膝を曲げる位相が 1/4 周ずれていて、接地した足が**前へ**動いていた
+// ── 進行方向へ足が流れる、いちばん滑って見える形だった。
+test('walk: 接地した足は前から後ろへ抜ける', () => {
+  let back = 0;
+  let fwd = 0;
+  const N = 128;
+  let prev = null;
+  for (let k = 0; k <= N; k++) {
+    const t = (k / N) * Math.PI * 2;
+    const p = walkPose(t, 1, 0);
+    const ys = p.legs.map((L) => LEG_LEN + solePos(L.rootX, L.knee).y + p.lift);
+    const low = ys[0] < ys[1] ? 0 : 1;
+    const z = solePos(p.legs[low].rootX, p.legs[low].knee).z;
+    if (prev && prev.low === low) (z < prev.z ? back++ : fwd++);
+    prev = { low, z };
+  }
+  // この骨格では「体に対して後ろへ動く」= 接地して体を送り出している
+  assert.ok(back > fwd * 4,
+    `接地した足が前へ動いている(後ろ ${back} コマ / 前 ${fwd} コマ)`);
 });

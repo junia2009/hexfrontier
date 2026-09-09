@@ -9,7 +9,9 @@
 
 import * as THREE from 'three';
 import { speciesById, DEFAULT_SPECIES } from './species.js';
-import { WALK_SCALE, HIP_Y } from './scale.js';
+import {
+  WALK_SCALE, HIP_Y, THIGH, SHIN, SHOE_R, SHOE_LIFT, SOLE_AHEAD,
+} from './scale.js';
 
 const SKIN = 0xffd9a8;
 const CLOTH = 0x2f6fd0;
@@ -41,8 +43,9 @@ export const CUTE = {
   // 脚だけ詰めると腕が長く見えて、手が靴のそばまで垂れる。
   armR: 0.031, upperArm: 0.043, foreArm: 0.035, handR: 0.037,
   hipX: 0.050,         // 脚の間隔。近すぎると2本が1本に見える
-  legR: 0.036, thigh: 0.038, shin: 0.035,
-  shoe: { r: 0.038, len: 0.042, lift: -0.004, ahead: 0.022 },
+  // 脚と靴の寸法は scale.js が持つ ── pose.js が足の裏の位置を出すのに要る
+  legR: 0.036, thigh: THIGH, shin: SHIN,
+  shoe: { r: SHOE_R, len: 0.042, lift: SHOE_LIFT, ahead: SOLE_AHEAD },
   // 釣り竿。手のさきから腕の延長方向(-Y)へ伸ばす。
   // 腕を前上がりに構えると、そのまま竿も前上がりになる。
   rod: { len: 0.42, r: 0.0055, grip: 0.05 },

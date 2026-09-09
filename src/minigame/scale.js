@@ -34,3 +34,16 @@ export const s = (v) => v * WALK_SCALE;
 // いちばん壊れるのがここで、×0.5 にしたときは脚だけが半分になって、
 // 1歩で進む距離が足の振れ幅の 8.8 倍になっていた(滑って見えた原因)。
 export const HIP_Y = 0.118;
+
+// 脚のつなぎ目の寸法。**これも body.js ではなくここに置く** ── HIP_Y と
+// 同じ理由で、足の裏がどこに来るかを pose.js が知らないと、
+// 「振ったぶん腰を下げて足を地面に着ける」計算ができない。
+// body.js の CUTE がこれを読む(数字を2か所に書かない)。
+export const THIGH = 0.038;     // 太もも(腰 → 膝)
+export const SHIN = 0.035;      // すね(膝 → 足首)
+// 足首から靴の裏まで。靴は少し下げて(lift)、少し前に(ahead)付いている。
+export const SHOE_R = 0.038;      // 靴(カプセル)の半径
+export const SHOE_LIFT = -0.004;  // 靴を足首からさらに下げる分
+export const SOLE_AHEAD = 0.022;  // 靴は足首より少し前に付いている
+// 足首から靴の裏まで
+export const SOLE_DROP = SHOE_R - SHOE_LIFT;
