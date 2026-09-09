@@ -9,7 +9,9 @@ import { createGame } from '../src/state.js';
 import { LAYOUT } from '../src/rules/board.js';
 import { isLandHex } from '../src/rules/sea.js';
 import { makeGround, spawnPoint } from '../src/minigame/ground.js';
-import { WalkerMotion, WALK_SPEED, JUMP_HEIGHT, WATER_Y } from '../src/minigame/motion.js';
+import {
+  WalkerMotion, WALK_SPEED, JUMP_HEIGHT, WATER_Y, FOOT_RATE,
+} from '../src/minigame/motion.js';
 import { makeBlocker, WALKER_RADIUS } from '../src/minigame/obstacles.js';
 import {
   SEAT_R, SPAWN_RING, TABLE_CLEAR, TABLE_RADIUS, TABLE_REACH, tableSeats,
@@ -189,6 +191,81 @@ test('walk: 障害物にめり込まない', () => {
   // 触れていなければ動かさない(端から落ちる挙動を邪魔しない)
   const clear = block(-1, 0, -0.9, 0);
   assert.equal(clear.hit, false, '触れていないのに hit');
+});
+
+// **ぶつかっても瞬間移動しない。**
+//
+// 島で報告された「謎にワープする」の正体。木が2本近すぎる所へ一歩踏み込むと、
+// 押し出しが互いに打ち消し合って「まだ物の中」になる。そこで**先に**逃げ道を
+// 探していたため、離れた別の木の縁まで 0.38 タイル(1フレームの歩幅の24倍)
+// 飛んでいた。立てる場所から踏み出したのなら、行き先が塞がっていても
+// **その場に留まる**のが正しい。
+test('walk: 挟まれても瞬間移動しない(来た場所に留まる)', () => {
+  // 実際にワープが出ていた島の木の配置(scan-warp で採取)
+  const obs = [
+    { x: -3.626, z: -0.303, r: 0.128, h: 1 },
+    { x: -3.486, z: -0.577, r: 0.168, h: 1 },
+    { x: -3.727, z: -0.040, r: 0.130, h: 1 },   // 少し離れた3本目(飛び先だった)
+    { x: -3.194, z: -0.327, r: 0.174, h: 1 },
+  ];
+  const block = makeBlocker(obs);
+  const perFrame = WALK_SPEED * 0.05;          // 1フレームで進める上限
+  const free = (x, z) => obs.every((o) => Math.hypot(x - o.x, z - o.z) >= o.r + WALKER_RADIUS);
+
+  let checked = 0;
+  let wedged = 0;
+  let worst = 0;
+  // 木の茂みのまわりを総当たりで歩かせる
+  for (let x = -3.95; x <= -3.15; x += 0.01) {
+    for (let z = -0.80; z <= 0.15; z += 0.01) {
+      if (!free(x, z)) continue;               // 人が立てない場所からは始めない
+      for (let i = 0; i < 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const r = block(x, z, x + Math.sin(a) * perFrame, z + Math.cos(a) * perFrame,
+          WALKER_RADIUS, 0);
+        const moved = Math.hypot(r.x - x, r.z - z);
+        checked++;
+        if (r.hit) wedged++;
+        worst = Math.max(worst, moved);
+      }
+    }
+  }
+  assert.ok(checked > 1000, `検査が少なすぎる(${checked})`);
+  assert.ok(wedged > 50, `木に当たる場面が出ていない(${wedged})── 配置が離れすぎ`);
+  // **1フレームの歩幅の2倍を超えて動かされない。**
+  // 縁へ押し出されるぶん、まっすぐ歩いた距離よりわずかに伸びることはある
+  // (めり込んだ深さは歩幅以下なので、合わせて 2 倍が上限。実測 1.009 倍)。
+  // 直す前はここが 0.38 タイル = 歩幅の 8 倍だった。
+  assert.ok(worst <= perFrame * 2,
+    `瞬間移動した(${worst.toFixed(4)} タイル、1フレームの歩幅は ${perFrame.toFixed(4)})`);
+});
+
+// 物の中に湧いてしまったときだけ、逃げ道として大きく動いてよい。
+// **ただし近くの縁まで。** 上限が無いと、近くの物がどれも塞がっているときに
+// 遠くの物の縁が選ばれて、島の向こうへ飛ばされる。
+test('walk: 物の中から逃がすときも、遠くの物の縁へは飛ばさない', () => {
+  // 岩が寄り集まっていて、順に押し出しても押し出しきれない配置(総当たりで採取)。
+  // 近くの縁はどれも別の岩の中に入るので、上限が無いと**遠くの物**の縁が
+  // 選ばれ、3タイル近く飛ばされていた。
+  const obs = [
+    { x: -0.047, z: 0.184, r: 0.269, h: 1 },
+    { x: 0.254, z: -0.341, r: 0.180, h: 1 },
+    { x: -0.068, z: -0.323, r: 0.290, h: 1 },
+    { x: -0.078, z: 0.317, r: 0.322, h: 1 },
+    { x: 3, z: 0, r: 0.1, h: 1 },              // 遠くの物。ここへ飛ばしてはいけない
+  ];
+  const block = makeBlocker(obs);
+  const from = { x: 0.019, z: -0.144 };
+  // 前提: 出発点が物の中(= 逃げ道を探す枝に入る)
+  assert.ok(obs.some((o) => Math.hypot(from.x - o.x, from.z - o.z) < o.r + WALKER_RADIUS),
+    '前提が崩れている: 出発点が物の外');
+
+  const r = block(from.x, from.z, 0.038, -0.155, WALKER_RADIUS, 0);
+  const moved = Math.hypot(r.x - from.x, r.z - from.z);
+  const maxR = Math.max(...obs.map((o) => o.r));
+  assert.ok(moved <= 2 * (maxR + WALKER_RADIUS) + 1e-9,
+    `遠くへ逃がしすぎ(${moved.toFixed(3)} タイル)`);
+  assert.ok(r.x < 1, `遠くの物の縁へ飛んだ(x=${r.x.toFixed(3)})`);
 });
 
 test('walk: 障害物に当たっても横には進める(滑る)', () => {
@@ -794,4 +871,66 @@ test('円卓: 席は輪の上に等間隔で、みんな卓のほうを向く', 
     // 席0は手前(-z)
     assert.ok(Math.abs(spots[0].x - 1) < 1e-9 && spots[0].z < -2, '席0が手前にない');
   }
+});
+
+// **段差で足元が瞬間移動しない。**
+//
+// 島で報告された「描画がガチャガチャになる」の正体。数字トークンの円盤は
+// 縁が垂直なので地面の高さがそこで階段状に跳ぶ ── 実測で島じゅうの段差は
+// 全部この縁で、1フレームに 0.0416 上下していた(跳躍の高さの2割)。
+// 縁沿いを歩くと上下に振動する。足元の高さは FOOT_RATE までしか動かさない。
+test('walk: 地面が階段状でも、足元は1フレームで跳ばない', () => {
+  // トークンの円盤を模した地面: 半径 0.45 の中だけ 0.05 高い
+  const STEP_UP = 0.05;
+  const ground = (x, z) => ({
+    y: Math.hypot(x, z) <= 0.45 ? STEP_UP : 0, ok: true,
+  });
+  const w = new WalkerMotion(ground);
+  w.setPosition(-1.2, 0);
+  const dt = 1 / 60;
+  let worst = 0;
+  let prev = w.footY;
+  let reached = false;
+  for (let i = 0; i < 200; i++) {
+    // +X へ歩く(入力の x は反転する)
+    const r = w.update(dt, { x: -1, y: 0 }, 0);
+    worst = Math.max(worst, Math.abs(r.footY - prev));
+    prev = r.footY;
+    if (Math.abs(r.footY - STEP_UP) < 1e-6 && w.pos.x > -0.4) reached = true;
+  }
+  assert.ok(reached, '円盤の上まで登れていない(足元が地面に追いついていない)');
+  // 1フレームで動く量は上限どおり。生の地面なら 0.05 を一度に跳んでいた
+  assert.ok(worst <= FOOT_RATE * dt + 1e-9,
+    `足元が1フレームで ${worst.toFixed(4)} 跳んだ(上限 ${(FOOT_RATE * dt).toFixed(4)})`);
+  assert.ok(worst < STEP_UP / 2, `段差がならされていない(${worst.toFixed(4)})`);
+});
+
+// **本物の坂では効かないこと。** 上限が低すぎると、山を登るときに
+// 足だけ地面に追いつかず、地面を突き抜けたり浮いたりする。
+test('walk: 坂を登るときは足元が地面から離れない', () => {
+  // いちばん急な地形(山)より急な坂。それでも追いつけること
+  const SLOPE = 0.419;
+  const ground = (x) => ({ y: x * SLOPE, ok: true });
+  const w = new WalkerMotion((x) => ground(x));
+  w.setPosition(0, 0);
+  const dt = 1 / 60;
+  let worst = 0;
+  for (let i = 0; i < 180; i++) {
+    const r = w.update(dt, { x: -1, y: 0 }, 0);
+    worst = Math.max(worst, Math.abs(r.footY - r.groundY));
+  }
+  // 歩く速さ × 傾き が上限を超えていないので、ずれは残らない
+  assert.ok(WALK_SPEED * SLOPE < FOOT_RATE,
+    `坂を登る速さ(${(WALK_SPEED * SLOPE).toFixed(3)})が上限(${FOOT_RATE})を超えている`);
+  assert.ok(worst < 1e-6, `坂で足元が地面から ${worst.toFixed(4)} 離れた`);
+});
+
+// 瞬間移動(復帰・席へ着く)のあとは、寄せずにその場の高さへ合わせる
+test('walk: 瞬間移動したら足元はすぐその場の高さになる', () => {
+  const ground = (x, z) => ({ y: Math.hypot(x, z) <= 0.45 ? 0.05 : 0, ok: true });
+  const w = new WalkerMotion(ground);
+  w.setPosition(-2, 0);
+  assert.equal(w.footY, 0, '平地で足元が合っていない');
+  w.setPosition(0, 0);          // 円盤の上へ飛ばす
+  assert.equal(w.footY, 0.05, '移った先の高さに合っていない(数フレーム沈む)');
 });
