@@ -13,7 +13,7 @@ import {
   WalkerMotion, WALK_SPEED, JUMP_HEIGHT, WATER_Y, FOOT_RATE, MAX_DT,
 } from '../src/minigame/motion.js';
 import { makeBlocker, WALKER_RADIUS } from '../src/minigame/obstacles.js';
-import { LEG_LEN, PHASE_PER_UNIT, solePos } from '../src/minigame/pose.js';
+import { BOB_KEEP, LEG_LEN, PHASE_PER_UNIT, solePos } from '../src/minigame/pose.js';
 import {
   SEAT_R, SPAWN_RING, TABLE_CLEAR, TABLE_RADIUS, TABLE_REACH, tableSeats,
 } from '../src/minigame/ground.js';
@@ -995,20 +995,30 @@ test('walk: ゆっくり歩いても滑りが増えない', () => {
     `遅いほうが滑る(速い ${(fast * 100).toFixed(0)}% → 遅い ${(slow * 100).toFixed(0)}%)`);
 });
 
-// **どちらかの足は必ず地面に着いていること。**
+// **どちらかの足は、ほぼ地面に着いていること。**
 // 直す前は、脚を振ったぶん腰を下げていなかったので体が宙に浮き、
-// 1周 16 コマのうち接地していたのは 2 コマだけだった。
-test('walk: いつもどちらかの足が地面に着いている', () => {
+// 1周 16 コマのうち接地していたのは 2 コマだけ・浮きは 0.024 だった。
+//
+// いまは沈みを 7 割だけ効かせている(BOB_KEEP)ので、そのぶんは浮く ──
+// 体の上下を人の歩き(背丈の 5%)に収めるための引き換え。
+// **浮きの上限は BOB_KEEP から出す** ── 数字を直に書くと、BOB_KEEP を
+// 動かしたときにこの試験が何も見張らなくなる。
+test('walk: いつもどちらかの足がほぼ地面に着いている', () => {
   let worst = 0;
+  let drop = 0;
   for (let k = 0; k < 64; k++) {
     const t = (k / 64) * Math.PI * 2;
     const p = walkPose(t, 1, 0);
     const low = Math.min(...p.legs.map((L) => LEG_LEN + solePos(L.rootX, L.knee).y + p.lift));
     worst = Math.max(worst, Math.abs(low));
+    drop = Math.max(drop, -p.lift);
   }
-  // 脚の長さのごく一部。ここが開くと「浮いて滑る」に見える
-  assert.ok(worst < LEG_LEN * 0.02,
-    `低いほうの足が地面から ${worst.toFixed(4)} 離れている(脚の長さ ${LEG_LEN.toFixed(4)})`);
+  // 沈みを削ったぶん(1 - BOB_KEEP)しか浮かない。少しの余裕を見る
+  const allow = (drop / BOB_KEEP) * (1 - BOB_KEEP) * 1.1;
+  assert.ok(worst <= allow,
+    `低いほうの足が地面から ${worst.toFixed(4)} 離れている(許容 ${allow.toFixed(4)})`);
+  // 直す前(0.024)より、はっきり良いこと
+  assert.ok(worst < 0.012, `浮きすぎ(${worst.toFixed(4)})`);
 });
 
 // **振り出す足はちゃんと持ち上がること。** 上がらないと地面を擦って歩く。

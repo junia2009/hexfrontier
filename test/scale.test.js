@@ -70,7 +70,10 @@ test('縮尺: 人まわりの値どうしの比は縮尺で動かない', () => 
   const near = (a, b, name) => assert.ok(
     Math.abs(a - b) < 1e-9, `${name}: 比が ${a} で、設計の ${b} と違う`,
   );
-  near(WALK_SPEED / WALKER_RADIUS, 1.9 / 0.10, '歩く速さ ÷ 太さ');
+  // 歩く速さは 1.9 → 1.25 に落としてある(motion.js の WALK_SPEED)。
+  // 足を地面に着けたまま 1.9 で歩くと体が秒 6.4 回沈み、画面が振動して
+  // 見えたため ── 比を変えたのは承知のうえ。
+  near(WALK_SPEED / WALKER_RADIUS, 1.25 / 0.10, '歩く速さ ÷ 太さ');
   near(JUMP_HEIGHT / WALKER_RADIUS, 0.5 / 0.10, '跳躍 ÷ 太さ');
   near(SPOT_RADIUS / WALKER_RADIUS, 0.42 / 0.10, '釣り場 ÷ 太さ');
   near(DESK_REACH / WALKER_RADIUS, 0.5 / 0.10, '受付の範囲 ÷ 太さ');

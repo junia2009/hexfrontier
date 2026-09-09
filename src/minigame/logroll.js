@@ -69,7 +69,7 @@ export const COURSE_L = DRUM_LEN;
 //
 // **だんだん速くして、最後は歩きより速くする。**
 //
-// 上面が流れる速さ = 角速度 × 半径。歩き(sc(1.9) = 0.95)に対して
+// 上面が流れる速さ = 角速度 × 半径。歩く速さ(WALK_SPEED)に対して
 // はじめ 53%、終わりに 111% ── **終盤は歩き通しでも押し負ける。**
 // ここが歩きより遅いままだと、スティックを倒しておくだけで誰も落ちない
 // (歩きの 71% で止めていたときは、腕前 7 割の人でも逃げ切った)。
@@ -77,6 +77,12 @@ export const COURSE_L = DRUM_LEN;
 // 早く寄った人から落ちるので、勝負は 90 秒を待たずに決まる。
 //
 // 速さそのものより「歩きに対して何割か」が効くので、歩きから決める。
+//
+// **丸太の上では、島を歩く速さとは別の速さで動く**(ROLL_WALK)。
+// 島の散策は落ち着いて歩けるよう遅くしたが(motion.js の WALK_SPEED)、
+// ここは流れに押し負けまいと踏ん張る遊びで、手ごたえは下の実測で
+// 釣り合わせてある ── 島に合わせて遅くすると、押し返せなくなって
+// 「うまく歩いても 13 秒で落ちる」理不尽な盤になる(実際そうなった)。
 //
 // この2つと DRUM_R・SLIP で手ごたえが決まる。**動かしたら測り直すこと** ──
 // 腕前と反応の遅れを変えた人を実際に WalkerMotion で乗せて、何秒残るかを
@@ -86,8 +92,10 @@ export const COURSE_L = DRUM_LEN;
 // **誰も 90 秒は残らない**ので、勝負は必ず決まる。
 const SURFACE_FROM = 0.44;   // 歩きに対する割合
 const SURFACE_TO = 1.11;
-const SPIN_FROM = (0.95 * SURFACE_FROM) / DRUM_R;   // ラジアン/秒
-const SPIN_TO = (0.95 * SURFACE_TO) / DRUM_R;
+// 丸太の上での歩く速さ。島の散策(WALK_SPEED)とは切り離してある。
+export const ROLL_WALK = sc(1.9);
+const SPIN_FROM = (ROLL_WALK * SURFACE_FROM) / DRUM_R;   // ラジアン/秒
+const SPIN_TO = (ROLL_WALK * SURFACE_TO) / DRUM_R;
 const SPIN_RAMP = 70;     // 秒。ここまでで SPIN_TO へ上がりきる
 
 // 切れ目。数と、角の広さ・長さ方向の広さ。

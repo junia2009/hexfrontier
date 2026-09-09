@@ -16,7 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame } from '../src/state.js';
 import { makeGround } from '../src/minigame/ground.js';
-import { WalkerMotion, WALK_SPEED, WATER_Y } from '../src/minigame/motion.js';
+import { WalkerMotion, WATER_Y } from '../src/minigame/motion.js';
 import { TILE_TOP } from '../src/terrain.js';
 import { contestOutcome } from '../src/minigame/contest.js';
 import { addContestResult, emptyProgress, summarize } from '../src/progress.js';
@@ -24,7 +24,7 @@ import { achievementById } from '../src/achievements.js';
 import {
   COURSE_L, COURSE_W, DRUM_AXIS, DRUM_BAND, DRUM_LEN, DRUM_R, DRUM_TOP, GRACE_MS,
   FREE_TURN, HOLE_ARC, angleAt, courseGround, findAnchor, holeOpen, makeCourse, rollTime, safeZ,
-  ROLL_MS, slipRate, spinAt, startSpots, toLocal, toWorld, turnAt, turnOf,
+  ROLL_MS, ROLL_WALK, slipRate, spinAt, startSpots, toLocal, toWorld, turnAt, turnOf,
   upstreamFace, withCourse,
 } from '../src/minigame/logroll.js';
 
@@ -50,6 +50,9 @@ const groundAtT = ({ ground, course, anchor }, t) =>
 function ride(fix, { input = { x: 0, y: 0 }, secs = 4, at = null, pin = true }) {
   let t = 0;
   const m = new WalkerMotion((x, z) => groundAtT(fix, t)(x, z));
+  // **丸太の上は島より速く歩く。** 本物(walk-mode.js)がそうしているので、
+  // ここでも合わせる ── 島の速さで乗せると、押し返せずに理不尽な盤になる。
+  m.speed = ROLL_WALK;
   const spot = at ?? startSpots(fix.course, fix.anchor, 1)[0];
   m.setPosition(spot.x, spot.z);
   if (pin) m.setRespawn(0, 0, { pin: true });   // 岸に固定(原点は主島の陸)
@@ -78,7 +81,7 @@ function ride(fix, { input = { x: 0, y: 0 }, secs = 4, at = null, pin = true }) 
 // 「うまく乗れるか」ではなく「その1通りが当たるか」を測ってしまう。
 //
 // 入力から世界の動きへの対応は motion.js を実測して:
-//   world = WALK_SPEED × (-input.x, input.y)   (|input| ≤ 1)
+//   world = ROLL_WALK × (-input.x, input.y)   (|input| ≤ 1)
 function rider(fix, { skill = 1, react = 0 } = {}) {
   const c = Math.cos(fix.anchor.angle);
   const sn = Math.sin(fix.anchor.angle);
@@ -94,9 +97,9 @@ function rider(fix, { skill = 1, react = 0 } = {}) {
     // 局所 z へ(切れ目から逃げる)
     const want = safeZ(fix.course, a, t, 0.4 + skill, local.z);
     const vz = want == null ? 0
-      : Math.max(-WALK_SPEED, Math.min(WALK_SPEED, (want - local.z) * 3));
-    let ix = (-(vx * c - vz * sn) / WALK_SPEED) * skill;
-    let iy = ((vx * sn + vz * c) / WALK_SPEED) * skill;
+      : Math.max(-ROLL_WALK, Math.min(ROLL_WALK, (want - local.z) * 3));
+    let ix = (-(vx * c - vz * sn) / ROLL_WALK) * skill;
+    let iy = ((vx * sn + vz * c) / ROLL_WALK) * skill;
     const len = Math.hypot(ix, iy);
     if (len > 1) { ix /= len; iy /= len; }
     held = { x: ix, y: iy };
@@ -333,6 +336,9 @@ test('丸太: 落ちても丸太に戻らない(復帰先が固定されてい�
   const shore = { x: 0, z: 0 };
   let t = 0;
   const m = new WalkerMotion((x, z) => groundAtT(fix, t)(x, z));
+  // **丸太の上は島より速く歩く。** 本物(walk-mode.js)がそうしているので、
+  // ここでも合わせる ── 島の速さで乗せると、押し返せずに理不尽な盤になる。
+  m.speed = ROLL_WALK;
   const spot = startSpots(fix.course, fix.anchor, 1)[0];
   m.setPosition(spot.x, spot.z);
   m.setRespawn(shore.x, shore.z, { pin: true });
@@ -445,10 +451,10 @@ test('丸太: 寸法と速さの前後関係(遊びが成立する範囲に収�
   // **はじめは歩きより遅く、終わりは歩きより速い。**
   // 遅いままだとスティックを倒しておくだけで誰も落ちず、
   // はじめから速いと猶予が明けた瞬間に全員落ちる。
-  assert.ok(spinAt(0) * DRUM_R < WALK_SPEED * 0.6,
+  assert.ok(spinAt(0) * DRUM_R < ROLL_WALK * 0.6,
     `はじめから速すぎる: ${(spinAt(0) * DRUM_R).toFixed(2)}`);
-  assert.ok(spinAt(1e9) * DRUM_R > WALK_SPEED,
-    `最後まで歩きより遅い: ${(spinAt(1e9) * DRUM_R).toFixed(2)} <= ${WALK_SPEED}`);
+  assert.ok(spinAt(1e9) * DRUM_R > ROLL_WALK,
+    `最後まで歩きより遅い: ${(spinAt(1e9) * DRUM_R).toFixed(2)} <= ${ROLL_WALK}`);
   // 切れ目はよけられる幅(丸太の半分を覆わない)
   assert.ok(HOLE_ARC * DRUM_R < DRUM_LEN / 2, '切れ目が丸太の半分を覆っている');
 });
