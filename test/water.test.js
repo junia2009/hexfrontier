@@ -54,6 +54,8 @@ test('水: 泡は高く、縮みながら音が上がる', () => {
   // また、縮んでいく泡は音が上がる ── これが「ポチャン」の「ャン」。
   for (const kind of WATER_KINDS) {
     const b = waterSound(kind).bubbles;
+    // 泡の高さは大きさで決まる(ミンナールト: f ≒ 3.28/半径[m])。
+    // 下限は「泡としてありうる最大の大きさ」から来ている。
     assert.ok(b.fLo >= BUBBLE_LIMITS.minHz, `${kind}: 泡が低すぎる(${b.fLo}Hz)`);
     assert.ok(b.fLo <= BUBBLE_LIMITS.maxLoHz, `${kind}: 泡の下限が高すぎる(${b.fLo}Hz)`);
     assert.ok(b.fHi > b.fLo * 3, `${kind}: 泡の大きさの幅が狭い`);
