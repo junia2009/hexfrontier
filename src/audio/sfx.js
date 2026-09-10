@@ -8,6 +8,7 @@
 
 import { lsGet, lsSet } from '../storage.js';
 import { audioCtx, existingCtx, setKeepAlive } from './ctx.js';
+import { waterSound } from './water.js';
 
 const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
 
@@ -143,6 +144,24 @@ export class Sfx {
     g.connect(this.bus);
   }
 
+  // 水滴。**短い正弦波を、高さも時刻もばらして数粒**置く。
+  // 泡は実際に固有の高さで共鳴するので、水の音にはこれが要る
+  // (「ポチャン」の正体)。縮んでいく泡は音が上がるので、上へ滑らせる。
+  // **低く長く大きい正弦波は置かない** ── それをやると水ではなく
+  // 「ボヨン」になる(前の着水音がまさにそれで、音全体の 74% を
+  // 一本の 73Hz が占めていた)。water.js が高さと長さを縛っている。
+  drips(t0, { n = 5, lo = 900, hi = 2200, gain = 0.02, dur = 0.05, spread = 0.4, rise = 5 } = {}) {
+    const hzMidi = (hz) => 69 + 12 * Math.log2(hz / 440);
+    for (let i = 0; i < n; i++) {
+      // 演出だけの乱数なので Math.random でよい(対戦の乱数には触れない)
+      const at = t0 + Math.random() ** 1.5 * spread;
+      const midi = hzMidi(lo + Math.random() * (hi - lo));
+      // 後の粒ほど小さく(水が収まっていく)
+      const g = gain * (0.5 + Math.random() * 0.5);
+      this.tone(midi, at, dur, { type: 'sine', gain: g, glide: rise });
+    }
+  }
+
   // 粒立ちのある音(落ち葉のカサカサ、砂利のジャリ、水の飛沫)。
   // ノイズの音量を細かくギザギザに振ると、小さな粒がばらばらと
   // 続けて鳴っているように聞こえる。**粒を1つずつ鳴らすより遥かに軽い**
@@ -170,6 +189,19 @@ export class Sfx {
   arp(midis, t0, { step = 0.075, dur = 0.4, gain = 0.13, type = 'triangle' } = {}) {
     midis.forEach((m, i) => this.tone(m, t0 + i * step, dur, { type, gain, lp: 3200 }));
   }
+}
+
+// 水の音を、起きる順に並べて鳴らす。中身は water.js が決める。
+// **順番と間が命。** 叩き → 沈み込み → 飛沫 → 泡 が少しずつ遅れて
+// 重なることで「落ちて沈んだ」に聞こえる。同時に鳴らすと一発の雑音になる。
+function water(s, t, w) {
+  if (w.slap) s.noise(t + w.slap.at, w.slap.dur, w.slap);
+  // 沈み込みはローパスで、帯域が下がっていく
+  if (w.gulp) s.noise(t + w.gulp.at, w.gulp.dur, { ...w.gulp, type: 'lowpass' });
+  // 飛沫は跳ね上がってから落ちるので遅れる
+  if (w.spray) s.grit(t + w.spray.at, w.spray.dur, w.spray);
+  if (w.fizz) s.noise(t + w.fizz.at, w.fizz.dur, { ...w.fizz, type: 'highpass' });
+  if (w.drops) s.drips(t + w.drops.at, w.drops);
 }
 
 // ---- 音の定義 ----
@@ -295,18 +327,15 @@ const VOICES = {
     if (grit) s.grit(t + 0.008, grit.dur, grit);
   },
 
-  // 海に落ちた。大きく水を叩いてから、細かい泡が残る
-  splash: (s, t) => {
-    s.noise(t, 0.3, { gain: 0.13, freq: 900, q: 0.7, sweep: 3.5 });
-    s.noise(t + 0.06, 0.5, { gain: 0.05, freq: 4200, q: 0.5, sweep: 0.3 });
-    s.tone(38, t, 0.22, { type: 'sine', gain: 0.09, glide: -7 });
-  },
+  // 水の音。どんな音にするかは water.js が決める。
+  // ここは受け取った中身を、起きる順に並べるだけ。
+  splash: (s, t, o = {}) => water(s, t, o.sound ?? waterSound('dive')),
 
   // ---- 釣り(ミニゲーム)----
   // 投げる: 糸が出ていく「シュッ」と、浮きが落ちる「ポチャン」
   cast: (s, t) => {
     s.noise(t, 0.22, { gain: 0.07, freq: 3200, q: 0.8, sweep: -0.5 });
-    s.tone(D.d, t + 0.42, 0.14, { type: 'sine', gain: 0.11, glide: -7 });
+    water(s, t + 0.42, waterSound('plop'));
   },
   // アタリ: 浮きが沈む合図。気づいてほしいので短く高く2回
   bite: (s, t) => {
@@ -314,7 +343,7 @@ const VOICES = {
     s.tone(D.d2 + 4, t + 0.1, 0.09, { type: 'square', gain: 0.09 });
   },
   // 魚が暴れる: 水を叩く音
-  thrash: (s, t) => s.noise(t, 0.16, { gain: 0.1, freq: 600, q: 1, sweep: 0.7 }),
+  thrash: (s, t) => water(s, t, waterSound('thrash')),
   // 釣れた
   catchFish: (s, t) => s.arp([D.d, D.f, D.a, D.d2], t, { step: 0.07, dur: 0.4, gain: 0.13 }),
   // 逃げられた・糸が切れた
