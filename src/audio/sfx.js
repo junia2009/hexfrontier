@@ -144,22 +144,60 @@ export class Sfx {
     g.connect(this.bus);
   }
 
-  // 水滴。**短い正弦波を、高さも時刻もばらして数粒**置く。
-  // 泡は実際に固有の高さで共鳴するので、水の音にはこれが要る
-  // (「ポチャン」の正体)。縮んでいく泡は音が上がるので、上へ滑らせる。
-  // **低く長く大きい正弦波は置かない** ── それをやると水ではなく
-  // 「ボヨン」になる(前の着水音がまさにそれで、音全体の 74% を
-  // 一本の 73Hz が占めていた)。water.js が高さと長さを縛っている。
-  drips(t0, { n = 5, lo = 900, hi = 2200, gain = 0.02, dur = 0.05, spread = 0.4, rise = 5 } = {}) {
-    const hzMidi = (hz) => 69 + 12 * Math.log2(hz / 440);
+  // 泡の群れ。**水の音の正体はこれ。**
+  //
+  // 水がたてる音は、ほとんどが「気泡の共鳴」でできている。泡はひとつ
+  // ひとつが固有の高さで鳴る減衰した正弦波で、縮みながら鳴るので
+  // **音が上がっていく**(ポチャンの「ャン」が上がるのはこれ)。
+  // 大きい泡ほど低い(ミンナールトの関係。半径 1cm でおよそ 330Hz)。
+  //
+  // **数がすべて。** 本物の飛沫は泡が数百個いっぺんに生まれる。
+  // 前は6粒しか置いておらず、残りをフィルタしたノイズで埋めていたので、
+  // 水ではなく「ノイズがシュッと鳴る」音にしかならなかった。
+  //
+  // 数百個をオシレータで鳴らすと重いので、**その場で波形を作って
+  // 1つの音源として鳴らす**(毎回作り直すので、同じ音にはならない)。
+  bubbles(t0, {
+    n = 200, fLo = 400, fHi = 6000, spread = 0.5, decay = 3,
+    rise = 0.3, gain = 0.15, dur = 1.0,
+  } = {}) {
+    const ctx = this.ctx;
+    const SR = ctx.sampleRate;
+    const len = Math.max(1, Math.ceil(SR * dur));
+    const buf = ctx.createBuffer(1, len, SR);
+    const d = buf.getChannelData(0);
     for (let i = 0; i < n; i++) {
-      // 演出だけの乱数なので Math.random でよい(対戦の乱数には触れない)
-      const at = t0 + Math.random() ** 1.5 * spread;
-      const midi = hzMidi(lo + Math.random() * (hi - lo));
-      // 後の粒ほど小さく(水が収まっていく)
-      const g = gain * (0.5 + Math.random() * 0.5);
-      this.tone(midi, at, dur, { type: 'sine', gain: g, glide: rise });
+      // 生まれる時刻。指数分布なので、はじめにどっと生まれて尾を引く
+      // (演出だけの乱数なので Math.random でよい)
+      const born = (-Math.log(1 - Math.random() * 0.999) / decay) * spread;
+      const s0 = Math.floor(born * SR);
+      if (s0 >= len) continue;
+      // 泡の大きさ = 高さ。小さい泡(高い音)のほうが数が多い
+      const f0 = fLo * (fHi / fLo) ** (Math.random() ** 0.6);
+      // 小さい泡ほど早く消える
+      const life = Math.min(0.06, 0.010 + 22 / f0);
+      const tau = life / 3.5;
+      // 大きい泡(低い)ほど大きく鳴る
+      const amp = (fLo / f0) ** 0.35 * (0.4 + Math.random() * 0.6);
+      const ns = Math.min(len - s0, Math.ceil(life * SR));
+      let ph = Math.random() * Math.PI * 2;
+      for (let k = 0; k < ns; k++) {
+        const tt = k / SR;
+        ph += (2 * Math.PI * f0 * (1 + rise * (tt / life))) / SR;
+        d[s0 + k] += Math.sin(ph) * amp * Math.exp(-tt / tau);
+      }
     }
+    // 山の高さを gain に合わせる(何百個も足しているので、そのままだと割れる)
+    let peak = 0;
+    for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(d[i]));
+    if (peak > 0) {
+      const k = gain / peak;
+      for (let i = 0; i < len; i++) d[i] *= k;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.bus);
+    src.start(t0);
   }
 
   // 粒立ちのある音(落ち葉のカサカサ、砂利のジャリ、水の飛沫)。
@@ -191,17 +229,13 @@ export class Sfx {
   }
 }
 
-// 水の音を、起きる順に並べて鳴らす。中身は water.js が決める。
-// **順番と間が命。** 叩き → 沈み込み → 飛沫 → 泡 が少しずつ遅れて
-// 重なることで「落ちて沈んだ」に聞こえる。同時に鳴らすと一発の雑音になる。
+// 水の音を鳴らす。中身は water.js が決める。
+// **主役は泡。** ノイズは水面が割れる一撃と、空洞が潰れる唸りだけ。
 function water(s, t, w) {
-  if (w.slap) s.noise(t + w.slap.at, w.slap.dur, w.slap);
-  // 沈み込みはローパスで、帯域が下がっていく
-  if (w.gulp) s.noise(t + w.gulp.at, w.gulp.dur, { ...w.gulp, type: 'lowpass' });
-  // 飛沫は跳ね上がってから落ちるので遅れる
-  if (w.spray) s.grit(t + w.spray.at, w.spray.dur, w.spray);
-  if (w.fizz) s.noise(t + w.fizz.at, w.fizz.dur, { ...w.fizz, type: 'highpass' });
-  if (w.drops) s.drips(t + w.drops.at, w.drops);
+  if (w.impact) s.noise(t + w.impact.at, w.impact.dur, w.impact);
+  // 空洞の唸りはローパスで、帯域が下がっていく(沈む)
+  if (w.cavity) s.noise(t + w.cavity.at, w.cavity.dur, { ...w.cavity, type: 'lowpass' });
+  if (w.bubbles) s.bubbles(t + w.bubbles.at, w.bubbles);
 }
 
 // ---- 音の定義 ----
