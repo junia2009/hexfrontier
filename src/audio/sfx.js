@@ -159,26 +159,51 @@ export class Sfx {
   // 1つの音源として鳴らす**(毎回作り直すので、同じ音にはならない)。
   bubbles(t0, {
     n = 200, fLo = 400, fHi = 6000, spread = 0.5, decay = 3,
-    rise = 0.3, gain = 0.15, dur = 1.0,
+    rise = 0.4, gain = 0.15, dur = 1.0, sizePow = 7 / 3,
   } = {}) {
     const ctx = this.ctx;
     const SR = ctx.sampleRate;
     const len = Math.max(1, Math.ceil(SR * dur));
     const buf = ctx.createBuffer(1, len, SR);
     const d = buf.getChannelData(0);
+    // **小さい泡ほど、桁違いに数が多い。**
+    // 泡ひとつが出すエネルギーは振幅²×時定数 ∝ (1/f)²×(1/f) = f^-3 なので、
+    // 数を素直に配ると低い泡だけで音ができてしまう(実際そうなって、
+    // 250-600Hz に 71% が集まり「ゴボッ」としか鳴らなくなった)。
+    // 海の砕波で測られている粒度分布から、1オクターブあたりの泡の数は
+    // f^(7/3) ── これで帯域あたりのエネルギーが f^(-2/3)、つまり
+    // 1オクターブごとに約 -4dB という、飛沫らしい配りかたになる。
+    const a = Math.min(60, sizePow * Math.log(fHi / fLo));
+    const eA = Math.exp(a) - 1;
     for (let i = 0; i < n; i++) {
-      // 生まれる時刻。指数分布なので、はじめにどっと生まれて尾を引く
+      // 泡の大きさ = 高さ。上の分布から引く(逆関数法)。
+      // x は 0 が最も大きい泡、1 が最も小さい泡。
       // (演出だけの乱数なので Math.random でよい)
-      const born = (-Math.log(1 - Math.random() * 0.999) / decay) * spread;
+      const x = a > 1e-6 ? Math.log(1 + Math.random() * eA) / a : Math.random();
+      const f0 = fLo * (fHi / fLo) ** x;
+      // 生まれる時刻。指数分布なので、はじめにどっと生まれて尾を引く。
+      // **大きい泡は着水の瞬間にしか生まれない。** 体が作る大きな空洞は
+      // ぶつかった瞬間に潰れるもので、あとから湧いてはこない。
+      // 大きさと時刻を無関係にしていたときは、まれに大きい泡が 0.5 秒
+      // 後ろに落ちて、飛沫が収まったあとに「ボコッ」と鳴っていた
+      // (実測でも音の山が頭ではなく 300ms 以降に来ていた)。
+      const bornSpread = spread * (0.12 + 0.88 * x);
+      const born = (-Math.log(1 - Math.random() * 0.999) / decay) * bornSpread;
       const s0 = Math.floor(born * SR);
       if (s0 >= len) continue;
-      // 泡の大きさ = 高さ。小さい泡(高い音)のほうが数が多い
-      const f0 = fLo * (fHi / fLo) ** (Math.random() ** 0.6);
-      // 小さい泡ほど早く消える
-      const life = Math.min(0.06, 0.010 + 22 / f0);
-      const tau = life / 3.5;
-      // 大きい泡(低い)ほど大きく鳴る
-      const amp = (fLo / f0) ** 0.35 * (0.4 + Math.random() * 0.6);
+      // **減衰は Q で決まる。** ミンナールトの関係で f·r が一定になるため、
+      // 放射減衰による Q は泡の大きさによらず 17 前後で揃う。
+      // 時定数 τ = Q/(πf) なので **高い泡ほど一気に消える**
+      // (328Hz で 16ms、6.6kHz では 0.8ms)。ここを取り違えて
+      // 「高い泡も長く鳴る」形にしていたときは、6kHz の泡が 82 周期も
+      // 続いて、水ではなく高い持続音(シューという雑音)になっていた。
+      const q = 14 + Math.random() * 8;
+      const tau = q / (Math.PI * f0);
+      const life = Math.min(0.15, tau * 4);
+      // **放射する音の大きさは泡の半径に比例する。** 半径は 1/f なので、
+      // 大きい(低い)泡ほど大きく鳴る ── 飛沫の「ゴボッ」はこれ。
+      // 0.35 乗にしていたときは低い泡が埋もれて、高い泡ばかりが目立っていた。
+      const amp = (fLo / f0) * (0.4 + Math.random() * 0.6);
       const ns = Math.min(len - s0, Math.ceil(life * SR));
       let ph = Math.random() * Math.PI * 2;
       for (let k = 0; k < ns; k++) {
