@@ -104,8 +104,12 @@ export class Sfx {
     osc.stop(t0 + dur + 0.05);
   }
 
-  // ノイズ一発。木を叩く音・水しぶき・紙の音などの素。
-  noise(t0, dur, { gain = 0.12, freq = 1800, q = 1, type = 'bandpass', sweep = 0 } = {}) {
+  // ノイズ源をひとつ用意して、帯域フィルタに通すところまで。
+  // **毎回ちがう場所から鳴らす。** 1秒のノイズを毎回頭から再生すると、
+  // 出てくる波形が一字一句同じになる ── 実測で連続する2歩の相関が
+  // 1.0000(完全に同じ音)だった。人の耳は、寸分たがわず繰り返す音を
+  // 「機械の音」と受け取るので、足音がいかにも作り物に聞こえる。
+  _noiseSrc(t0, dur, freq, q, type, sweep) {
     const ctx = this.ctx;
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuf;
@@ -115,15 +119,51 @@ export class Sfx {
     filt.frequency.setValueAtTime(freq, t0);
     if (sweep) filt.frequency.exponentialRampToValueAtTime(Math.max(60, freq * sweep), t0 + dur);
     filt.Q.value = q;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(filt);
+    // 演出だけの乱数なので Math.random でよい(対戦の乱数には触れない)
+    const span = Math.max(0, this.noiseBuf.duration - dur - 0.05);
+    src.start(t0, Math.random() * span);
+    src.stop(t0 + dur + 0.05);
+    return filt;
+  }
+
+  // ノイズ一発。木を叩く音・水しぶき・紙の音などの素。
+  // attack は立ち上がりの秒数。砂のように「当たる」のではなく
+  // 「潜る」音は、ここを長くすると当たりが取れて柔らかくなる。
+  noise(t0, dur, {
+    gain = 0.12, freq = 1800, q = 1, type = 'bandpass', sweep = 0, attack = 0.006,
+  } = {}) {
+    const filt = this._noiseSrc(t0, dur, freq, q, type, sweep);
+    const g = this.ctx.createGain();
+    const atk = Math.min(attack, dur * 0.5);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     filt.connect(g);
     g.connect(this.bus);
-    src.start(t0);
-    src.stop(t0 + dur + 0.05);
+  }
+
+  // 粒立ちのある音(落ち葉のカサカサ、砂利のジャリ、水の飛沫)。
+  // ノイズの音量を細かくギザギザに振ると、小さな粒がばらばらと
+  // 続けて鳴っているように聞こえる。**粒を1つずつ鳴らすより遥かに軽い**
+  // (音源1つで済むので、1歩あたりのノード数が増えない)。
+  grit(t0, dur, { gain = 0.06, freq = 3000, q = 0.9, sweep = 0.5, n = 20 } = {}) {
+    const filt = this._noiseSrc(t0, dur, freq, q, 'bandpass', sweep);
+    const g = this.ctx.createGain();
+    // ほとんど沈黙のなかに、たまに粒が立つ形。全体としては減衰していく。
+    // 3乗しているのは「大きい粒はまれ」にするため ── 一様に振ると
+    // ただのざらざらした持続音になって、粒に聞こえない。
+    const pts = Math.max(4, Math.round(n));
+    const curve = new Float32Array(pts);
+    for (let i = 0; i < pts; i++) {
+      const fade = 1 - i / (pts - 1);
+      curve[i] = gain * Math.random() ** 3 * fade * fade;
+    }
+    curve[0] = 0.0001;
+    curve[pts - 1] = 0.0001;
+    g.gain.setValueCurveAtTime(curve, t0, dur);
+    filt.connect(g);
+    g.connect(this.bus);
   }
 
   // 分散和音(獲得・勝利など「良いこと」の合図)
@@ -246,10 +286,13 @@ const VOICES = {
   // 足音。どんな音にするかは footsteps.js が決める。
   // ここは受け取った中身を鳴らすだけ(地面や動きの区別は持たない)。
   step: (s, t, o = {}) => {
-    const { noise, thud } = o.sound ?? {};
-    if (noise) s.noise(t, noise.dur, noise);
-    // 体重が乗る鈍い音。ノイズのすぐ後ろに置くと「踏んだ」感じになる
-    if (thud) s.tone(thud.midi, t + 0.004, thud.dur, { type: 'sine', gain: thud.gain, lp: 400 });
+    const { scuff, body, grit } = o.sound ?? {};
+    if (scuff) s.noise(t, scuff.dur, scuff);
+    // 体重が乗る鈍い音。**ローパスしたノイズで、正弦波は使わない** ──
+    // 正弦波にすると音程が立って、どの地面でも同じ「ポーン」になる。
+    if (body) s.noise(t + 0.004, body.dur, { ...body, type: 'lowpass' });
+    // 粒立ちはこすれ音より少し遅らせる(踏んでから崩れるので)
+    if (grit) s.grit(t + 0.008, grit.dur, grit);
   },
 
   // 海に落ちた。大きく水を叩いてから、細かい泡が残る
