@@ -15,7 +15,7 @@ import { BARBARIAN_TRACK_LENGTH as BARB_TRACK } from '../rules/cak/barbarians.js
 // 地面の高さは terrain.js に集めてある。**描くほうも歩くほうも同じ1本を使う**
 // ── 別々に持つと、描いてある地表と足の高さが食い違って足が埋まる。
 import {
-  TILE_TOP, CAP_PARAMS, CAP_N, capCorners, capVertexHeight, coordHash, boardScale,
+  TILE_TOP, CAP_PARAMS, CAP_N, capCorners, capVertexHeight, capHeight, coordHash, boardScale,
 } from '../terrain.js';
 
 export const PLAYER_COLORS_3D = [0xf04343, 0x3f8ef7, 0xffa02e, 0xb06ef0];
@@ -134,6 +134,9 @@ const GEO = {
   rock: new THREE.ConeGeometry(1, 1, 5),
   box: new THREE.BoxGeometry(1, 1, 1),
   sphere: new THREE.SphereGeometry(1, 10, 8),
+  // 苔の粒。数千個ぶん並ぶので、球(160面)ではなく正二十面体(20面)で。
+  // どうせ小さくて面の数は見えないし、面が粗いほうが粒だって見える
+  moss: new THREE.IcosahedronGeometry(1, 0),
   pawnBody: new THREE.ConeGeometry(0.095, 0.2, 10),
   pawnHead: new THREE.SphereGeometry(0.06, 10, 8),
   ring: new THREE.TorusGeometry(0.08, 0.014, 6, 16),
@@ -481,12 +484,33 @@ function makeTerrainCap(hid, terrain) {
 //
 // 月明かりを上げても、地面はどうしても暗い側に寄る ── そこで、
 // 自分で光るものを地面に散らして「そこに地面がある」と分かるようにする。
-// 発光(emissive)はライトと関係なく色が乗るので、暗い夜ほど目立つ。
 //
-// **昼は光らせない。** emissiveIntensity を夜の濃さ(night)で動かすので、
-// 昼はただの苔むした地面、夜だけ淡く光る(_tickSky が動かす)。
-// 材質は**1つを全部で使い回す** ── 1か所いじれば島じゅうの苔が変わるし、
-// 盤に何百個あってもドローコールと更新は増えない。
+// **光は2枚で作る。**
+//   1. 粒(grain)  … 実体。昼は苔むした地面、夜はほのかに光る核。
+//   2. 光暈(halo) … 粒のまわりに広がる加算合成の光。夜だけ出る。
+//
+// 最初は「平たく潰した球を emissive で光らせる」だけで済ませたが、
+// **べったりした薄荷色のシミにしか見えなかった**(汚物が散らばって
+// いるようだ、と言われた)。理由は3つあって、いま全部つぶしてある。
+//
+//   - **ふちが硬い。** 実体だけだと輪郭がくっきり出る。光り物には
+//     必ず滲みがあるので、輪郭が立つと「光」ではなく「塗料」に見える。
+//     → 加算合成の光暈を重ね、中心から外へ滑らかに減衰させた。
+//   - **どこも同じ色・同じ明るさ。** 一様なベタ塗りは物として死ぬ。
+//     → 粒ごとに色みと明るさを散らし、位相の違うゆっくりした明滅を入れた。
+//   - **粒が大きく、隣とくっついてアメーバになる。** 輪郭のいびつな
+//     大きい面ができると、それがそのままシミの形に見える。
+//     → 粒を小さくたくさんに変え、株の**中心ほど密**になるよう撒いた。
+//       外へ行くほど疎らに小さくなるので、ふちが自然に溶けて消える。
+const MOSS_TINTS = [
+  // 苔の光の色。青緑〜黄緑のあいだで散らす。
+  // **彩度を落としすぎない。** 白に寄せると光ではなく塗料に見える。
+  [0.42, 1.0, 0.66],
+  [0.30, 0.92, 0.80],
+  [0.62, 1.0, 0.52],
+  [0.38, 0.86, 1.0],
+];
+
 function makeMossMaterial() {
   return new THREE.MeshStandardMaterial({
     color: 0x2f5c3a,          // 昼は暗い苔の緑
@@ -498,51 +522,174 @@ function makeMossMaterial() {
 }
 
 // 苔を1株ぶん、置き場所を書き出す。**メッシュはここでは作らない** ──
-// 島じゅうで 1000 を超えるので、1つずつ置くとそのぶん描画の呼び出しが増える。
-// 全部まとめて 1 つの InstancedMesh にする(下の buildMoss)。
-function addMoss(out, rng, x, z) {
-  // **粒を離して散らす。** 重ねて潰すと隣どうしが溶けて1枚の面になり、
-  // 苔ではなく塗料をこぼした跡に見える(実際そうなって撮り直した)。
-  const n = 5 + Math.floor(rng() * 5);
+// 島じゅうで数千になるので、1つずつ置くとそのぶん描画の呼び出しが増える。
+// 最後にまとめて2枚のメッシュにする(下の buildMoss)。
+function addMoss(out, rng, hid, terrain, x, z) {
+  const R = 0.19;                        // 株の広がり
+  const n = 8 + Math.floor(rng() * 7);
   for (let i = 0; i < n; i++) {
-    const s = 0.028 + rng() * 0.026;
-    // 株のなかで円形にばらけさせる(四角く固まらないよう極座標で)
-    // 半径は粒の大きさの3倍以上とる ── これより詰めると近くで見たとき
-    // 粒どうしがくっついて、ひとつの大きな緑の面になる
+    // **中心ほど密に撒く。** 一様に撒くと株のふちが揃って輪郭が立ち、
+    // それがシミの形に見える。指数 1.6 で中心へ寄せると、外へ行くほど
+    // 疎らになって、ふちがどこにあるか分からなくなる。
+    const u = Math.pow(rng(), 1.6);
     const a = rng() * Math.PI * 2;
-    const r = 0.075 + rng() * 0.145;
+    const r = R * u;
+    // 外側ほど小さく。これも「ふちを溶かす」ため
+    const s = (0.012 + rng() * 0.014) * (1 - 0.45 * u);
+    const tint = MOSS_TINTS[Math.floor(rng() * MOSS_TINTS.length)];
+    const px = x + Math.cos(a) * r;
+    const pz = z + Math.sin(a) * r;
     out.push({
-      x: x + Math.cos(a) * r,
-      // 高さは他の飾りと同じくタイル上面から(地表の起伏ぶんは同じように無視する)
-      y: TILE_TOP + 0.008,
-      z: z + Math.sin(a) * r,
+      x: px,
+      // **起伏の上にちゃんと載せる。** 他の飾りは TILE_TOP 決め打ちだが、
+      // 苔は地面に貼りつく小ささなので、それだと起伏に**埋まって消える**。
+      // (実際そうなっていて、粒を小さくした瞬間に島じゅうの苔が消えた。
+      //  前の大きい玉が汚く見えていたのも半分これで、地表から頭だけ
+      //  出した玉の断面 ── ギザギザの硬い輪郭 ── を見せていた。)
+      // capHeight は描いてある三角形の上を読むので、面とぴったり合う。
+      y: TILE_TOP + capHeight(hid, terrain, px, pz) + 0.004,
+      z: pz,
       // 少しだけ潰す。平たくしすぎると陰影が消えて、ただの緑の丸になる
-      sx: s, sy: s * (0.45 + rng() * 0.25), sz: s * (0.8 + rng() * 0.5),
+      sx: s, sy: s * (0.5 + rng() * 0.3), sz: s * (0.8 + rng() * 0.5),
       ry: rng() * Math.PI,
+      tint,
+      // 光暈の直径。粒より十分大きくないと滲まないが、**大きすぎない**
+      // ── 板が広いほど起伏にめり込むし、隣とつながって光の絨毯になる。
+      // 地面が暗いまま残るところがあってこそ、光が光に見える。
+      halo: s * (5 + rng() * 3),
+      // 明滅の位相と明るさ。**粒ごとにばらす** ── 揃えると
+      // 島じゅうが一斉に点滅して、生き物ではなく信号機に見える
+      phase: rng(),
+      bright: 0.55 + rng() * 0.45,
     });
   }
 }
 
 const MOSS_UP = new THREE.Vector3(0, 1, 0);
 
-// 溜めた置き場所から、苔をまとめて 1 つのメッシュにする。
-// 材質も形も同じで、置いたあと動かないので、これで描画の呼び出しは 1 回で済む。
+// 光暈の板。地面に寝かせた 1x1 の板を、頂点シェーダーで粒ごとに
+// ずらして伸ばす。**中心から外へなめらかに消える**のが肝で、
+// これがないと光ではなく塗ったものに見える。
+//
+// InstancedMesh ではなく自前の InstancedBufferGeometry を使う。
+// 粒ごとに色・位相・明るさを渡したいので、どのみち属性を足す必要があり、
+// それなら位置も自前で持ったほうが分かりやすい(丸いので回転もいらない)。
+function makeMossHalo(spots) {
+  const geo = new THREE.InstancedBufferGeometry();
+  const quad = new THREE.PlaneGeometry(1, 1);
+  quad.rotateX(-Math.PI / 2);           // 地面に寝かせる
+  geo.setAttribute('position', quad.getAttribute('position'));
+  geo.setAttribute('uv', quad.getAttribute('uv'));
+  geo.setIndex(quad.getIndex());
+  // quad は dispose しない ── 属性をそのまま借りているので、
+  // dispose すると借りているバッファごと GPU から外される
+
+  const n = spots.length;
+  const off = new Float32Array(n * 3);
+  const tint = new Float32Array(n * 3);
+  const size = new Float32Array(n);
+  const phase = new Float32Array(n);
+  spots.forEach((o, i) => {
+    off[i * 3] = o.x;
+    // **板の大きさに比例して持ち上げる。** 板は平らなのに地面は起伏が
+    // あるので、大きい板ほど端が地面にめり込んで、そこだけ光が消える。
+    // (持ち上げる前は、手前の苔がまるごと光らなかった。)
+    // 実測: 地面に食われず出ている光の割合は、持ち上げなしで 27%、
+    // 係数 0.12 で 68%、0.25 で 80%、0.45 で 86%、0.8 で 90%。
+    // 0.25 から先は伸びが鈍る(残りは木や建物の本物の陰)一方、
+    // 浮きは見えはじめるので、ここで止める。
+    // 光暈はぼんやりしているので、このくらい浮いても見た目には出ない。
+    off[i * 3 + 1] = o.y + 0.004 + o.halo * 0.25;
+    off[i * 3 + 2] = o.z;
+    tint[i * 3] = o.tint[0] * o.bright;
+    tint[i * 3 + 1] = o.tint[1] * o.bright;
+    tint[i * 3 + 2] = o.tint[2] * o.bright;
+    size[i] = o.halo;
+    phase[i] = o.phase;
+  });
+  geo.setAttribute('aOffset', new THREE.InstancedBufferAttribute(off, 3));
+  geo.setAttribute('aTint', new THREE.InstancedBufferAttribute(tint, 3));
+  geo.setAttribute('aSize', new THREE.InstancedBufferAttribute(size, 1));
+  geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phase, 1));
+  geo.instanceCount = n;
+  // 位置は position ではなく aOffset に入っているので、three が自分で
+  // 出す範囲は「原点の 1x1 の板」になってしまう。島を包む球を手で入れる
+  // (下の frustumCulled = false と合わせて、画面外と誤判定させない)。
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 40);
+
+  const uniforms = { uTime: { value: 0 }, uGlow: { value: 0 } };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,        // 光は奥行きを塞がない(重なっても濁らない)
+    blending: THREE.AdditiveBlending,
+    fog: false,
+    // 地面と同じ高さを取り合って負けないように、深度を手前へ寄せる。
+    // **深度テストは切らない** ── 切ると木や建物の向こうの光まで
+    // 手前に抜けてきて、光が宙に浮いて見える。
+    polygonOffset: true,
+    polygonOffsetFactor: -4,
+    polygonOffsetUnits: -8,
+    vertexShader: `
+      attribute vec3 aOffset;
+      attribute vec3 aTint;
+      attribute float aSize;
+      attribute float aPhase;
+      uniform float uTime;
+      varying vec2 vUv;
+      varying vec3 vTint;
+      void main() {
+        vUv = uv;
+        // ゆっくり息をする。位相を粒ごとにずらしてあるので、
+        // 全体では「ちらちら」に見えて、一斉点滅にならない
+        float tw = 0.72 + 0.28 * sin(uTime * 0.9 + aPhase * 6.2831853);
+        vTint = aTint * tw;
+        vec3 p = position * aSize + aOffset;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uGlow;
+      varying vec2 vUv;
+      varying vec3 vTint;
+      void main() {
+        // 中心 1 → ふち 0 へ。2.6 乗で芯を締めて裾を長く引く
+        float d = length(vUv - 0.5) * 2.0;
+        float a = pow(max(0.0, 1.0 - d), 2.6);
+        gl_FragColor = vec4(vTint * uGlow, a);
+      }
+    `,
+  });
+
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.frustumCulled = false;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  // 加算合成なので描く順で色は変わらないが、地面より後に描かせる
+  mesh.renderOrder = 2;
+  return { mesh, uniforms };
+}
+
+// 溜めた置き場所から、苔をまとめる。粒(実体)と光暈(加算合成)の2枚。
+// どちらも形と材質が同じで置いたあと動かないので、描画の呼び出しは2回で済む。
 function buildMoss(spots, mossMat) {
   if (!spots.length) return null;
-  const mesh = new THREE.InstancedMesh(GEO.sphere, mossMat, spots.length);
+  const grain = new THREE.InstancedMesh(GEO.moss, mossMat, spots.length);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3();
   spots.forEach((o, i) => {
     q.setFromAxisAngle(MOSS_UP, o.ry);
-    mesh.setMatrixAt(i, m.compose(pos.set(o.x, o.y, o.z), q, scl.set(o.sx, o.sy, o.sz)));
+    grain.setMatrixAt(i, m.compose(pos.set(o.x, o.y, o.z), q, scl.set(o.sx, o.sy, o.sz)));
   });
-  mesh.instanceMatrix.needsUpdate = true;
+  grain.instanceMatrix.needsUpdate = true;
   // 苔は自分で光る。影を落としても受けても意味がないので切る(そのぶん軽い)
-  mesh.castShadow = false;
-  mesh.receiveShadow = false;
-  return mesh;
+  grain.castShadow = false;
+  grain.receiveShadow = false;
+
+  const halo = makeMossHalo(spots);
+  return { grain, halo: halo.mesh, uniforms: halo.uniforms };
 }
 
 function decorateHex(group, hid, terrain, moss = null) {
@@ -561,8 +708,8 @@ function decorateHex(group, hid, terrain, moss = null) {
   if (moss && terrain !== 'desert') {
     // 内側と外側の2重に散らす。1重だとヘックスの縁にだけ並んで、
     // 輪郭をなぞる不自然な模様に見える
-    for (const [dx, dz] of ringPositions(rng, 5, 0.46, 0.82)) addMoss(moss, rng, dx + c.x, dz + c.y);
-    for (const [dx, dz] of ringPositions(rng, 3, 0.16, 0.4)) addMoss(moss, rng, dx + c.x, dz + c.y);
+    for (const [dx, dz] of ringPositions(rng, 5, 0.46, 0.82)) addMoss(moss, rng, hid, terrain, dx + c.x, dz + c.y);
+    for (const [dx, dz] of ringPositions(rng, 3, 0.16, 0.4)) addMoss(moss, rng, hid, terrain, dx + c.x, dz + c.y);
   }
 
   if (terrain === 'forest') {
@@ -918,11 +1065,22 @@ function makeMerchant(colorHex) {
 // 昼 → 夕暮れ → 星夜 → 昼 をゆっくり巡る。太陽の光暈と夜の星は
 // シェーダーで手続き生成。ライト・霧・海の縁の色も同じパレットに連動する。
 const SKY_CYCLE_SEC = 300; // 1周の長さ
-// 真夜中に光る苔がどれだけ光るか。
+// 真夜中に苔の粒がどれだけ光るか(粒そのものの emissive)。
 // **強すぎると色が飛んで白い染みになる** ── 1.15 で試したら、緑ではなく
 // 白い斑点が地面に散っているように見えた。色が残るところまで落とす。
-// 月明かりを上げたぶん背景が明るくなったので、少しだけ戻してある。
-const MOSS_GLOW = 0.95;
+// 見せる明るさの大半は光暈のほうに持たせてあるので、粒は控えめでいい。
+const MOSS_GLOW = 0.6;
+// 光暈(粒のまわりの滲み)の強さ。加算合成なので、株のなかで
+// 十粒ぶんが重なる ── 1粒あたりは弱くしておかないと芯が白く飛ぶ。
+//
+// **白飛びさせない。** 芯が飛ぶと色が抜けて、光ではなく白い塗料に見える
+// ── まさに最初に「汚物みたい」と言われた見え方に戻る。
+// 実測(光っている画素のうち白飛びした割合 / 光る画素の面積):
+//   0.9 → 0.8% / 6.6%,  1.3 → 5.5% / 7.3%,
+//   1.8 → 10.2% / 7.8%, 2.4 → 13.7% / 8.0%
+// 0.9 から上げても**光る面積はほとんど増えず、芯が飛ぶだけ**なので、
+// 増えぶんが無駄になる手前で止める。
+const MOSS_HALO = 1.0;
 const SKY_PHASES = [
   // t: サイクル内の位置, zenith: 天頂, horizon: 地平線,
   // sun: 太陽光の色, sunI: 強さ, hemi: 半球光の強さ, night: 星の濃さ
@@ -1934,6 +2092,12 @@ export class Board3D {
     // **光る苔は夜だけ光る。** 昼はただの苔むした地面(emissive 0)。
     // 夜の濃さ(night)をそのまま使うので、夕暮れに向けて自然に消えていく。
     this.mossMat.emissiveIntensity = s.night * MOSS_GLOW;
+    if (this.mossUniforms) {
+      this.mossUniforms.uTime.value = now / 1000;
+      // 光暈は粒より遅れて出す(night^1.5)。夕暮れにうっすら光られると
+      // まだ明るいのに光っていて安っぽい ── 暗くなりきってから灯す
+      this.mossUniforms.uGlow.value = Math.pow(s.night, 1.5) * MOSS_HALO;
+    }
 
     // 影の濃さも時刻に連動(日が沈めば影は消える)
     if (this.seaShadowMat) this.seaShadowMat.opacity = 0.03 + (1 - s.night) * 0.21;
@@ -2348,7 +2512,11 @@ export class Board3D {
     }
 
     const moss = buildMoss(mossSpots, this.mossMat);
-    if (moss) this.staticGroup.add(moss);
+    this.mossUniforms = moss?.uniforms ?? null;
+    if (moss) {
+      this.staticGroup.add(moss.grain);
+      this.staticGroup.add(moss.halo);
+    }
 
     // 漁師たち: 漁場(港のない海岸辺)
     for (const f of state.board.fisheries ?? []) {
