@@ -741,9 +741,9 @@ async function startWalk() {
   walk.onSplash = () => { sfx.play('splash'); walkNote('🌊 海に落ちた!'); };
   // 足音。地面と動きで音が変わる(audio/footsteps.js)
   walk.onStep = (terrain, motion, vary, gait) => {
-    const sound = stepSound(terrain, motion, vary);
-    // ゆっくり歩くと小さく。跳ぶ・着地は歩く速さに関係なく出す
-    if (motion === 'walk') sound.noise.gain *= 0.45 + gait * 0.55;
+    // ゆっくり歩けば小さくなる。その匙加減も footsteps.js が持つ
+    // (層が3つあるので、呼ぶ側で1層だけ弄ると音の釣り合いが崩れる)
+    const sound = stepSound(terrain, motion, vary, gait);
     sfx.play('step', { sound });
     stepLog?.push({ terrain, motion, gait: +(gait ?? 1).toFixed(2), at: performance.now() });
   };
