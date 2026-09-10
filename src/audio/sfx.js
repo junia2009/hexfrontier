@@ -205,19 +205,31 @@ export class Sfx {
       // 0.35 乗にしていたときは低い泡が埋もれて、高い泡ばかりが目立っていた。
       const amp = (fLo / f0) * (0.4 + Math.random() * 0.6);
       const ns = Math.min(len - s0, Math.ceil(life * SR));
-      let ph = Math.random() * Math.PI * 2;
+      // **位相は 0 から始める。** 途中の位相から始めると、最初の1標本で
+      // 波形が段差になって「プチッ」と鳴る。泡を数百個も置くので、
+      // その段差が数百個ぶん重なって、ざらざらした濁りになっていた。
+      let ph = 0;
       for (let k = 0; k < ns; k++) {
         const tt = k / SR;
         ph += (2 * Math.PI * f0 * (1 + rise * (tt / life))) / SR;
         d[s0 + k] += Math.sin(ph) * amp * Math.exp(-tt / tau);
       }
     }
-    // 山の高さを gain に合わせる(何百個も足しているので、そのままだと割れる)
-    let peak = 0;
-    for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(d[i]));
-    if (peak > 0) {
-      const k = gain / peak;
-      for (let i = 0; i < len; i++) d[i] *= k;
+    // 高さを gain に合わせる(何百個も足しているので、そのままだと割れる)。
+    // **いちばん高いところに合わせてはいけない。** 低い泡は 1/f で
+    // 飛び抜けて大きいうえ、数百個のうち1個あるかどうかしかない。
+    // その1個に合わせると、そいつだけが残って他が全部縮み、
+    // 「低い音がひとつブリッと鳴るだけ」の音になっていた。
+    // 上位 0.5% を外した高さに合わせて、群れのほうを基準にする。
+    const mag = Float64Array.from(d, Math.abs).sort();
+    const ref = mag[Math.floor(mag.length * 0.995)] || mag[mag.length - 1];
+    if (ref > 0) {
+      const k = gain / ref;
+      // それでも飛び出す1個は、耳につかないところまで抑える。
+      // **角で切らずに丸める** ── 角で切るとそこに倍音が立って、
+      // 濁りを消すつもりが別の濁りを足すことになる。
+      const cap = gain * 1.6;
+      for (let i = 0; i < len; i++) d[i] = cap * Math.tanh((d[i] * k) / cap);
     }
     const src = ctx.createBufferSource();
     src.buffer = buf;
