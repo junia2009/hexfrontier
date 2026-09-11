@@ -92,16 +92,22 @@ test('水: ノイズの層に音程を持たせない', () => {
   }
 });
 
-test('水: 空洞の唸りは低く、帯域が下がる(沈む)', () => {
-  // 最初の版は叩きの帯域を 900→3150Hz と**上に**振っていて、
-  // 「沈んだ」ではなく「弾けた」に聞こえていた。水は落ちて沈む。
+test('水: 低い層は滑らせない。短い一撃にする', () => {
+  // **ここは一度、逆のことをテストで固定してしまった。**
+  // 「水は沈むのだから帯域も下げる」と考えて `sweep < 1` を要求して
+  // いたが、ローパスした雑音を低いほうへ滑らせるのは**屁の音の
+  // 作りかたそのもの**で、守るほど下品な音になる決まりだった。
+  // (物理的にも逆。空洞はただの大きな泡なので、縮むと音は上がる。)
+  // 低い成分は「重み」であって「動き」ではない。
   for (const kind of WATER_KINDS) {
     const w = waterSound(kind);
-    assert.ok(w.cavity.sweep < 1, `${kind}: 空洞が下がっていない(${w.cavity.sweep})`);
-    assert.ok(w.impact.sweep < 1, `${kind}: 一撃が下がっていない(${w.impact.sweep})`);
+    assert.ok(w.cavity.sweep >= 1, `${kind}: 低い層が下へ滑っている(${w.cavity.sweep})`);
+    assert.ok(w.cavity.dur <= 0.07, `${kind}: 低い層が長すぎる(${w.cavity.dur}秒)`);
     assert.ok(w.cavity.freq < w.impact.freq * 0.6, `${kind}: 空洞が一撃より低くない`);
     // 共鳴させない(ローパスは Q が 0.707 を超えると遮断点に山ができる)
     assert.ok(w.cavity.q <= 0.707, `${kind}: 空洞が共鳴している(Q=${w.cavity.q})`);
+    // 明るい一撃のほうは、下へ抜けてよい(これは「弾けた」ではなく減衰)
+    assert.ok(w.impact.sweep < 1, `${kind}: 一撃が下がっていない(${w.impact.sweep})`);
   }
 });
 
