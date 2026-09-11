@@ -15,6 +15,8 @@ const FLOAT_BOT = 0xf5f2ea;
 const SAG = sc(0.22);
 // 投げる距離。浮きが岸からどれだけ沖に落ちるか
 const CAST_DIST = sc(1.1);
+// 投げた浮きが描く山なりの高さ。まっすぐ飛ぶと投げた感じが出ない
+const CAST_ARC = sc(0.30);
 const SEG = 12;   // 糸の分割数(たるみを曲線で見せるため)
 
 export class FishingFx {
@@ -70,11 +72,16 @@ export class FishingFx {
 
     this._tip = new THREE.Vector3();
     this._a = new THREE.Vector3();
+    this.landing = new THREE.Vector3();   // 浮きが落ちる場所
   }
 
-  // 浮きを落とす場所を決める(岸から沖へ向かって投げる)
+  // 浮きを落とす場所を決める(岸から沖へ向かって投げる)。
+  // **浮きをそこへ置くのはここではない。** 置いてしまうと、まだ振りかぶって
+  // いるのに浮きだけ沖に着いていて、糸だけがあとから伸びることになる。
+  // 飛んでいく途中は update が castK に沿って運ぶ。
   cast(x, z, dirX, dirZ, dist = CAST_DIST) {
-    this.float.position.set(x + dirX * dist, this.seaY, z + dirZ * dist);
+    this.landing.set(x + dirX * dist, this.seaY, z + dirZ * dist);
+    this.float.position.copy(this.landing);
     this.float.visible = true;
     this.line.visible = true;
     this.ringT = 0;
@@ -93,20 +100,33 @@ export class FishingFx {
     if (!this.float.visible) return;
 
     const f = this.float.position;
-    // 浮きの上下。待っている間はゆっくり、アタリでは激しく沈む
-    let bob = Math.sin(this.t * 2.1) * sc(0.012);
-    if (v.phase === 'bite') bob = sc(-0.045 - Math.abs(Math.sin(this.t * 16)) * 0.05);
-    else if (v.phase === 'fight') {
-      // 張っているほど浮きが水に引き込まれる
-      bob = sc(-0.02 - v.tension * 0.06 + Math.sin(this.t * (v.burst ? 22 : 7)) * 0.02);
-    }
-    f.y = this.seaY + bob;
+    if (v.phase === 'cast' && castK < 1) {
+      // 竿先から落ちる場所へ、山なりに飛んでいく。
+      // 糸の先(_drawLine)もここを終点にするので、浮きと糸がずれない。
+      const k = Math.max(0.05, castK);
+      f.set(
+        tip.x + (this.landing.x - tip.x) * k,
+        tip.y + (this.landing.y - tip.y) * k + Math.sin(k * Math.PI) * CAST_ARC,
+        tip.z + (this.landing.z - tip.z) * k,
+      );
+    } else {
+      // 落ちたら、そこに浮かぶ(取り込み中だけは手元へ寄ってくる)
+      if (v.phase !== 'fight') { f.x = this.landing.x; f.z = this.landing.z; }
+      // 浮きの上下。待っている間はゆっくり、アタリでは激しく沈む
+      let bob = Math.sin(this.t * 2.1) * sc(0.012);
+      if (v.phase === 'bite') bob = sc(-0.045 - Math.abs(Math.sin(this.t * 16)) * 0.05);
+      else if (v.phase === 'fight') {
+        // 張っているほど浮きが水に引き込まれる
+        bob = sc(-0.02 - v.tension * 0.06 + Math.sin(this.t * (v.burst ? 22 : 7)) * 0.02);
+      }
+      f.y = this.seaY + bob;
 
-    // 取り込むにつれて浮きが手元へ寄ってくる
-    if (v.phase === 'fight') {
-      this._a.copy(tip);
-      this._a.y = f.y;
-      f.lerp(this._a, Math.min(1, dt * 1.6 * v.progress));
+      // 取り込むにつれて浮きが手元へ寄ってくる
+      if (v.phase === 'fight') {
+        this._a.copy(tip);
+        this._a.y = f.y;
+        f.lerp(this._a, Math.min(1, dt * 1.6 * v.progress));
+      }
     }
 
     // 波紋。アタリと暴れのときだけ出す
@@ -124,17 +144,19 @@ export class FishingFx {
   }
 
   // 糸を張り具合に応じて垂らす。張っているほどまっすぐになる。
+  // **終点は浮きそのもの。** 飛んでいる途中は浮きのほうが動いている
+  // (update)ので、ここで重ねて castK を掛けると二重に縮む。
   _drawLine(tip, end, v, castK) {
     const pos = this.line.geometry.attributes.position;
-    // 投げている途中は、糸の先が飛んでいく途中まで
+    // たるみだけは投げ終わるまで抑える(飛んでいる間はぴんと張る)
     const k = Math.max(0.05, Math.min(1, castK));
     const sag = SAG * (1 - (v.phase === 'fight' ? v.tension : 0.15)) * k;
     for (let i = 0; i <= SEG; i++) {
       const s = i / SEG;
-      const x = tip.x + (end.x - tip.x) * s * k;
-      const z = tip.z + (end.z - tip.z) * s * k;
+      const x = tip.x + (end.x - tip.x) * s;
+      const z = tip.z + (end.z - tip.z) * s;
       // 放物線でたるませる(両端は 0、まんなかがいちばん下がる)
-      const y = tip.y + (end.y - tip.y) * s * k - Math.sin(s * Math.PI) * sag;
+      const y = tip.y + (end.y - tip.y) * s - Math.sin(s * Math.PI) * sag;
       pos.setXYZ(i, x, y, z);
     }
     pos.needsUpdate = true;

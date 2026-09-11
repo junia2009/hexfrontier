@@ -342,6 +342,14 @@ function mergeStep(a, b) {
   };
 }
 
+// 0〜1 の進み具合を、両端で速度 0 になる曲線にならす(smoothstep)。
+// 瞬間移動のかわりに「寄せる」ときに使う ── 線形だと動き出しと止まりぎわに
+// 角が立ち、そこで「ガク」と引っかかって見える。
+export function ease01(k) {
+  const t = k <= 0 ? 0 : (k >= 1 ? 1 : k);
+  return t * t * (3 - 2 * t);
+}
+
 // a から b へ、最短回りで最大 max ラジアン近づける
 export function approachAngle(a, b, max) {
   let d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;

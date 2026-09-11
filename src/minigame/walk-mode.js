@@ -18,7 +18,7 @@ import {
 import { Raid, ARCHERY_MODES, BOW_Y, reach as arrowReach } from './archery.js';
 import { ArcheryFx } from './archery-fx.js';
 import { makeBlocker, clearAround } from './obstacles.js';
-import { MAX_DT, SINK_DEPTH, WATER_Y } from './motion.js';
+import { MAX_DT, SINK_DEPTH, WATER_Y, approachAngle, ease01 } from './motion.js';
 import { Walker, WALK_SPEED } from './walker.js';
 import { WaterFx } from './water-fx.js';
 import { Fishing, CAST_TIME } from './fishing.js';
@@ -139,6 +139,13 @@ const FISH_YAW = -0.75;     // 本人の向きからどれだけ横へ回り込�
 const FISH_PITCH = 0.30;    // 見下ろす角度(角度は縮尺と無関係)
 const FISH_DIST = sc(1.9);
 const FISH_AIM = sc(0.42);  // 本人から浮きのほうへ、どれだけ先を見るか
+// 釣り場へ寄る時間(秒)。**瞬間移動させない。**
+// 押した場所から足場へ飛ばしていたので、始めた瞬間に「ガク」となっていた
+// (実測: 1フレームで 0.20 単位 ─ 身長の半分 ─ 動き、向きが 144° 裏返り、
+//  それにつられてカメラが 1.09 単位飛んでいた)。
+// 投げる動作の振りかぶり(CAST_TIME の 35% = 0.19 秒)とほぼ同じ長さにして、
+// 「寄りながら振りかぶり、構えてから投げる」に見せる。
+const FISH_SETTLE = 0.22;
 
 // 散策部屋: 自分の位置を送る間隔(サーバーの配る間隔と揃える)
 const SEND_MS = 100;
@@ -349,6 +356,8 @@ export class WalkMode {
     this.spots = fishingSpots(state);
     this.spot = null;        // いま近くにある釣り場
     this.fishing = null;     // 釣っている間だけ Fishing が入る
+    this.fishFrom = null;    // 釣り場へ寄っている間だけ入る(_settleToSpot)
+    this.fishCam = null;     // 釣りのカメラの極座標(_placeFishCamera)
     this.fishSeed = fishSeed;
     this.fishT = 0;
     this.ffx = new FishingFx(board3d.scene, SEA_Y);
@@ -698,10 +707,16 @@ export class WalkMode {
     if (this.fishing || !this.spot) return false;
     this.stopEmote();   // 竿を出すので、身ぶりは切り上げる
     const s = this.spot;
-    this.walker.setPosition(s.x, s.z);
+    // **足場へは寄っていく。** ここで setPosition すると瞬間移動になる
+    // (FISH_SETTLE のコメント)。いまの場所と向きを控えて、
+    // _settleToSpot が投げるあいだに詰める。
+    const w = this.walker.pos;
+    this.fishFrom = { x: w.x, z: w.z, facing: this.walker.facing };
+    this.fishTo = { x: s.x, z: s.z, facing: Math.atan2(s.outX, s.outZ) };
+    this.fishSettleT = 0;
+    this.fishCam = null;   // カメラもいまの場所から回り込ませる
     this.walker.motion.vel.x = 0;
     this.walker.motion.vel.z = 0;
-    this.walker.motion.facing = Math.atan2(s.outX, s.outZ);
     this.walker.setRod(true);
     // 投げるたびに乱数を進める(同じ港で同じ魚が続かないように)
     this.fishSeed = (this.fishSeed * 1103515245 + 12345) >>> 0;
@@ -709,14 +724,35 @@ export class WalkMode {
     this.fishT = 0;
     this.fishing.cast();
     this.ffx.cast(s.x, s.z, s.outX, s.outZ);
-    this.camYaw = this.walker.facing;
     return true;
+  }
+
+  // 押した場所から釣り場の足場へ、向きごと寄せる(_fishFrame から毎フレーム)。
+  // 両端で速度が 0 になる曲線(smoothstep)で詰めるので、寄り始めにも
+  // 着いた瞬間にも段差が出ない。
+  _settleToSpot(dt) {
+    const f = this.fishFrom;
+    if (!f) return;
+    this.fishSettleT = Math.min(FISH_SETTLE, this.fishSettleT + dt);
+    const e = ease01(this.fishSettleT / FISH_SETTLE);
+    const t = this.fishTo;
+    // setPosition は足元の高さも合わせ直す(motion.js の snapFoot)ので、
+    // 段差のある足場へ寄っても浮かない。
+    this.walker.setPosition(f.x + (t.x - f.x) * e, f.z + (t.z - f.z) * e);
+    // 向きは最短回り。approachAngle(…, Infinity) で「回る先」を絶対角にしてから
+    // 補間する ── 生の差を使うと、180° をまたぐときに逆回りする。
+    const to = approachAngle(f.facing, t.facing, Infinity);
+    this.walker.motion.facing = f.facing + (to - f.facing) * e;
+    this.camYaw = this.walker.motion.facing;
+    if (this.fishSettleT >= FISH_SETTLE) this.fishFrom = null;
   }
 
   // 竿を上げてしまう(結果を見終わったあと、または途中でやめたとき)
   stopFishing() {
     if (!this.fishing) return;
     this.fishing = null;
+    this.fishFrom = null;
+    this.fishCam = null;
     this.walker.setRod(false);
     this.ffx.hide();
   }
@@ -1113,6 +1149,7 @@ export class WalkMode {
   // 釣っている間のフレーム。歩きの計算はしない(その場に立ったまま)。
   _fishFrame(dt) {
     this.fishT += dt;
+    this._settleToSpot(dt);   // 足場へ寄る(始めた直後だけ)
     const f = this.fishing;
     for (const e of f.update(dt)) this.onFishEvent?.(e);
 
@@ -1136,22 +1173,47 @@ export class WalkMode {
   // 釣っている間のカメラ。
   // 真後ろから撮ると、竿も糸も浮きも本人の陰に入って何も見えない。
   // 斜め後ろに回り込み、本人と浮きの中間を見る(横顔で竿の角度が分かる)。
+  //
+  // **寄せるのは「回り込む角度・距離・高さ」で、位置そのものではない。**
+  // 位置を直に寄せると、本人のまわりを回らずに空間を突っ切る。
+  // 釣り始めは本人の向きが最大 180° 変わるので、突っ切ると本人の頭の
+  // すぐそばを通ってしまい、そのあいだ景色が振り回される
+  // (寄り始めの位置の差が大きいほど視線の回り方が速くなるため)。
+  // 極座標で寄せれば、距離を保ったまま本人のまわりを回り込む。
   _placeFishCamera(dt, v) {
     const cam = this.b.camera;
     const w = this.walker.pos;
     const s = this.spot;
     const groundY = this.ground(w.x, w.z).y;
-    const yaw = this.walker.facing + FISH_YAW * (s?.side || 1);
     // 引かれるほど寄って、手応えを見せる
     const dist = FISH_DIST * (1 - (v.phase === 'fight' ? v.tension * 0.18 : 0));
-    const flat = Math.cos(FISH_PITCH) * dist;
+    const want = {
+      yaw: this.walker.facing + FISH_YAW * (s?.side || 1),
+      flat: Math.cos(FISH_PITCH) * dist,
+      up: 0.42 + Math.sin(FISH_PITCH) * dist,
+    };
+    // 始めの一歩は、**いまカメラが居る場所**を極座標に直したところから。
+    // 決め打ちの値から始めると、そこへ飛ぶぶんが最初の一コマで出てしまう。
+    if (!this.fishCam) {
+      const dx = cam.position.x - w.x;
+      const dz = cam.position.z - w.z;
+      this.fishCam = {
+        yaw: Math.atan2(-dx, -dz),
+        flat: Math.hypot(dx, dz),
+        up: cam.position.y - groundY,
+      };
+    }
+    const c = this.fishCam;
+    const k = smooth(5, dt);
+    c.yaw += (approachAngle(c.yaw, want.yaw, Infinity) - c.yaw) * k;  // 最短回り
+    c.flat += (want.flat - c.flat) * k;
+    c.up += (want.up - c.up) * k;
 
-    const want = new THREE.Vector3(
-      w.x - Math.sin(yaw) * flat,
-      groundY + 0.42 + Math.sin(FISH_PITCH) * dist,
-      w.z - Math.cos(yaw) * flat,
+    cam.position.set(
+      w.x - Math.sin(c.yaw) * c.flat,
+      groundY + c.up,
+      w.z - Math.cos(c.yaw) * c.flat,
     );
-    cam.position.lerp(want, smooth(4.5, dt));
     // 見るのは本人と浮きのあいだ。竿の先と水面が同時に入る
     const aim = FISH_AIM * (v.phase === 'cast' ? 0.4 : 1);
     cam.lookAt(
