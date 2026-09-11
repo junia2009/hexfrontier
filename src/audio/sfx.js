@@ -267,12 +267,16 @@ export class Sfx {
 }
 
 // 水の音を鳴らす。中身は water.js が決める。
-// **主役は泡。** ノイズは水面が割れる一撃と、空洞が潰れる唸りだけ。
+// **主役は「上がる音程」(ploop)。** これが無いと水に聞こえない。
+// 雑音は水面が割れる頭だけ、粒は尾のきらめきだけ ── 脇役に留める。
 function water(s, t, w) {
-  if (w.impact) s.noise(t + w.impact.at, w.impact.dur, w.impact);
-  // 空洞の唸りはローパスで、帯域が下がっていく(沈む)
-  if (w.cavity) s.noise(t + w.cavity.at, w.cavity.dur, { ...w.cavity, type: 'lowpass' });
-  if (w.bubbles) s.bubbles(t + w.bubbles.at, w.bubbles);
+  if (w.splash) s.noise(t + w.splash.at, w.splash.dur, w.splash);
+  if (w.ploop) {
+    s.tone(w.ploop.midi, t + w.ploop.at, w.ploop.dur, {
+      type: 'sine', gain: w.ploop.gain, glide: w.ploop.rise, lp: w.ploop.lp,
+    });
+  }
+  if (w.sparkle) s.bubbles(t + w.sparkle.at, w.sparkle);
 }
 
 // ---- 音の定義 ----

@@ -1,151 +1,131 @@
-// 水の音。鳴らせはしないが、「何でできているか」は検査できる。
+// 水の音。鳴らせはしないが、「効果音としての決まり」は検査できる。
 //
-// **この検査は一度、物として逆のことを固定してしまった。**
-// 前の版では「泡は芯のノイズより小さく保て・粒は数個」と書いていた。
-// 音程が暴れるのを防ぐつもりだったが、水の音の正体はまさにその泡なので、
-// 守るほど水から遠ざかる決まりになっていた。いまは逆に
-// 「泡が主役で、数が十分あること」を押さえる。
+// **この検査は三度、逆のことを固定した。** 本物に寄せようとするたびに、
+// 物としては正しいが効果音としては誤りな決まりを書いてしまった ──
+// 「泡は小さく保て」(水は泡そのものなのに)、「泡は数百個」(重ねると
+// 雑音に収束するのに)、「低い層は下へ滑らせろ」(それは屁の音の
+// 作りかたなのに)。いまは狙いを**効果音としての正しさ**に置いている。
+// 以下はすべて「一度破って怒られた」ことの裏返しなので、理由ごと残す。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { waterSound, WATER_KINDS, BUBBLE_LIMITS, BAND_GAP } from '../src/audio/water.js';
+import {
+  waterSound, WATER_KINDS, FX_LIMITS, SCALE_PCS,
+} from '../src/audio/water.js';
 import { SFX_NAMES } from '../src/audio/sfx.js';
-
-const NOISE_LAYERS = ['impact', 'cavity'];
 
 test('水: 中身が全て有限の数値', () => {
   for (const kind of WATER_KINDS) {
     const w = waterSound(kind);
-    assert.ok(w.impact && w.cavity && w.bubbles, `${kind}: 層が足りない`);
-    for (const k of NOISE_LAYERS) {
-      for (const f of ['at', 'freq', 'q', 'dur', 'gain', 'sweep']) {
-        assert.ok(Number.isFinite(w[k][f]), `${kind} の ${k}.${f}`);
-        assert.ok(f === 'at' ? w[k][f] >= 0 : w[k][f] > 0, `${kind} の ${k}.${f} が負`);
-      }
+    assert.ok(w.splash && w.ploop && w.sparkle, `${kind}: 層が足りない`);
+    for (const f of ['at', 'freq', 'q', 'dur', 'gain', 'sweep']) {
+      assert.ok(Number.isFinite(w.splash[f]) && w.splash[f] >= 0, `${kind} の splash.${f}`);
+    }
+    for (const f of ['at', 'midi', 'rise', 'dur', 'gain', 'lp']) {
+      assert.ok(Number.isFinite(w.ploop[f]) && w.ploop[f] >= 0, `${kind} の ploop.${f}`);
     }
     for (const f of ['at', 'n', 'fLo', 'fHi', 'spread', 'decay', 'rise', 'gain', 'dur']) {
-      assert.ok(Number.isFinite(w.bubbles[f]), `${kind} の bubbles.${f}`);
-      assert.ok(w.bubbles[f] >= 0, `${kind} の bubbles.${f} が負`);
+      assert.ok(Number.isFinite(w.sparkle[f]) && w.sparkle[f] >= 0, `${kind} の sparkle.${f}`);
     }
   }
 });
 
-test('水: 泡は「聞き分けられる数」に収める', () => {
-  // **増やすほど水らしくなる、ではない。** 泡はランダムな位相の正弦波
-  // なので、重ねるほど中心極限定理でただの雑音に収束する ── つまり
-  // 増やすほど「フィルタした雑音」に近づいて、水から遠ざかる。
-  // 実測でも、はっきり聞き分けられる粒は 8〜11 個で頭打ちになり、
-  // 24 個から 280 個に増やしても一切増えなかった(濁りだけが増えた)。
+test('水: 音程は必ず上がる(これが水の合図)', () => {
+  // 漫画の水音が必ず上がるのは、人がこの形を水として覚えているから。
+  // **下がる音程は水ではなく体の音になる** ── 最初の版は 73Hz の
+  // 正弦波を下げていて「ボヨン」、次の版は低い雑音を下げていて
+  // 「うんちしてる感じ」と言われた。上げる以外に選択肢はない。
   for (const kind of WATER_KINDS) {
-    const b = waterSound(kind).bubbles;
-    assert.ok(b.n >= BUBBLE_LIMITS.minN, `${kind}: 泡が少なすぎる(${b.n})`);
-    assert.ok(b.n <= BUBBLE_LIMITS.maxN, `${kind}: 泡が多すぎて濁る(${b.n})`);
-    assert.ok(Number.isInteger(b.n), `${kind}: 泡の数が整数でない`);
-    // 時間にばらけて湧くこと(同時に鳴らすと一発の和音になる)
-    assert.ok(b.spread > 0, `${kind}: 泡が同時に生まれる`);
-    assert.ok(b.decay > 0, `${kind}: 泡の湧きが減っていかない`);
+    const w = waterSound(kind);
+    assert.ok(w.ploop.rise > 0, `${kind}: 音程が上がらない`);
+    assert.ok(w.sparkle.rise > 0, `${kind}: 滴の音程が上がらない`);
   }
-  // いちばん派手なのは体ごとの着水
-  const n = (k) => waterSound(k).bubbles.n;
-  assert.ok(n('dive') > n('thrash') && n('thrash') > n('plop'), '規模の順が合っていない');
+});
+
+test('水: 低い帯に落とさない・低い雑音を滑らせない', () => {
+  // 上がっていても、低すぎれば下品な帯に入る。
+  // また、ローパスした雑音を下へ滑らせるのは屁の音の作りかたそのもの。
+  for (const kind of WATER_KINDS) {
+    const w = waterSound(kind);
+    assert.ok(w.ploop.midi >= FX_LIMITS.minPloopMidi,
+      `${kind}: 音程が低すぎる(midi ${w.ploop.midi})`);
+    // 雑音の層は明るいほうだけ。下へ長く滑らせない
+    assert.ok(w.splash.freq >= 1500, `${kind}: 雑音が低すぎる(${w.splash.freq}Hz)`);
+    assert.ok(w.splash.sweep >= 0.4, `${kind}: 雑音が下へ滑りすぎ(${w.splash.sweep})`);
+    assert.ok(w.splash.dur <= 0.09, `${kind}: 雑音が長すぎる(${w.splash.dur}秒)`);
+  }
+});
+
+test('水: 音程は BGM と同じ音階に乗せる', () => {
+  // 効果音全体の決まり。外れた高さで鳴ると、曲と喧嘩して安っぽくなる。
+  for (const kind of WATER_KINDS) {
+    const { midi, rise } = waterSound(kind).ploop;
+    assert.ok(SCALE_PCS.includes(midi % 12), `${kind}: 開始の高さが音階の外(midi ${midi})`);
+    assert.ok(SCALE_PCS.includes((midi + rise) % 12), `${kind}: 上がった先が音階の外`);
+  }
+});
+
+test('水: 短く収める(効果音は居座らない)', () => {
+  for (const kind of WATER_KINDS) {
+    const w = waterSound(kind);
+    for (const [name, L] of Object.entries(w)) {
+      assert.ok(L.dur <= FX_LIMITS.maxDur, `${kind}/${name}: 長すぎる(${L.dur}秒)`);
+    }
+    const end = Math.max(...Object.values(w).map((L) => L.at + L.dur));
+    assert.ok(end <= FX_LIMITS.maxDur + 0.1, `${kind}: 全体が長い(${end.toFixed(2)}秒)`);
+  }
+});
+
+test('水: 粒は増やしすぎない', () => {
+  // 粒はランダムな位相の正弦波なので、重ねるほど中心極限定理で
+  // ただの雑音に収束する ── 増やすほど水から遠ざかる。
+  // 実測でも、聞き分けられる粒は 8〜11 個で頭打ちで、
+  // 24 個から 280 個に増やしても一切増えなかった。
+  for (const kind of WATER_KINDS) {
+    const { n } = waterSound(kind).sparkle;
+    assert.ok(Number.isInteger(n) && n >= 3, `${kind}: 滴が少なすぎる(${n})`);
+    assert.ok(n <= FX_LIMITS.maxSparkleN, `${kind}: 滴が多すぎて濁る(${n})`);
+  }
 });
 
 test('水: 層どうしが帯域と時刻で分かれている', () => {
-  // ここが重なると、層が同じところで鳴って互いを埋め、
-  // 「複雑なのに何も聞こえない」濁りになる。
+  // 重なると互いを埋めて「複雑なのに何も聞こえない」濁りになる。
   for (const kind of WATER_KINDS) {
     const w = waterSound(kind);
-    // 帯域: 低い唸り < 泡 < 一撃
-    assert.ok(w.bubbles.fLo > w.cavity.freq * BAND_GAP,
-      `${kind}: 泡が低い唸りに重なっている(泡 ${w.bubbles.fLo} / 唸り ${w.cavity.freq})`);
-    assert.ok(w.impact.freq > w.bubbles.fLo * BAND_GAP,
-      `${kind}: 一撃が泡に重なっている(一撃 ${w.impact.freq} / 泡 ${w.bubbles.fLo})`);
-    // 時刻: 一撃が終わるころに泡が出てくる
-    assert.ok(w.bubbles.at >= w.impact.dur * 0.5,
-      `${kind}: 泡が一撃と同時に出ている`);
+    const ploopHz = 440 * 2 ** ((w.ploop.midi - 69) / 12);
+    assert.ok(w.sparkle.fLo > ploopHz * FX_LIMITS.bandGap,
+      `${kind}: 滴が音程に重なっている`);
+    assert.ok(w.splash.freq > ploopHz * FX_LIMITS.bandGap,
+      `${kind}: 雑音が音程に重なっている`);
+    // 時刻: 雑音 → 音程 → 滴 の順に出る
+    assert.equal(w.splash.at, 0, `${kind}: 雑音が頭から始まっていない`);
+    assert.ok(w.ploop.at > 0, `${kind}: 音程が雑音と同時`);
+    assert.ok(w.sparkle.at > w.ploop.at, `${kind}: 滴が音程より先`);
   }
 });
 
-test('水: 泡は高く、縮みながら音が上がる', () => {
-  // 泡は大きいほど低い。低い泡ばかりにすると「ボヨン」に化ける
-  // (最初の版がまさにそれで、73Hz の正弦波が音の 74% を占めていた)。
-  // また、縮んでいく泡は音が上がる ── これが「ポチャン」の「ャン」。
-  for (const kind of WATER_KINDS) {
-    const b = waterSound(kind).bubbles;
-    // 泡の高さは大きさで決まる(ミンナールト: f ≒ 3.28/半径[m])。
-    // 下限は「泡としてありうる最大の大きさ」から来ている。
-    assert.ok(b.fLo >= BUBBLE_LIMITS.minHz, `${kind}: 泡が低すぎる(${b.fLo}Hz)`);
-    assert.ok(b.fLo <= BUBBLE_LIMITS.maxLoHz, `${kind}: 泡の下限が高すぎる(${b.fLo}Hz)`);
-    assert.ok(b.fHi > b.fLo * 3, `${kind}: 泡の大きさの幅が狭い`);
-    assert.ok(b.rise > 0, `${kind}: 泡の音が上がらない`);
-  }
-});
-
-test('水: ノイズの層に音程を持たせない', () => {
-  // 一撃と空洞はあくまで雑音。ここに正弦波を混ぜると楽器の音になる。
-  for (const kind of WATER_KINDS) {
-    const w = waterSound(kind);
-    for (const k of NOISE_LAYERS) {
-      assert.equal(w[k].midi, undefined, `${kind}: ${k} に音程がある`);
-      assert.equal(w[k].n, undefined, `${kind}: ${k} に泡の数がある`);
-    }
-  }
-});
-
-test('水: 低い層は滑らせない。短い一撃にする', () => {
-  // **ここは一度、逆のことをテストで固定してしまった。**
-  // 「水は沈むのだから帯域も下げる」と考えて `sweep < 1` を要求して
-  // いたが、ローパスした雑音を低いほうへ滑らせるのは**屁の音の
-  // 作りかたそのもの**で、守るほど下品な音になる決まりだった。
-  // (物理的にも逆。空洞はただの大きな泡なので、縮むと音は上がる。)
-  // 低い成分は「重み」であって「動き」ではない。
-  for (const kind of WATER_KINDS) {
-    const w = waterSound(kind);
-    assert.ok(w.cavity.sweep >= 1, `${kind}: 低い層が下へ滑っている(${w.cavity.sweep})`);
-    assert.ok(w.cavity.dur <= 0.07, `${kind}: 低い層が長すぎる(${w.cavity.dur}秒)`);
-    assert.ok(w.cavity.freq < w.impact.freq * 0.6, `${kind}: 空洞が一撃より低くない`);
-    // 共鳴させない(ローパスは Q が 0.707 を超えると遮断点に山ができる)
-    assert.ok(w.cavity.q <= 0.707, `${kind}: 空洞が共鳴している(Q=${w.cavity.q})`);
-    // 明るい一撃のほうは、下へ抜けてよい(これは「弾けた」ではなく減衰)
-    assert.ok(w.impact.sweep < 1, `${kind}: 一撃が下がっていない(${w.impact.sweep})`);
-  }
-});
-
-test('水: 頭から鳴る(一撃 → 空洞 → 泡)', () => {
-  // 着水でいちばん大きいのは水面が割れた瞬間。前の版は音の山が
-  // 真ん中(60〜300ms)に来ていて、遅れて「シュッ」と鳴っていた。
-  for (const kind of WATER_KINDS) {
-    const w = waterSound(kind);
-    assert.equal(w.impact.at, 0, `${kind}: 一撃が頭から始まっていない`);
-    assert.ok(w.cavity.at >= w.impact.at, `${kind}: 空洞が一撃より先`);
-    assert.ok(w.bubbles.at < 0.05, `${kind}: 泡が遅れすぎ(${w.bubbles.at})`);
-  }
-});
-
-test('水: 種類ごとに規模が違う', () => {
-  const dive = waterSound('dive');
-  const plop = waterSound('plop');
-  // 体ごと落ちるほうが、浮きが落ちるより大きく・深く・長い
-  assert.ok(dive.impact.gain > plop.impact.gain * 2, '着水が浮きより大きくない');
-  assert.ok(dive.cavity.freq < plop.cavity.freq, '着水が浮きより深くない');
-  assert.ok(dive.bubbles.dur > plop.bubbles.dur * 1.8, '着水の尾が短い');
-  // 泡も、体ごと落ちたほうが大きい(低い泡まで出る)
-  assert.ok(dive.bubbles.fLo < plop.bubbles.fLo, '着水の泡が浮きより大きくない');
+test('水: 規模が「大きいほど低く・長く・粒が多い」で揃っている', () => {
+  const d = waterSound('dive');
+  const t = waterSound('thrash');
+  const p = waterSound('plop');
+  assert.ok(d.ploop.midi < t.ploop.midi && t.ploop.midi < p.ploop.midi, '大きいほど低く、になっていない');
+  assert.ok(d.splash.gain > t.splash.gain && t.splash.gain > p.splash.gain, '大きいほど大きく、になっていない');
+  assert.ok(d.sparkle.n > t.sparkle.n && t.sparkle.n > p.sparkle.n, '大きいほど粒が多く、になっていない');
+  assert.ok(d.sparkle.dur > p.sparkle.dur, '着水の尾が浮きより短い');
 });
 
 test('水: 大きさの倍率は全ての層に同じだけ掛かる', () => {
   const a = waterSound('dive', 1);
   const b = waterSound('dive', 0.5);
-  for (const k of [...NOISE_LAYERS, 'bubbles']) {
+  for (const k of ['splash', 'ploop', 'sparkle']) {
     const r = b[k].gain / a[k].gain;
     assert.ok(Math.abs(r - 0.5) < 0.02, `${k} だけ絞り方が違う(${r.toFixed(3)})`);
   }
-  // 倍率で泡の数や高さまで変わってはいけない(音色が変わってしまう)
-  assert.equal(b.bubbles.n, a.bubbles.n);
-  assert.equal(b.bubbles.fLo, a.bubbles.fLo);
-  // 行きすぎた値でも壊れない
+  // 倍率で高さや粒の数まで変わってはいけない(音色が変わってしまう)
+  assert.equal(b.ploop.midi, a.ploop.midi);
+  assert.equal(b.sparkle.n, a.sparkle.n);
   for (const v of [-3, 99, NaN]) {
-    assert.ok(waterSound('dive', v).cavity.gain >= 0, `scale=${v}`);
+    assert.ok(waterSound('dive', v).ploop.gain >= 0, `scale=${v}`);
   }
 });
 
