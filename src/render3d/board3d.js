@@ -19,6 +19,10 @@ import {
 } from '../terrain.js';
 // 構図を取り直すかどうかの判断は、描画から切り離して試せるようにしてある
 import { isPortrait, needsRefit } from '../view-fit.js';
+// 影の箱の置き方(大きさと、升目への吸着)も同じく切り離してある
+import {
+  snapFocus, SUN_DIST, SHADOW_BOX_BOARD, SHADOW_BOX_WALK,
+} from '../shadow-fit.js';
 
 export const PLAYER_COLORS_3D = [0xf04343, 0x3f8ef7, 0xffa02e, 0xb06ef0];
 const PLAYER_COLORS_DARK_3D = [0xa32020, 0x2358a8, 0xc06f14, 0x7a42b8];
@@ -1702,7 +1706,9 @@ export class Board3D {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCFSoftShadowMap は非推奨で、内部で PCFShadowMap に落ちる(警告が出る)。
+    // 落ちた先を明示しておく ── 実際に動いているものと書いてあるものを揃える。
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.12;
     container.appendChild(this.renderer.domElement);
@@ -1743,15 +1749,26 @@ export class Board3D {
     this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xfff2dd, 2.4);
     this.sun = sun;
-    sun.position.set(7, 12, 5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -15;
-    sun.shadow.camera.right = 15;
-    sun.shadow.camera.top = 15;
-    sun.shadow.camera.bottom = -15;
-    sun.shadow.bias = -0.0004;
+    // 影の切り取り範囲。太陽は SUN_DIST の距離に置くので、そのぶんの
+    // 手前と奥だけ見ればいい。
+    // **既定の 0.5〜500 は「薄い影」の主犯だった。** bias は深さを 0〜1 で
+    // 見た値なので、奥行き 499.5 のときの -0.0004 は**ワールドで 0.2 単位**
+    // ぶん影を奥へ押しやる。身長 0.9 単位のキャラの足元の影はそれで削れて
+    // しまい、残りかすだけがチラチラしていた。奥行きを 38.6 に詰めたので、
+    // 同じ効き目が 1/13 の値で足りる。
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = SUN_DIST * 2.2;
+    sun.shadow.bias = -0.00008;
+    // normalBias(面の向きに沿って浮かせる量)は箱の大きさで変わるので
+    // _placeSun が毎フレーム入れ直す。
     this.scene.add(sun);
+    // 平行光源は target を見る。target を動かすので**シーンに入れておく**
+    // (入れないと matrixWorld が更新されず、影の箱が原点に取り残される)
+    this.scene.add(sun.target);
+    this._shadowFocus = null;            // 影を寄せる先(歩きモードが渡す)
+    this._shadowBox = SHADOW_BOX_BOARD;
 
     this.staticGroup = new THREE.Group();
     this.dynamicGroup = new THREE.Group();
@@ -2061,6 +2078,37 @@ export class Board3D {
     }
   }
 
+  // 影を寄せる先を教える。歩きモードが「主役はここ」と渡してくる。
+  // **毎フレーム読み直したいので関数で受け取る**(_tickSky は onFrame より
+  // 先に走るので、値で渡すと常に1フレーム古い位置を使うことになる)。
+  // null で島の中心に戻る(盤面表示)。
+  setShadowFocus(fn) {
+    this._shadowFocus = fn || null;
+    this._shadowBox = fn ? SHADOW_BOX_WALK : SHADOW_BOX_BOARD;
+  }
+
+  // 太陽と、影を焼き付ける箱を置く(置き方の理屈は src/shadow-fit.js)。
+  _placeSun(sunDir) {
+    const box = this._shadowBox;
+    const cam = this.sun.shadow.camera;
+    if (cam.right !== box) {
+      cam.left = -box; cam.right = box; cam.top = box; cam.bottom = -box;
+      cam.updateProjectionMatrix();
+    }
+    const f = this._shadowFocus?.();
+    const c = snapFocus(
+      [f ? f.x : 0, 0, f ? f.z : 0], sunDir.toArray(), box, this.sun.shadow.mapSize.x,
+    );
+    // 面の向きに沿って浮かせる量。にじみ幅は**テクセル何個ぶん**で決まるので
+    // 箱の大きさに比例させる ── 固定値だと、細かいほうで縞が出るか、
+    // 粗いほうで影が本体から離れて浮くかのどちらかになる。
+    // 上限は盤面の駒(道の太さ 0.06 単位)が影を失わない範囲で止める。
+    this.sun.shadow.normalBias = Math.min((box * 2) / this.sun.shadow.mapSize.x * 4, 0.022);
+    this.sun.target.position.set(c[0], c[1], c[2]);
+    this.sun.target.updateMatrixWorld();
+    this.sun.position.set(c[0], c[1], c[2]).addScaledVector(sunDir, SUN_DIST);
+  }
+
   // 空の時間サイクル: 空・太陽・ライト・霧・海の縁を同じパレットで動かす
   _tickSky(now) {
     if (!this.skyUniforms) return;
@@ -2078,7 +2126,7 @@ export class Board3D {
       Math.cos(ang) * 0.8, elev, Math.sin(ang) * 0.8,
     ).normalize();
     this.skyUniforms.uSunDir.value.copy(sunDir);
-    this.sun.position.copy(sunDir).multiplyScalar(15);
+    this._placeSun(sunDir);
     this.sun.color.copy(s.sun);
     this.sun.intensity = s.sunI;
     this.hemi.intensity = s.hemi;
