@@ -17,6 +17,8 @@ import { BARBARIAN_TRACK_LENGTH as BARB_TRACK } from '../rules/cak/barbarians.js
 import {
   TILE_TOP, CAP_PARAMS, CAP_N, capCorners, capVertexHeight, capHeight, coordHash, boardScale,
 } from '../terrain.js';
+// 構図を取り直すかどうかの判断は、描画から切り離して試せるようにしてある
+import { isPortrait, needsRefit } from '../view-fit.js';
 
 export const PLAYER_COLORS_3D = [0xf04343, 0x3f8ef7, 0xffa02e, 0xb06ef0];
 const PLAYER_COLORS_DARK_3D = [0xa32020, 0x2358a8, 0xc06f14, 0x7a42b8];
@@ -2338,7 +2340,15 @@ export class Board3D {
     this._w = w;
     this._h = h;
     this.renderer.setSize(w, h);
-    this._fitCamera(w, h);
+    // 画面の形に合わせるのは毎回。**これはカメラを動かさない**ので揺れない
+    const aspect = w / h;
+    this.camera.aspect = aspect;
+    this.camera.updateProjectionMatrix();
+
+    // **構図の取り直しは、形が大きく変わったときだけ**(判断は view-fit.js)。
+    // _fitCamera はカメラの距離を計算し直して置き直すので、呼ぶたびに
+    // 寄り引きが起きる。高さが少し動いただけで呼ぶと画面が脈打つ。
+    if (needsRefit(aspect, this._fitAspect, this.boardYaw !== 0)) this._fitCamera(w, h);
   }
 
   // 既定のカメラ方向(boardYaw = 盤面の見せ方の方位角)
@@ -2359,7 +2369,9 @@ export class Board3D {
 
   _fitCamera(w, h) {
     const aspect = w / h;
-    const portrait = aspect < 0.8;
+    const portrait = isPortrait(aspect, this.boardYaw !== 0);
+    // 次に呼ぶかどうかの判定はこの形を基準にする(onResize を参照)
+    this._fitAspect = aspect;
     this.camera.aspect = aspect;
     this.camera.fov = portrait ? 55 : 45;
 
