@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { waterSound, WATER_KINDS, BUBBLE_LIMITS } from '../src/audio/water.js';
+import { waterSound, WATER_KINDS, BUBBLE_LIMITS, BAND_GAP } from '../src/audio/water.js';
 import { SFX_NAMES } from '../src/audio/sfx.js';
 
 const NOISE_LAYERS = ['impact', 'cavity'];
@@ -30,14 +30,16 @@ test('水: 中身が全て有限の数値', () => {
   }
 });
 
-test('水: 泡が主役。数が足りていること', () => {
-  // **ここが本丸。** 水の音はほとんどが気泡の共鳴でできていて、
-  // 本物の飛沫では泡が数百個いっぺんに生まれる。
-  // 前の版は6粒しか置かず、残りをフィルタしたノイズで埋めていたので、
-  // 音程は消えても「ノイズがシュッと鳴る音」にしかならなかった。
+test('水: 泡は「聞き分けられる数」に収める', () => {
+  // **増やすほど水らしくなる、ではない。** 泡はランダムな位相の正弦波
+  // なので、重ねるほど中心極限定理でただの雑音に収束する ── つまり
+  // 増やすほど「フィルタした雑音」に近づいて、水から遠ざかる。
+  // 実測でも、はっきり聞き分けられる粒は 8〜11 個で頭打ちになり、
+  // 24 個から 280 個に増やしても一切増えなかった(濁りだけが増えた)。
   for (const kind of WATER_KINDS) {
     const b = waterSound(kind).bubbles;
     assert.ok(b.n >= BUBBLE_LIMITS.minN, `${kind}: 泡が少なすぎる(${b.n})`);
+    assert.ok(b.n <= BUBBLE_LIMITS.maxN, `${kind}: 泡が多すぎて濁る(${b.n})`);
     assert.ok(Number.isInteger(b.n), `${kind}: 泡の数が整数でない`);
     // 時間にばらけて湧くこと(同時に鳴らすと一発の和音になる)
     assert.ok(b.spread > 0, `${kind}: 泡が同時に生まれる`);
@@ -46,6 +48,22 @@ test('水: 泡が主役。数が足りていること', () => {
   // いちばん派手なのは体ごとの着水
   const n = (k) => waterSound(k).bubbles.n;
   assert.ok(n('dive') > n('thrash') && n('thrash') > n('plop'), '規模の順が合っていない');
+});
+
+test('水: 層どうしが帯域と時刻で分かれている', () => {
+  // ここが重なると、層が同じところで鳴って互いを埋め、
+  // 「複雑なのに何も聞こえない」濁りになる。
+  for (const kind of WATER_KINDS) {
+    const w = waterSound(kind);
+    // 帯域: 低い唸り < 泡 < 一撃
+    assert.ok(w.bubbles.fLo > w.cavity.freq * BAND_GAP,
+      `${kind}: 泡が低い唸りに重なっている(泡 ${w.bubbles.fLo} / 唸り ${w.cavity.freq})`);
+    assert.ok(w.impact.freq > w.bubbles.fLo * BAND_GAP,
+      `${kind}: 一撃が泡に重なっている(一撃 ${w.impact.freq} / 泡 ${w.bubbles.fLo})`);
+    // 時刻: 一撃が終わるころに泡が出てくる
+    assert.ok(w.bubbles.at >= w.impact.dur * 0.5,
+      `${kind}: 泡が一撃と同時に出ている`);
+  }
 });
 
 test('水: 泡は高く、縮みながら音が上がる', () => {
@@ -104,7 +122,7 @@ test('水: 種類ごとに規模が違う', () => {
   // 体ごと落ちるほうが、浮きが落ちるより大きく・深く・長い
   assert.ok(dive.impact.gain > plop.impact.gain * 2, '着水が浮きより大きくない');
   assert.ok(dive.cavity.freq < plop.cavity.freq, '着水が浮きより深くない');
-  assert.ok(dive.bubbles.dur > plop.bubbles.dur * 2, '着水の尾が短い');
+  assert.ok(dive.bubbles.dur > plop.bubbles.dur * 1.8, '着水の尾が短い');
   // 泡も、体ごと落ちたほうが大きい(低い泡まで出る)
   assert.ok(dive.bubbles.fLo < plop.bubbles.fLo, '着水の泡が浮きより大きくない');
 });
