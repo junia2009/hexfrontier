@@ -1983,8 +1983,11 @@ function renderRecordsPanel() {
   panel.innerHTML = recordsHtml(progress, recordsView);
 }
 
-// モバイル判定: レイアウトを body.mobile で切り替える
-const mobileQuery = window.matchMedia('(max-width: 820px)');
+// モバイル判定: レイアウトを body.mobile で切り替える。
+// **高さも見る。** 幅だけで見ていたので、端末を横にすると 844px 幅に
+// なってこの条件から外れ、スマホなのに机上向けの配置に切り替わっていた
+// (縦に詰まった画面に、縦長前提の配置が入って収まらなくなる)。
+const mobileQuery = window.matchMedia('(max-width: 820px), (max-height: 560px)');
 function updateMobileClass() {
   document.body.classList.toggle('mobile', mobileQuery.matches);
 }
@@ -3817,6 +3820,20 @@ document.addEventListener('click', (e) => {
 });
 
 window.addEventListener('resize', () => state && refresh());
+
+// **2D の盤は、入れ物そのものを見張る。**
+// window の resize だけでは取りこぼす:
+//   - 端末を回すと、最終的な配置が決まる**前に** resize が飛ぶことがある。
+//     そのとき古い大きさで描いてしまい、2D の描画ループは光るものが無ければ
+//     止まる(animLoop の hasPulse)ので、**もう誰も直しに来ない**。
+//   - dvh(URL バーの出入り)で配置だけ変わるときは、resize すら飛ばない。
+// どちらの場合も、キャンバスの画素数だけ古いまま残り、CSS に引き伸ばされて
+// 盤がゆがむ。3D は同じ理由で最初から ResizeObserver を使っている。
+// canvas の大きさは CSS(width/height: 100%)が決めていて、
+// width/height 属性を書いても配置は変わらないので、見張っても堂々巡りにならない。
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(() => { if (state) renderBoard(); }).observe(canvas);
+}
 
 // iOS は user-scalable=no を無視してページのピンチズームを許可するため明示的に抑止する
 // (盤面の2本指ピンチは OrbitControls のカメラズームとしてのみ機能させる)
