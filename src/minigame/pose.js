@@ -9,6 +9,9 @@
 
 // s は各姿勢の中で左右の符号にも使っている名前なので、別名で取り込む
 import { s as sc, HIP_Y, THIGH, SHIN, SOLE_DROP, SOLE_AHEAD } from './scale.js';
+// 「寄せる」曲線は motion.js と同じものを使う(両端で速度 0)。
+// motion.js は pose.js を読まないので、輪にはならない。
+import { ease01 } from './motion.js';
 
 const JOINT = (x = 0, y = 0, z = 0) => ({ x, y, z });
 // 体全体の上下(タイル単位)。下げる向きが負。
@@ -246,10 +249,17 @@ export function sinkPose(t, facing, spin) {
 //   竿を前上がり 35° くらいに構えたいので -(π/2 + 0.6) あたりが基準。
 //
 // k: { phase, tension, reeling, burst, cast } ── fishing.js の view() から作る。
+// 振り出したあと、構えへ戻すのにかける時間(投げにかかる時間を 1 とした割合)。
+// 投げ(0.55 秒)に対して 0.45 = 0.25 秒。**ここを 0 にすると元の不具合に戻る**
+// ── 振り出しきった姿勢から構えへ 1 コマで落ちる。
+export const CAST_RECOVER = 0.45;
+
 export function fishPose(t, facing, k = {}) {
   const phase = k.phase ?? 'wait';
   const tension = Math.max(0, Math.min(1, k.tension ?? 0));
-  const cast = Math.max(0, Math.min(1, k.cast ?? 0));
+  // 投げの進み具合。1.0 で浮きが落ちるが、**そこで切らない**
+  // (CAST_RECOVER のぶんだけ伸ばして、振り出したあとの戻りに使う)。
+  const cast = Math.max(0, k.cast ?? 0);
   const fighting = phase === 'fight';
   const sway = Math.sin(t * 1.3) * 0.02;   // 待っている間のわずかな揺れ
 
@@ -260,10 +270,18 @@ export function fishPose(t, facing, k = {}) {
   const done = landed || lost;
   const bob = landed ? Math.sin(t * 6) * 0.05 : 0;   // 釣れた喜びの弾み
 
-  // 投げる動作: いったん後ろへ振りかぶって、勢いよく前へ振り出す
+  // 投げる動作: いったん後ろへ振りかぶり、勢いよく前へ振り出し、**戻す**。
+  //
+  // **「投げ終わり」で切らない。** もとは段(cast → wait)が変わった瞬間に
+  // 振り出しきった姿勢(swing = -0.5)から 0 へ落としていた。竿先が1コマで
+  // 0.15 単位 ── 身長の 1/3 ── 飛び、そこで動きがぶつりと途切れて見えた
+  // (「沖に投げた直後と構えてる場面の間の切り替えが途切れて見える」)。
+  // 振り出したあとは同じ曲線のまま構えへ戻す。
   const back = Math.max(0, 1 - cast / 0.35);
-  const fwd = Math.max(0, (cast - 0.35) / 0.65);
-  const swing = phase === 'cast' ? back * 0.75 - fwd * 0.5 : 0;
+  const fwd = cast <= 1
+    ? Math.max(0, (cast - 0.35) / 0.65)          // 振り出し
+    : 1 - ease01((cast - 1) / CAST_RECOVER);      // 戻し(止まりぎわも緩める)
+  const swing = back * 0.75 - fwd * 0.5;
 
   // アタリの瞬間は竿先がぐっと入る
   const bite = phase === 'bite' ? Math.sin(t * 22) * 0.09 : 0;
@@ -285,7 +303,7 @@ export function fishPose(t, facing, k = {}) {
     mouth: MOUTH((fighting && tension > 0.55) || landed ? 1 : 0),
     // 引かれるぶんだけ体を反らす。逃げられたら前へうなだれる
     hips: JOINT(
-      -hold * 0.5 - (phase === 'cast' ? swing * 0.2 : 0) - bob * 0.6 + (lost ? 0.2 : 0),
+      -hold * 0.5 - swing * 0.2 - bob * 0.6 + (lost ? 0.2 : 0),
       0, 0,
     ),
     chest: JOINT(-hold * 0.25 + shake * 0.3 + (lost ? 0.18 : 0), 0, sway * 2),

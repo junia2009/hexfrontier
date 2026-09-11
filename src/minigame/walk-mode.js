@@ -1157,17 +1157,20 @@ export class WalkMode {
     // 釣り終わったら糸を巻き取る(浮きも糸も消す)。
     // 出したままにすると、「もう一度」が出ているのに水に浸かったままに見える。
     if (!f.active) this.ffx.hide();
-    // 投げているあいだの進み具合(浮きが飛んでいく)
-    const castK = v.phase === 'cast' ? Math.min(1, this.fishT / CAST_TIME) : 1;
+    // 投げの進み具合。**姿勢のほうは投げ終わっても切らずに伸ばす** ──
+    // 振り出したあとの戻りをつなぐため(pose.js の CAST_RECOVER)。
+    // 浮きと糸は落ちたところで止まるので、そちらは 1 で頭打ちにする。
+    const swingK = this.fishT / CAST_TIME;
+    const castK = Math.min(1, swingK);
     this.walker.fish(this.fishT, {
       phase: v.phase, tension: v.tension, reeling: f.reeling,
-      burst: v.burst, cast: castK,
+      burst: v.burst, cast: swingK,
     });
     this.walker.rodTip(this._tip ??= new THREE.Vector3());
     this.ffx.update(dt, v, this._tip, castK);
     this.onFishStep?.(v);
 
-    this._placeFishCamera(dt, v);
+    this._placeFishCamera(dt, v, castK);
   }
 
   // 釣っている間のカメラ。
@@ -1180,7 +1183,7 @@ export class WalkMode {
   // すぐそばを通ってしまい、そのあいだ景色が振り回される
   // (寄り始めの位置の差が大きいほど視線の回り方が速くなるため)。
   // 極座標で寄せれば、距離を保ったまま本人のまわりを回り込む。
-  _placeFishCamera(dt, v) {
+  _placeFishCamera(dt, v, castK = 1) {
     const cam = this.b.camera;
     const w = this.walker.pos;
     const s = this.spot;
@@ -1214,8 +1217,11 @@ export class WalkMode {
       groundY + c.up,
       w.z - Math.cos(c.yaw) * c.flat,
     );
-    // 見るのは本人と浮きのあいだ。竿の先と水面が同時に入る
-    const aim = FISH_AIM * (v.phase === 'cast' ? 0.4 : 1);
+    // 見るのは本人と浮きのあいだ。竿の先と水面が同時に入る。
+    // **投げ終わりで切り替えない** ── もとは段が変わった瞬間に 0.4 → 1 へ
+    // 飛ばしていたので、視線が1コマで 4.1° 回っていた。
+    // 浮きが飛んでいくのに合わせて、見る先も一緒に伸ばす。
+    const aim = FISH_AIM * (0.4 + 0.6 * ease01(castK));
     cam.lookAt(
       w.x + (s ? s.outX : 0) * aim,
       groundY + 0.18,
