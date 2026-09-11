@@ -419,6 +419,11 @@ export class WalkMode {
     this.camYaw = this.walker.facing;
     this._placeCamera(0, true);
 
+    // 影を主役の足元に寄せる。盤面を丸ごと入れる箱のままだと、キャラの
+    // 腕や脚が影マップの升目より細くて、歩くたびにチラついていた
+    // (board3d.js の SHADOW_BOX_WALK)。
+    this.b.setShadowFocus(() => this.walker.pos);
+
     this.b.onFrame = (t) => this._frame(t);
   }
 
@@ -1398,6 +1403,7 @@ export class WalkMode {
 
   dispose() {
     this.b.onFrame = null;
+    this.b.setShadowFocus(null);   // 影の箱を島ぜんぶに戻す
     for (const { o, scale } of this.signs) o.scale.copy(scale);  // 港の看板を戻す
     for (const { o, vis } of this.clearedObjs) o.visible = vis;  // 片付けた木を戻す
     this._nestRestore();                                         // 巣の竜を盤に返す
