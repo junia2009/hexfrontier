@@ -548,7 +548,14 @@
   /* ---------- 画面フロー(タイトル / ルール選択) ---------- */
   .screen {
     position: fixed; inset: 0; z-index: 20;
-    display: none; align-items: center; justify-content: center;
+    /* **safe center と overflow はセットで要る。**
+       中身が画面より高いとき、ただの center だと上下にはみ出したぶんが
+       スクロールしても届かない場所へ行く(フレックスの中央寄せの罠)。
+       端末を横にすると選択パネルがこれに当たり、**「ゲームを始める」
+       ボタンに触れなくなっていた**。safe center は収まらないときだけ
+       先頭寄せに切り替わるので、あとは縦スクロールで全部に届く。 */
+    display: none; align-items: safe center; justify-content: safe center;
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
     background: radial-gradient(ellipse at 50% 40%,
       rgba(8, 22, 38, 0.35) 0%, rgba(8, 22, 38, 0.88) 78%);
     animation: fadeIn 0.3s ease-out;
