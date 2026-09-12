@@ -17,6 +17,7 @@ import { WALK_SPEED, RUN_GAIT } from './motion.js';
 import { ST } from './remote-st.js';
 import { emoteById } from './emote.js';
 import { speciesById, DEFAULT_SPECIES } from './species.js';
+import { makeHandFan, FAN_AT } from './hand-fan.js';
 
 // 席ごとの色。対戦の4色に、散策部屋のぶんを足して8色。
 // 隣り合う席が似た色にならないように並べてある。
@@ -134,6 +135,26 @@ export class RemoteView {
     this.people = new Map();   // seat -> { parts, tag, name, sp, phase, spin, t, y }
     this.nameScale = 1;
     this.turnSeat = null;      // 円卓でいま手番の席(自分なら null のまま)
+    this.hands = null;         // 席 → 手札の枚数(円卓に着いている間だけ)
+  }
+
+  // 円卓の手札枚数。**枚数だけ**で中身は受け取らない(隠し情報)。
+  // null を渡すと扇を片付ける(卓が終わったとき)。
+  setHandCounts(counts) {
+    this.hands = counts ?? null;
+  }
+
+  // 扇を出す/しまう。要るときだけ作る ── 島を歩いているだけの人に
+  // 10 枚ぶんの板を持たせても、1枚も見えない。
+  _handFan(e, n) {
+    if (n > 0 && !e.fan) {
+      e.fan = makeHandFan();
+      e.fan.group.position.set(0, FAN_AT.y, FAN_AT.z);
+      e.fan.group.rotation.x = FAN_AT.tilt;
+      e.parts.chest.add(e.fan.group);
+    }
+    if (!e.fan) return;
+    e.fan.setCount(n);
   }
 
   // 円卓の手番。頭の上に矢印を出す席を1つだけ選ぶ。
@@ -186,6 +207,7 @@ export class RemoteView {
 
       emote: 0, emoteT: 0, bubble: null,
       mark: null,   // 円卓の手番の矢印(要るときだけ作る)
+      fan: null,    // 円卓の手札の扇(同じく)
     };
     this._sizeTag(e);
     this.people.set(seat, e);
@@ -237,6 +259,9 @@ export class RemoteView {
       if (e.bubble) e.bubble.visible = emoteK < 1;
       // 手番の矢印は座っている人にだけ。歩いている人の頭に出ても意味が無い
       this._turnMark(e, p.st === ST.sit && p.seat === this.turnSeat, e.t);
+      // 手札の扇も座っている人にだけ
+      const cards = p.st === ST.sit ? (this.hands?.[p.seat] ?? 0) : 0;
+      this._handFan(e, cards);
 
       e.parts.rod.group.visible = p.st === ST.fish;
       let pose;
@@ -245,7 +270,8 @@ export class RemoteView {
       } else if (p.st === ST.sit) {
         // 円卓に着いている人。座り姿を出さないと、卓を囲んでいるはずの
         // 全員が立ったまま札を出しているように見える。
-        pose = sitPose(e.t, p.facing);
+        // 札を持っていれば、その形に寄せる
+        pose = sitPose(e.t, p.facing, cards > 0 ? 1 : 0);
       } else if (p.st === ST.fish) {
         pose = fishPose(e.t, p.facing, { phase: 'wait' });
       } else if (p.st === ST.fall) {

@@ -1726,6 +1726,7 @@ function dfgScene(t, seat) {
   const idx = who == null ? null : t.players.indexOf(who);
   const remain = (contest.turnRemain ?? 0) / DFG_AUTO_MS;
   walk.setTableTurn(idx < 0 ? null : idx, who === seat, remain, who);
+  walk.setTableHands(t.counts);
 }
 
 function renderDaifugo() {

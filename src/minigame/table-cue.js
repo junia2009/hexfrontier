@@ -64,17 +64,27 @@ export function lookYaw(from, to) {
 export const FAN_MAX = 10;
 // 扇の広がり(端から端まで・ラジアン)
 const FAN_SPREAD = 0.85;
+// 横のずらし。単位は**札の幅**(呼ぶ側が札の幅を掛ける)。
+//   X_STEP … 1枚あたりの最大のずれ。少ない枚数はこれで離す
+//   X_SPAN … 端から端までの上限。多い枚数はここに収める
+//
+// **回転だけでは枚数が読めない。** 扇の要は札の下端(札の高さの 0.42 倍)に
+// あるので、2枚を 0.15 ラジアン開いても中心は 0.006 しかずれず、札の幅
+// (0.072)に対して重なったままになる ── 2枚が1枚に見えた。
+const X_STEP = 0.42;
+const X_SPAN = 1.15;
 
 // n 枚を扇に並べたときの、1枚ずつの角度と横ずれ。
-// 枚数が少ないときは広げず、多いときも FAN_SPREAD に収める。
+// 枚数が少ないときは広げず、多いときも FAN_SPREAD / X_SPAN に収める。
 export function fanLayout(n) {
   const show = Math.max(0, Math.min(FAN_MAX, Math.round(n)));
   if (!show) return [];
-  if (show === 1) return [{ a: 0, k: 0 }];
+  if (show === 1) return [{ a: 0, x: 0, k: 0 }];
   const spread = Math.min(FAN_SPREAD, 0.14 * (show - 1));
+  const step = Math.min(X_STEP, X_SPAN / (show - 1));
   return Array.from({ length: show }, (_, i) => {
     const k = i / (show - 1) - 0.5;      // -0.5 … +0.5
-    return { a: k * spread, k };
+    return { a: k * spread, x: k * step * (show - 1), k };
   });
 }
 

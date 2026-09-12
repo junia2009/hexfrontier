@@ -100,6 +100,19 @@ test('手札の扇: 枚数で広がりが決まり、上限で頭打ちになる
   assert.ok(Math.abs(fanLayout(FAN_MAX)[0].a) <= 0.43);
 });
 
+test('手札の扇: 少ない枚数は横にずらして離す', () => {
+  // 2枚のとき、回転だけだと中心がほとんど動かず1枚に見える。
+  // **札の幅ぶん近く**離れていること(単位は札の幅)
+  const two = fanLayout(2);
+  assert.ok(Math.abs(two[1].x - two[0].x) > 0.35, `2枚の間隔 ${two[1].x - two[0].x}`);
+  // 多い枚数は端から端までを決めた幅に収める(顔より大きい扇にしない)
+  const ten = fanLayout(FAN_MAX);
+  assert.ok(Math.abs(ten[FAN_MAX - 1].x - ten[0].x) <= 1.16);
+  // 真ん中が 0 で左右対称
+  assert.ok(Math.abs(ten[0].x + ten[FAN_MAX - 1].x) < 1e-9);
+  assert.equal(fanLayout(1)[0].x, 0);
+});
+
 test('しぐさ: 記録をそのまま見た目の言葉に均す', () => {
   const acts = actsFrom([
     PLAY(1, [10, 11]), P(2), { t: 'kakumei', by: 1, on: true },

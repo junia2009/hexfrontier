@@ -1011,6 +1011,7 @@ export class WalkMode {
   standUp() {
     if (!this.tableSeatAt) return;
     this.setTableField([]);
+    this.remoteView.setHandCounts(null);
     this.desk?.setTurn?.(null);
     this.turnAngle = null;
     this.turnAt = null;
@@ -1033,6 +1034,11 @@ export class WalkMode {
   //   seatIndex: 卓に着いている順(t.players の添字)。手番が無ければ null
   //   mine: それが自分か
   //   remain01: 考える時間の残り(1 → 0)
+  // 円卓の手札枚数(席 → 枚数)。相手の体に扇として出る。
+  setTableHands(counts) {
+    this.remoteView.setHandCounts(counts);
+  }
+
   setTableTurn(seatIndex, mine, remain01 = 0, turnSeat = null) {
     // 頭の上の矢印は remote-view の担当(座っている相手にだけ出る)
     this.remoteView.setTurnSeat(mine ? null : turnSeat);
