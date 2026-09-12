@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { WalkerMotion, WALK_SPEED, RUN_GAIT, MAX_DT } from './motion.js';
 import {
   walkPose, airPose, tumblePose, sinkPose, aimPose, sitPose, emotePose,
-  fishPoseBlender, rodOutro, restBlend, phasePerUnit,
+  fishPoseBlender, rodOutro, restBlend, poseFade, SINK_RIGHT, phasePerUnit,
 } from './pose.js';
 import { makeWalker } from './body.js';
 
@@ -69,6 +69,8 @@ export class Walker {
     this.lastPose = null;         // 直前に当てた姿勢(戻しの始点に使う)
     this.outro = rodOutro();      // 竿をしまう途中のつなぎ(pose.js)
     this.rest = restBlend();      // 止まったら足をそろえる(pose.js)
+    this.sink = poseFade(SINK_RIGHT);   // 着水したら水が体を起こす(pose.js)
+    this.wasInWater = false;
     this.outroDt = 0;             // その時計。update だけが進める
   }
 
@@ -105,6 +107,9 @@ export class Walker {
   setPosition(x, z) {
     this.motion.setPosition(x, z);
     this.phase = 0;
+    // 岸へ戻したら白紙に。次に落ちたとき、前回の姿勢から混ざらないように
+    this.sink.start(null);
+    this.wasInWater = false;
     // メッシュもその場へ移す。位置を書くのは毎フレームの _apply だけなので、
     // 一度も更新されないまま残ると原点(島の中心)に埋まったままになる。
     this.parts.group.position.set(x, this.motion.groundAt(x, z).y, z);
@@ -200,10 +205,17 @@ export class Walker {
     const y = r.footY + m.y;
 
     if (r.falling) {
-      this._apply(
-        r.inWater ? sinkPose(r.sinkT, m.facing, m.spin) : tumblePose(m.spin, m.facing),
-        y,
-      );
+      // 着水した瞬間に姿勢の出どころが変わる(転がり → 沈み)。
+      // **そのまま切り替えると体の向きが1コマで 76° 飛ぶ**(実測。前後の
+      // コマは 2.9°)ので、直前に描いた姿勢から SINK_RIGHT 秒かけて起こす。
+      if (r.inWater !== this.wasInWater) {
+        this.wasInWater = r.inWater;
+        this.sink.start(r.inWater ? this.lastPose : null);
+      }
+      const falling = r.inWater
+        ? sinkPose(r.sinkT, m.facing, m.spin)
+        : tumblePose(m.spin, m.facing);
+      this._apply(this.sink.step(falling, dt), y);
       return r;
     }
 

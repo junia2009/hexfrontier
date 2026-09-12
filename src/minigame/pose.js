@@ -11,7 +11,7 @@
 import { s as sc, HIP_Y, THIGH, SHIN, SOLE_DROP, SOLE_AHEAD } from './scale.js';
 // 「寄せる」曲線は motion.js と同じものを使う(両端で速度 0)。
 // motion.js は pose.js を読まないので、輪にはならない。
-import { ease01, RUN_GAIT } from './motion.js';
+import { ease01, approachAngle, RUN_GAIT } from './motion.js';
 
 const JOINT = (x = 0, y = 0, z = 0) => ({ x, y, z });
 // 体全体の上下(タイル単位)。下げる向きが負。
@@ -242,6 +242,15 @@ export function tumblePose(spin, facing) {
   };
 }
 
+// 着水してから、水が体を起こすまでの時間(秒)。
+//
+// **落ちている間と水の中とで、姿勢の出どころが変わる。**
+// 転がりながら落ちて(tumblePose)、水に入ると縦になる(sinkPose)ので、
+// そのまま切り替えると体の向きが1コマで飛ぶ ── 実測 76°(前後のコマは 2.9°)。
+// 「横になっていたのが、水に入ったら急に縦になる」と報告されたのがこれ。
+// つなぐと、水が体を立て直していくように見える。
+export const SINK_RIGHT = 0.55;
+
 // 水の中。もがくのをやめ、手足が水に押されて上へ流れる。
 // ゆっくりした周期だけで動かす ── 速い動きを混ぜると水の重さが消える。
 export function sinkPose(t, facing, spin) {
@@ -441,26 +450,44 @@ export const ROD_OUT = 0.45;
 // 下向きの棒が1コマで消えるのがかえって目につく。
 const ROD_FOLD = 0.45;
 
-// 竿をしまうときの「抜け」。**戻す先は歩きの姿勢**で、それは毎コマ
-// 変わる(歩き出せば歩く姿勢になる)ので、始点だけ控えて混ぜていく。
+// 姿勢の「つなぎ」。**直前に描いた姿勢**から、いまの姿勢へ dur 秒かけて寄せる。
+// 姿勢の出どころが変わるところ(竿をしまう・海に落ちる)で使う。
+// **寄せる先は毎コマ変わってよい** ── 戻す先が歩きなら、歩き出せば
+// そのときの歩く姿勢へ付いていく。
+//
 // 状態を持つのはここだけにして、walker.js は結果を流し込むだけにしてある。
-export function rodOutro() {
+export function poseFade(dur) {
   let from = null; let t = 0;
   return {
-    // いま画面に出ている姿勢から戻し始める
-    start(pose) { from = pose ?? null; t = 0; return from != null; },
     get active() { return from != null; },
+    // 0(始まったところ)〜1(寄せ終わり)。動いていなければ 1
+    get k() { return from ? Math.min(1, t / dur) : 1; },
+    // いま画面に出ている姿勢から始める。null なら何もしない
+    start(pose) { from = pose ?? null; t = 0; return from != null; },
+    step(pose, dt) {
+      if (!from) return pose;
+      t += dt;
+      if (t >= dur) { from = null; return pose; }
+      return blendPose(from, pose, ease01(t / dur));
+    },
+  };
+}
+
+// 竿をしまうときの「抜け」。つなぎ方は poseFade、竿をたたむぶんだけ足す。
+export function rodOutro() {
+  const fade = poseFade(ROD_OUT);
+  return {
+    get active() { return fade.active; },
+    start(pose) { return fade.start(pose); },
     // pose は戻す先(歩きの姿勢)。{ pose, rod, done } を返す。
     // rod は竿の大きさ(1 = そのまま / 0 = たたみ終わり)。
     step(pose, dt) {
-      if (!from) return { pose, rod: 0, done: true };
-      t += dt;
-      const k = t / ROD_OUT;
-      if (k >= 1) { from = null; return { pose, rod: 0, done: true }; }
+      if (!fade.active) return { pose, rod: 0, done: true };
+      const out = fade.step(pose, dt);
       return {
-        pose: blendPose(from, pose, ease01(k)),
-        rod: 1 - ease01((k - ROD_FOLD) / (1 - ROD_FOLD)),
-        done: false,
+        pose: out,
+        rod: 1 - ease01((fade.k - ROD_FOLD) / (1 - ROD_FOLD)),
+        done: !fade.active,
       };
     },
   };
@@ -568,12 +595,27 @@ export function standPose(facing) {
 // 飛ぶと、1フレームで腕がワープして「バグ」に見える。
 // 項目を全部たどるので、pose に項目を足しても直さなくてよい。
 export function blendPose(a, b, k) {
-  const t = Math.max(0, Math.min(1, k));
+  // 端はそのまま返す。混ぜ算を通すと -2 が -1.9999999999999998 になって、
+  // 「端では元の姿勢そのもの」という約束が丸め誤差で崩れる。
+  if (!(k > 0)) return a;
+  if (k >= 1) return b;
+  const t = k;
   const mix = (x, y) => x + (y - x) * t;
-  const joint = (x, y) => JOINT(mix(x.x, y.x), mix(x.y, y.y), mix(x.z, y.z));
+  // 向きだけは**最短回り**で混ぜる。生の差で混ぜると、±180° をまたぐときに
+  // 長いほうへぐるっと回る。ほとんどの場面では両方に同じ向きが入っていて
+  // 差が 0 なので効かないが、海に落ちて水に入る瞬間だけは
+  // 転がっていた向きと沈む向きが 76° 離れている(実測)。
+  const mixAngle = (x, y) => mix(x, approachAngle(x, y, Infinity));
+  const joint = (x, y) => JOINT(mix(x.x, y.x), mixAngle(x.y, y.y), mix(x.z, y.z));
   return {
-    // 向きは混ぜない(同じ値が入っている。回り込みで暴れるのを避ける)
-    group: JOINT(mix(a.group.x, b.group.x), b.group.y, mix(a.group.z, b.group.z)),
+    // **体ぜんぶの向きは3軸とも最短回りで。** ここには際限なく増える角が
+    // 入る(海へ落ちている間の spin は 3 ラジアン/秒 で回り続ける)ので、
+    // 生の差で混ぜると何周ぶんも巻き戻すことになる。
+    group: JOINT(
+      mixAngle(a.group.x, b.group.x),
+      mixAngle(a.group.y, b.group.y),
+      mixAngle(a.group.z, b.group.z),
+    ),
     // 口は開いているか閉じているかの2択。混ぜられないので近いほうを採る
     mouth: MOUTH(t < 0.5 ? a.mouth.open : b.mouth.open),
     lift: LIFT(mix(a.lift ?? 0, b.lift ?? 0)),
