@@ -11,8 +11,9 @@ import { makeWalker, walkerHeight } from './body.js';
 import { applyPose } from './walker.js';
 import {
   walkPose, airPose, tumblePose, fishPose, sitPose, emotePose,
-  restBlend, phasePerUnit,
+  sitPlayPose, sitPassPose, sitWinPose, restBlend, phasePerUnit,
 } from './pose.js';
+import { ACT_MS } from './table-cue.js';
 import { WALK_SPEED, RUN_GAIT } from './motion.js';
 import { ST } from './remote-st.js';
 import { emoteById } from './emote.js';
@@ -138,6 +139,18 @@ export class RemoteView {
     this.hands = null;         // 席 → 手札の枚数(円卓に着いている間だけ)
   }
 
+  // 円卓のしぐさを1つ始める(出す/パス/上がり)。
+  // 知らない kind は落とす ── 場の演出(革命など)は体を動かさない。
+  startAct(seat, kind) {
+    const ms = ACT_MS[kind];
+    if (!ms) return;
+    const e = this.people.get(seat);
+    if (!e) return;
+    e.act = kind;
+    e.actT = 0;
+    e.actMs = ms;
+  }
+
   // 円卓の手札枚数。**枚数だけ**で中身は受け取らない(隠し情報)。
   // null を渡すと扇を片付ける(卓が終わったとき)。
   setHandCounts(counts) {
@@ -208,6 +221,7 @@ export class RemoteView {
       emote: 0, emoteT: 0, bubble: null,
       mark: null,   // 円卓の手番の矢印(要るときだけ作る)
       fan: null,    // 円卓の手札の扇(同じく)
+      act: null, actT: 0, actMs: 0,   // 円卓のしぐさ
     };
     this._sizeTag(e);
     this.people.set(seat, e);
@@ -270,8 +284,17 @@ export class RemoteView {
       } else if (p.st === ST.sit) {
         // 円卓に着いている人。座り姿を出さないと、卓を囲んでいるはずの
         // 全員が立ったまま札を出しているように見える。
+        // しぐさの最中はそちらを出す。終わったら座り姿へ戻る
+        if (e.act) {
+          e.actT += dt;
+          if (e.actT >= e.actMs) e.act = null;
+        }
+        const ak = e.act ? e.actT / e.actMs : 0;
+        if (e.act === 'play') pose = sitPlayPose(e.t, p.facing, ak);
+        else if (e.act === 'pass') pose = sitPassPose(e.t, p.facing, ak);
+        else if (e.act === 'win') pose = sitWinPose(e.t, p.facing, ak);
         // 札を持っていれば、その形に寄せる
-        pose = sitPose(e.t, p.facing, cards > 0 ? 1 : 0);
+        else pose = sitPose(e.t, p.facing, cards > 0 ? 1 : 0);
       } else if (p.st === ST.fish) {
         pose = fishPose(e.t, p.facing, { phase: 'wait' });
       } else if (p.st === ST.fall) {

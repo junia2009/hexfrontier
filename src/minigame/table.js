@@ -193,6 +193,33 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
   g.add(clockArc);
   let clockSeen = -1;   // いま何本ぶんの形を作ってあるか
 
+  // 場に札が出たときの「着地」。0 で出たて、1 で落ち着いた形。
+  // **どの席から出たかは向きに出さない。** 場の入れ物は見る人の向きへ
+  // 回してあるので、出した人の方角から飛ばすには回転を打ち消す計算がいる。
+  // 上から落として弾ませるだけで「いま出た」は十分に伝わる。
+  let land = 1;
+  const LAND_S = 0.22;
+
+  // 場が流れるときの掃き出し。**すぐ消さない** ── 札がふっと消えるだけだと
+  // 「流れた」のか「見間違い」なのか分からない。持ち上げながら小さくして、
+  // 消えるところを見せる。
+  let sweep = -1;               // -1 は掃き出していない
+  const SWEEP_S = 0.30;
+
+  // 役が出たときの閃光。布の上に重ねた円盤が、広がりながら消える。
+  const flashMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const flash = new THREE.Mesh(new THREE.CircleGeometry(R * 0.9, 28), flashMat);
+  flash.rotation.x = -Math.PI / 2;
+  flash.position.y = TURN_Y + 0.001;
+  flash.renderOrder = 4;
+  flash.visible = false;
+  g.add(flash);
+  let flashT = -1;
+  const FLASH_S = 0.55;
+
   // 場に出ている札を置くところ。
   //   外(fieldGroup) … 読む向きを合わせるために Y で回す
   //   内(fieldFlat)  … 板を寝かせて、札の上を +Z へ向ける
@@ -207,6 +234,12 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
   fieldFlat.position.z = -R * 0.25;
   fieldGroup.add(fieldFlat);
   const cardGeo = new THREE.PlaneGeometry(CARD_W, CARD_H);
+  const clearField = () => {
+    for (const gone of [...fieldFlat.children]) {
+      fieldFlat.remove(gone);
+      gone.material?.dispose?.();
+    }
+  };
 
   // 柱・看板・旗はひとまとまりにする。一人称で座ると目の前に立つので、
   // 座っている間だけ隠せるようにしておく(遠くからの目印としては要る)。
@@ -253,14 +286,49 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
     // 場の札を並べ直す。cards は daifugo.js の番号(空なら片付ける)。
     // seatAngle は見る人の席の角度 ── **札の上をその人と反対側へ向ける**ので、
     // どこに座っていても自分から見て正しい向きで読める。
+    // 毎フレーム呼ぶ。着地・掃き出し・閃光を進める
+    update(dt) {
+      if (flashT >= 0) {
+        flashT += dt;
+        const k = Math.min(1, flashT / FLASH_S);
+        flash.visible = k < 1;
+        flashMat.opacity = (1 - k) * 0.55;
+        flash.scale.setScalar(0.35 + k * 0.85);
+        if (k >= 1) flashT = -1;
+      }
+      if (sweep >= 0) {
+        sweep += dt;
+        const k = Math.min(1, sweep / SWEEP_S);
+        fieldGroup.position.y = TOP_Y + 0.022 + k * 0.10;
+        fieldGroup.scale.setScalar(1 - k * 0.9);
+        if (k >= 1) { sweep = -1; clearField(); }
+        return;
+      }
+      if (land >= 1) return;
+      land = Math.min(1, land + dt / LAND_S);
+      const k = land * land * (3 - 2 * land);   // 両端でなめらかに
+      fieldGroup.position.y = TOP_Y + 0.022 + (1 - k) * 0.06;
+      fieldGroup.scale.setScalar(1 + (1 - k) * 0.22);
+    },
+    // 役が出た合図。色だけ変えて、同じ閃光を使い回す
+    flash(color = 0xffffff) {
+      flashMat.color.setHex(color);
+      flashT = 0;
+      flash.visible = true;
+    },
     setField(cards = [], seatAngle = Math.PI) {
       fieldGroup.rotation.y = seatAngle + Math.PI;
-      for (const gone of [...fieldFlat.children]) {
-        fieldFlat.remove(gone);
-        gone.material?.dispose?.();
-      }
       const n = cards.length;
-      if (!n) return;
+      // 場が空になった。**いま札が出ているときだけ**掃き出しを始める ──
+      // もともと空なら何も起きていないので、毎フレーム動き出してしまう。
+      if (!n) {
+        if (fieldFlat.children.length && sweep < 0) sweep = 0;
+        return;
+      }
+      sweep = -1;
+      land = 0;
+      fieldGroup.scale.setScalar(1);
+      clearField();
       // 天板からはみ出さないように、枚数が増えたら重ねて詰める
       const gap = Math.min(CARD_GAP, (R * 1.5) / n);
       cards.forEach((c, i) => {

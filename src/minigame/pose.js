@@ -568,6 +568,74 @@ export function sitPose(t, facing, hold = 0) {
   };
 }
 
+// ---- 円卓のしぐさ ----
+//
+// 座り姿(sitPose)に**上書きで混ぜる**。別の姿勢として作らないのは、
+// 呼吸も脚の形も座り姿のままでいてほしいから ── しぐさの間だけ足が
+// 伸びたり呼吸が止まったりすると、同じ人に見えなくなる。
+//
+// k は 0→1 で進む。どれも「出て、戻る」山形にするので、
+// 終わりに座り姿へそのまま戻る(つなぎの処理が要らない)。
+const hump = (k) => Math.sin(Math.max(0, Math.min(1, k)) * Math.PI);
+
+// 札を出す。体を前に送り出して、両手を卓の上へ伸ばす。
+export function sitPlayPose(t, facing, k) {
+  const p = sitPose(t, facing, 1);
+  const h = hump(k);
+  return {
+    ...p,
+    chest: JOINT(p.chest.x + h * 0.30, p.chest.y, p.chest.z),
+    // **首は逆に起こす。** 体と同じだけ頭も倒すと、うつむいて顔が
+    // 見えなくなる ── 卓に身を乗り出しても、目は場を見ている。
+    head: JOINT(p.head.x - h * 0.14, p.head.y, p.head.z),
+    // 腕を前へ伸ばす(ひじも開く)
+    arms: p.arms.map((a, i) => LIMB(
+      a.rootX - h * 0.75,
+      a.rootZ + (i === 0 ? -1 : 1) * h * 0.18,
+      a.knee - h * 0.20,
+    )),
+  };
+}
+
+// パス。体を引いて、両手を横へ開く(「無いよ」の形)。
+export function sitPassPose(t, facing, k) {
+  const p = sitPose(t, facing, 1);
+  const h = hump(k);
+  return {
+    ...p,
+    chest: JOINT(p.chest.x - h * 0.16, p.chest.y, p.chest.z),
+    head: JOINT(p.head.x - h * 0.10, p.head.y, p.head.z + h * 0.16),
+    arms: p.arms.map((a, i) => LIMB(
+      a.rootX + h * 0.28,
+      a.rootZ + (i === 0 ? -1 : 1) * h * 0.65,   // 外へ開く
+      a.knee - h * 0.35,
+    )),
+  };
+}
+
+// 上がり。両手を挙げて万歳する。
+// **手札が無いので扇も無い。** 腕は真上まで(-π 近く)振り上げないと
+// 「前へならえ」にしか見えない(airPose と同じ理由)。
+export function sitWinPose(t, facing, k) {
+  const p = sitPose(t, facing, 0);
+  const kk = Math.max(0, Math.min(1, k));
+  // はじめに勢いよく挙げて、あとはゆっくり下ろす
+  const up = kk < 0.25 ? ease01(kk / 0.25) : 1 - ease01((kk - 0.25) / 0.75) * 0.35;
+  const bounce = Math.sin(kk * Math.PI * 4) * 0.06 * (1 - kk);
+  return {
+    ...p,
+    lift: LIFT(bounce * 0.35),
+    mouth: MOUTH(1),
+    chest: JOINT(p.chest.x - up * 0.22, p.chest.y, p.chest.z),
+    head: JOINT(p.head.x - up * 0.30, p.head.y, p.head.z),
+    arms: [0, 1].map((i) => LIMB(
+      -0.95 - up * 2.0,
+      (i === 0 ? -1 : 1) * (0.30 + up * 0.30),
+      0.80 - up * 0.65,
+    )),
+  };
+}
+
 // ---- 止まったとき ----
 
 // 止まってから足をそろえるまでの時間(秒)。

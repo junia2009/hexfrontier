@@ -53,6 +53,7 @@ import {
   isJoker, playsFor, rankOf, suitOf,
 } from './minigame/daifugo.js';
 import { AUTO_MS as DFG_AUTO_MS } from './minigame/meet/daifugo-table.js';
+import { actsFrom, newLogEntries } from './minigame/table-cue.js';
 import { EMOTES } from './minigame/emote.js';
 import { WALK_SEATS } from './minigame/remote-st.js';
 import { SPECIES, speciesById, cleanSpecies, DEFAULT_SPECIES } from './minigame/species.js';
@@ -1678,15 +1679,24 @@ const dfgTable = () => (contest?.kind === 'daifugo' ? contest.table : null);
 // 相手が出したときに何も起きず、画面が黙って書き換わるだけになる。
 let dfgPrev = null;
 let dfgFieldKey = '';
+let dfgLog = null;        // 前に見た記録の窓(しぐさの差分に使う)
+let dfgLogGame = 0;
 function dfgSounds(t, seat) {
   const before = dfgPrev;
   const now = t
-    ? { turn: t.turn, out: t.out.length, field: t.field?.cards.join(',') ?? '', game: t.game }
+    ? {
+      turn: t.turn, out: t.out.length, field: t.field?.cards.join(',') ?? '',
+      game: t.game, rev: !!t.revolution, iOut: t.out.includes(seat),
+    }
     : null;
   dfgPrev = now;
   if (!now || !before || before.game !== now.game) return;   // 配り直しは鳴らさない
   if (before.field !== now.field) sfx.play(now.field ? 'card' : 'ui');
-  if (now.out > before.out) sfx.play('gain');
+  // 上がり。**自分が上がったときだけ別の音**にする ── 同じ音だと、
+  // 相手が上がったのか自分が上がったのか、画面を見るまで分からない
+  if (now.out > before.out) sfx.play(now.iOut ? 'win' : 'gain');
+  // 革命はひっくり返る合図。ほかの音と混ざらない、重い音を当てる
+  if (now.rev !== before.rev) sfx.play('barbarian');
   if (now.turn === seat && before.turn !== seat) sfx.play('turn');
 }
 
@@ -1727,6 +1737,13 @@ function dfgScene(t, seat) {
   const remain = (contest.turnRemain ?? 0) / DFG_AUTO_MS;
   walk.setTableTurn(idx < 0 ? null : idx, who === seat, remain, who);
   walk.setTableHands(t.counts);
+  // 出す/パス/上がり のしぐさ。**届いた記録の差分から出す** ──
+  // 自分の操作だけで出すと、相手が打ったときに誰も動かない。
+  // 配り直し(game が変わる)をまたいで差分を取らない。
+  if (dfgLogGame !== t.game) { dfgLogGame = t.game; dfgLog = null; }
+  const acts = actsFrom(newLogEntries(dfgLog, t.log));
+  dfgLog = t.log;
+  if (acts.length) walk.setTableActs(acts);
 }
 
 function renderDaifugo() {
@@ -1737,7 +1754,11 @@ function renderDaifugo() {
   const on = !!t && contest.phase === 'running' && seat != null && t.players.includes(seat);
   el.classList.toggle('on', on);
   document.getElementById('walk-hud')?.classList.toggle('sitting', on);
-  if (!on) { dfgSel = []; dfgHandKey = ''; dfgPrev = null; dfgFieldKey = ''; return; }
+  if (!on) {
+    dfgSel = []; dfgHandKey = ''; dfgPrev = null; dfgFieldKey = '';
+    dfgLog = null; dfgLogGame = 0;
+    return;
+  }
 
   dfgSounds(t, seat);
   // 卓の上にも同じ札を並べる。**変わったときだけ**組み直す

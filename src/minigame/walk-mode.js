@@ -841,6 +841,9 @@ export class WalkMode {
     this._dragonFrame(dt, t);
     // 巣の竜も同じ。釣っていようが図鑑を開いていようが、島に棲んでいる
     this._nestFrame(dt, t);
+    // 円卓の演出(場に出た札の着地)。**座っていなくても進める** ──
+    // 卓は島の真ん中にあって、立って眺めていても見えている。
+    this.desk?.update?.(dt);
 
     if (this.fishing) {
       this._fishFrame(dt);
@@ -1034,6 +1037,16 @@ export class WalkMode {
   //   seatIndex: 卓に着いている順(t.players の添字)。手番が無ければ null
   //   mine: それが自分か
   //   remain01: 考える時間の残り(1 → 0)
+  // 円卓で起きたこと。体のしぐさと、卓の閃光に振り分ける。
+  setTableActs(acts) {
+    for (const a of acts ?? []) {
+      this.remoteView.startAct(a.seat, a.kind);
+      if (a.kind === 'kakumei') this.desk?.flash?.(0xb06ef0);
+      else if (a.kind === 'clear') this.desk?.flash?.(0xffd97d);
+      else if (a.kind === 'win') this.desk?.flash?.(0xfff0c0);
+    }
+  }
+
   // 円卓の手札枚数(席 → 枚数)。相手の体に扇として出る。
   setTableHands(counts) {
     this.remoteView.setHandCounts(counts);
