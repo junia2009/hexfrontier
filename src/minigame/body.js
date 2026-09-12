@@ -96,7 +96,12 @@ export const CUTE = {
 // 輪郭が明らかに角張って、腕が「節のある棒」に見えていた。
 // 継ぎ目に関節の玉を1つ入れるのも同じ理由で、上下の太さが違うぶん、
 // 玉が無いと肘と膝がくびれて見える。
-function makeLimb(mat, upper, lower, thick, end) {
+// lowMat を渡すと膝から下だけ色が変わる(きつねの靴下)。
+// 既定値ではなく ?? で受けること ── 既定値は undefined にしか効かないので、
+// 「靴下なし」を null で渡されると材質が null のメッシュができて、
+// 描画時に material.visible を読んだところで落ちる。
+function makeLimb(mat, upper, lower, thick, end, lowMat) {
+  const low = lowMat ?? mat;
   const root = new THREE.Group();
   const upperMesh = new THREE.Mesh(new THREE.CapsuleGeometry(thick, upper, 6, 14), mat);
   upperMesh.position.y = -upper / 2;
@@ -105,11 +110,11 @@ function makeLimb(mat, upper, lower, thick, end) {
 
   const knee = new THREE.Group();
   knee.position.y = -upper;
-  const joint = new THREE.Mesh(new THREE.SphereGeometry(thick * 1.02, 12, 10), mat);
+  const joint = new THREE.Mesh(new THREE.SphereGeometry(thick * 1.02, 12, 10), low);
   joint.castShadow = true;
   knee.add(joint);
   const lowerMesh = new THREE.Mesh(
-    new THREE.CapsuleGeometry(thick * 0.94, lower, 6, 14), mat,
+    new THREE.CapsuleGeometry(thick * 0.94, lower, 6, 14), low,
   );
   lowerMesh.position.y = -lower / 2;
   lowerMesh.castShadow = true;
@@ -280,8 +285,13 @@ function makeShoe(mat, s) {
 // どれも「頭」か「腰」に付ける。頭に付けたものは首の動きに、腰に付けたものは
 // 体のひねりに付いてくる ── 胴に付けると、うつむいても耳だけ正面を向く。
 
-// 耳。三角(ねこ)・まる(くま)・とがって長い(きつね)・垂れ(ひつじ)
-function makeEars(furMat, accMat, kind, p) {
+// 耳。三角(ねこ)・まる(くま)・大きい三角(きつね)・垂れ(ひつじ)
+//
+// ねことぎつねは**耳で見分ける**ことにした。同じ細い三角を長さだけ変えて
+// 生やしていたので、並べると同じ生きものに見えていた ── ねこは小さくて
+// 丸っこく、きつねは顔幅ほどもある大きな三角、と輪郭から変える。
+// tipMat を渡すと先を染める(きつねの黒い耳先)。
+function makeEars(furMat, accMat, tipMat, kind, p) {
   const g = new THREE.Group();
   const r = p.headR;
   for (const sx of [-1, 1]) {
@@ -293,23 +303,35 @@ function makeEars(furMat, accMat, kind, p) {
       ear.add(outer, inner);
       ear.position.set(sx * r * 0.72, r * 0.72, 0);
     } else {
-      // 円錐。きつねは細長く、ひつじは横へ垂らす
+      // 円錐。きつねは大きく、ひつじは横へ垂らす
       const droop = kind === 'droop';
+      const fox = kind === 'fox';
       // 垂れ耳(ひつじ)は**毛の外**から生やす。毛は頭から 1.22R まで
       // 膨らんでいるので、ふつうの付け位置(0.55R)だと丸ごと埋まって、
       // 耳が1つも見えないひつじになっていた。
-      const len = kind === 'fox' ? r * 0.95 : droop ? r * 0.80 : r * 0.62;
-      const wide = droop ? r * 0.28 : r * 0.26;
+      const len = fox ? r * 1.05 : droop ? r * 0.80 : r * 0.52;
+      const wide = fox ? r * 0.38 : droop ? r * 0.28 : r * 0.24;
       const outer = new THREE.Mesh(new THREE.ConeGeometry(wide, len, 9), furMat);
       outer.position.y = len / 2;
-      const inner = new THREE.Mesh(new THREE.ConeGeometry(wide * 0.55, len * 0.7, 9), accMat);
-      inner.position.set(0, len * 0.42, wide * 0.35);
+      outer.scale.z = fox ? 0.55 : 1;   // きつねは板のように平たい大きな耳
+      const inner = new THREE.Mesh(new THREE.ConeGeometry(wide * (fox ? 0.42 : 0.55), len * (fox ? 0.56 : 0.7), 9), accMat);
+      inner.position.set(0, len * (fox ? 0.34 : 0.42), wide * (fox ? 0.22 : 0.35));
       ear.add(outer, inner);
-      ear.position.set(sx * r * (droop ? 0.96 : 0.55), r * (droop ? 0.18 : 0.62), r * (droop ? 0.18 : 0));
+      if (tipMat) {
+        const tip = new THREE.Mesh(new THREE.ConeGeometry(wide * 0.58, len * 0.42, 9), tipMat);
+        tip.position.y = len * 0.79;
+        tip.scale.z = fox ? 0.55 : 1;
+        ear.add(tip);
+      }
+      ear.position.set(
+        sx * r * (droop ? 0.96 : fox ? 0.52 : 0.50),
+        r * (droop ? 0.18 : fox ? 0.66 : 0.68),
+        r * (droop ? 0.18 : 0),
+      );
       // Z 回りの正の回転は +Y を −X へ倒す。つまり **sx と同符号だと内側**へ
       // 倒れる ── 垂れ耳をこれで回していたので、耳が頭の上で交差して
       // 毛に埋まり、耳の無いひつじになっていた。外へ倒すので符号を反転する。
-      ear.rotation.z = -sx * (droop ? 1.95 : -0.28);
+      ear.rotation.z = -sx * (droop ? 1.95 : fox ? -0.36 : -0.20);
       if (droop) ear.rotation.x = -0.25;   // 少し後ろへ
     }
     ear.traverse((o) => { o.castShadow = true; });
@@ -426,13 +448,87 @@ function makeBeak(mat, p) {
 // 表情がまったく読めなかった。顔に明るい面を1つ作るだけで顔らしくなる。
 function makeSnout(furMat, accMat, noseMat, p) {
   const g = new THREE.Group();
-  const m = new THREE.Mesh(new THREE.SphereGeometry(p.headR * 0.32, 10, 8), accMat);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(p.headR * 0.32, 12, 10), accMat);
   m.scale.set(1, 0.8, 0.9);
   m.position.set(0, -p.headR * 0.30, p.headR * 0.80);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(p.headR * 0.10, 8, 6), noseMat);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(p.headR * 0.10, 10, 8), noseMat);
   nose.position.set(0, -p.headR * 0.24, p.headR * 1.02);
   g.add(m, nose);
   g.traverse((o) => { o.castShadow = true; });
+  return g;
+}
+
+// 長い鼻面(きつね)。
+// 丸い鼻先を付けると、ねこ・くまとまったく同じ顔になる。きつねは
+// **前へ突き出た細い鼻面**が一目で分かる形なので、円錐で作る。
+function makeMuzzle(furMat, accMat, noseMat, p) {
+  const g = new THREE.Group();
+  const r = p.headR;
+  const len = r * 1.00;
+  // 先が細い円錐。rotation.x = +90° で +Y が +Z を向くので、
+  // 細いほう(radiusTop)がそのまま鼻先になる。
+  const cone = new THREE.Mesh(
+    new THREE.CylinderGeometry(r * 0.13, r * 0.42, len, 14), furMat,
+  );
+  cone.rotation.x = Math.PI / 2;
+  cone.position.set(0, -r * 0.30, r * 0.92);
+  // 下あご側を明るくする。全部が体の色だと、突き出ていることが
+  // 影でしか分からない
+  const jaw = new THREE.Mesh(
+    new THREE.CylinderGeometry(r * 0.11, r * 0.30, len * 0.92, 14), accMat,
+  );
+  jaw.rotation.x = Math.PI / 2;
+  jaw.scale.y = 0.55;
+  jaw.position.set(0, -r * 0.42, r * 0.90);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(r * 0.13, 12, 10), noseMat);
+  nose.position.set(0, -r * 0.28, r * 1.40);
+  g.add(cone, jaw, nose);
+  g.traverse((o) => { o.castShadow = true; });
+  return g;
+}
+
+// ほお(きつね)。頬から下あごにかけての明るい面。
+//
+// 最初は球を外へ出して「房」にしたが、頬に袋を貼り付けたようにしか
+// 見えなかった。**ほっぺと同じで、頭に埋めてレンズのように覗かせる**のが
+// 正しい ── 出っ張りではなく面の色で、きつねの細い顔が締まる。
+function makeRuff(mat, p) {
+  const g = new THREE.Group();
+  const r = p.headR;
+  // **左右に分けて置かない**。頬に1つずつ置いたら、正面から見たときに
+  // 口の両脇から明るい塊が2つ生えて「牙」に見えた。
+  // 顔の下半分を横一枚で抜くと、鼻面の根元が締まって前に出て見える。
+  // 頭の表面は y=-0.40R のところで z=0.92R。**そこより前に出さないと
+  // 丸ごと埋まって見えない**(最初に置いた 0.50R は完全に頭の中だった)。
+  const band = new THREE.Mesh(new THREE.SphereGeometry(r * 0.46, 16, 14), mat);
+  band.scale.set(1.30, 0.62, 0.56);
+  band.position.set(0, -r * 0.40, r * 0.78);
+  g.add(band);
+  return g;
+}
+
+// ひげ(ねこ)。細い棒を左右3本ずつ。
+// 形を足さずに「ねこらしさ」を出せる数少ない部品で、
+// これがあるかないかでぎつねとの区別がいちばんはっきりする。
+function makeWhiskers(mat, p) {
+  const g = new THREE.Group();
+  const r = p.headR;
+  const len = r * 0.85;
+  for (const sx of [-1, 1]) {
+    for (const tilt of [0.30, 0.02, -0.26]) {
+      const w = new THREE.Group();
+      const m = new THREE.Mesh(
+        new THREE.CylinderGeometry(r * 0.010, r * 0.016, len, 4), mat,
+      );
+      m.position.y = len / 2;
+      w.add(m);
+      w.position.set(sx * r * 0.20, -r * 0.26, r * 0.86);
+      // +Y を真横(±X)へ倒してから、上下に振る
+      w.rotation.z = -sx * (Math.PI / 2 - tilt);
+      w.rotation.y = -sx * 0.5;   // 少し前へ張り出す
+      g.add(w);
+    }
+  }
   return g;
 }
 
@@ -614,6 +710,9 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   // 影絵のような塊になる ── 先端に差を付けると手足の形が読める。
   const paw = mat(sp.fur ? tone(color, 0.10) : SKIN);
   const shoe = mat(sp.fur ? tone(color, 0.15) : SHOE);
+  // 靴下(きつね)。手足の先よりさらに強くずらして、膝から下を染める。
+  // 耳の先も同じ色にする ── きつねは「耳先と足先が濃い」のが形の次に効く印。
+  const sock = parts.socks || parts.earTip ? mat(tone(color, 0.42)) : null;
   const accent = mat(sp.accent ?? SKIN);
   const shineMat = new THREE.MeshBasicMaterial({ color: SHINE });
   const blushMat = mat(BLUSH);
@@ -642,7 +741,11 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   const faceMat = sp.face != null ? mat(sp.face) : skin;
   const head = new THREE.Mesh(new THREE.SphereGeometry(p.headR, 26, 20), faceMat);
   head.position.y = p.headY;
-  head.scale.set(1, 0.96, 0.96);   // 顔の付け位置はこの潰しを割り戻す(下)
+  // 横幅はすがたで変える(headW)。ねこは丸く広く、きつねは細く ──
+  // 顔の輪郭が同じだと、耳や鼻を変えても「同じ顔の別衣装」に見える。
+  // **目・口・ほっぺは割り戻さない**。割り戻すと、細くした顔の横から
+  // 目玉だけはみ出す。潰しに合わせて一緒に寄るのが正しい。
+  head.scale.set(p.headW ?? 1, 0.96, 0.96);   // 前後の潰しだけ割り戻す(下)
   head.castShadow = true;
   chest.add(head);
 
@@ -709,7 +812,7 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   arms[0].knee.add(bow.group);
 
   const legs = [-1, 1].map((sx) => {
-    const limb = makeLimb(cloth, p.thigh, p.shin, p.legR, makeShoe(shoe, p.shoe));
+    const limb = makeLimb(cloth, p.thigh, p.shin, p.legR, makeShoe(sock ?? shoe, p.shoe), sock);
     limb.root.position.set(sx * p.hipX, 0, 0);
     hips.add(limb.root);
     return limb;
@@ -717,8 +820,11 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
 
   // ---- すがたの飾り ----
   // 頭に付けたものは首の動きに付いてくる(胴に付けると顔だけ正面を向く)
-  if (parts.ears) head.add(makeEars(skin, accent, parts.ears, p));
+  if (parts.ears) head.add(makeEars(skin, accent, parts.earTip ? sock : null, parts.ears, p));
   if (parts.snout) head.add(makeSnout(skin, accent, mat(EYE), p));
+  if (parts.muzzle) head.add(makeMuzzle(skin, accent, mat(EYE), p));
+  if (parts.ruff) head.add(makeRuff(accent, p));
+  if (parts.whiskers) head.add(makeWhiskers(mat(tone(color, 0.55)), p));
   if (parts.beak) head.add(makeBeak(mat(BEAK), p));
   if (parts.horns) head.add(makeHorns(accent, p));
   if (parts.fluff) head.add(makeFluff(skin, p));

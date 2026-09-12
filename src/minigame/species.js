@@ -36,7 +36,9 @@ export const SPECIES = [
     icon: '🐱',
     fur: true,
     accent: 0xffd9e2,          // 耳の内側・鼻先
-    parts: { ears: 'cat', tail: 'cat', snout: true },
+    // ぎつねと見分けるための形: 丸く広い顔・小さい耳・丸い鼻先・ひげ
+    props: { headW: 1.07 },
+    parts: { ears: 'cat', tail: 'cat', snout: true, whiskers: true },
   },
   {
     id: 3,
@@ -104,10 +106,14 @@ export const SPECIES = [
     label: 'きつね',
     icon: '🦊',
     fur: true,
-    accent: 0xfff4e2,          // 耳の内側・しっぽの先
-    props: { headR: 0.107 },
-    parts: { ears: 'fox', tail: 'fox', snout: true },
-    top: 0.02,
+    accent: 0xfff4e2,          // 耳の内側・しっぽの先・ほお毛・あご
+    // ねこと見分けるための形: 細い顔・前へ突き出た鼻面・顔幅ほどの大きな耳・
+    // ほお毛。さらに耳先と膝から下を濃く染める(きつねらしい色の置き方)。
+    props: { headR: 0.107, headW: 0.90 },
+    parts: {
+      ears: 'fox', earTip: true, tail: 'fox', muzzle: true, ruff: true, socks: true,
+    },
+    top: 0.06,                 // 大きな耳のぶん
   },
 ];
 
