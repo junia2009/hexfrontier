@@ -52,10 +52,6 @@ export function arcSegments(k, n) {
   return Math.max(1, Math.min(n, Math.ceil(k * n)));
 }
 
-// 席 a から席 b を見る向き(walker の facing と同じ atan2(dx, dz))。
-export function lookYaw(from, to) {
-  return Math.atan2(to.x - from.x, to.z - from.z);
-}
 
 // ---- 手札の扇 ----
 

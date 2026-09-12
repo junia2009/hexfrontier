@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  newLogEntries, arcSegments, lookYaw, fanLayout, actsFrom, FAN_MAX,
+  newLogEntries, arcSegments, fanLayout, actsFrom, FAN_MAX,
 } from '../src/minigame/table-cue.js';
 
 const P = (by) => ({ t: 'pass', by });
@@ -75,13 +75,6 @@ test('残り時間の弧: 0 のときだけ消える', () => {
   assert.equal(arcSegments(0.5, 24), 12);
   // 切り上げ(0.51*24 = 12.24 → 13)
   assert.equal(arcSegments(0.51, 24), 13);
-});
-
-test('見る向き: 相手の席の方角を返す', () => {
-  const me = { x: 0, z: 0 };
-  assert.equal(lookYaw(me, { x: 0, z: 1 }), 0);                 // 正面(+Z)
-  assert.equal(lookYaw(me, { x: 1, z: 0 }), Math.PI / 2);       // 右(+X)
-  assert.ok(Math.abs(lookYaw(me, { x: 0, z: -1 })) - Math.PI < 1e-9);
 });
 
 test('手札の扇: 枚数で広がりが決まり、上限で頭打ちになる', () => {
