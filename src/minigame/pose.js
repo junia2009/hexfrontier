@@ -520,10 +520,37 @@ export function sitPose(t, facing) {
   };
 }
 
+// ---- 止まったとき ----
+
+// 止まってから足をそろえるまでの時間(秒)。
+// **歩きの位相は止まった形のまま残る。** そのままだと片足を前に出したまま
+// 固まってしまう(実機で「止まっても足が前に出たままになってる」と報告)。
+const REST_IN = 0.26;
+// 歩き出したときに立ち姿から抜ける時間。**入るより速く**抜ける ──
+// 押してから足が出るまでに間があると、操作が重く感じる。
+const REST_OUT = 0.10;
+
+// 止まっているあいだ、歩きの姿勢から立ち姿へ寄せる。
+// 状態(いまどれだけ立ち姿寄りか)を持つのはここだけにして、
+// walker.js と remote-view.js は結果を流し込むだけにしてある。
+export function restBlend() {
+  let k = 0;
+  return {
+    get weight() { return k; },
+    reset() { k = 0; },
+    // walk: いまの歩きの姿勢 / moving: 歩いているか
+    pose(walk, facing, moving, dt) {
+      const rate = moving ? -1 / REST_OUT : 1 / REST_IN;
+      k = Math.max(0, Math.min(1, k + rate * dt));
+      return k <= 0 ? walk : blendPose(walk, standPose(facing), ease01(k));
+    },
+  };
+}
+
 // ---- エモート ----
 
 // 何もしていない立ち姿。エモートの出入りはここへ戻る。
-function standPose(facing) {
+export function standPose(facing) {
   return {
     group: JOINT(0, facing, 0),
     lift: LIFT(0),

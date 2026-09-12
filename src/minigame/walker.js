@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { WalkerMotion, WALK_SPEED, RUN_GAIT, MAX_DT } from './motion.js';
 import {
   walkPose, airPose, tumblePose, sinkPose, aimPose, sitPose, emotePose,
-  fishPoseBlender, rodOutro, phasePerUnit,
+  fishPoseBlender, rodOutro, restBlend, phasePerUnit,
 } from './pose.js';
 import { makeWalker } from './body.js';
 
@@ -49,6 +49,10 @@ export function applyPose(parts, pose, x, y, z) {
   }
 }
 
+// これ以下の速さは「止まっている」扱い(歩く速さに対する割合)。
+// 指を離すと速度は指数で落ちるので、ぴたりと 0 にはならない。
+const STAND_SPEED = 0.06;
+
 export class Walker {
   // groundAt(x, z) → { y, ok }。ok が false なら「そこは地面でない」
   // blockAt: 盤の上の物にめり込ませないための関数(obstacles.js)
@@ -64,6 +68,7 @@ export class Walker {
     this.fishPose = fishPoseBlender();   // 釣りの段をつなぐ(pose.js)
     this.lastPose = null;         // 直前に当てた姿勢(戻しの始点に使う)
     this.outro = rodOutro();      // 竿をしまう途中のつなぎ(pose.js)
+    this.rest = restBlend();      // 止まったら足をそろえる(pose.js)
     this.outroDt = 0;             // その時計。update だけが進める
   }
 
@@ -209,8 +214,13 @@ export class Walker {
     // **駆け足では歩幅が伸びるので、同じ距離でも位相の進みは少ない。**
     const gait = Math.min(RUN_GAIT, r.speed / WALK_SPEED);
     this.phase += r.speed * Math.min(dt, MAX_DT) * phasePerUnit(gait);
+    // 止まったら足をそろえる。**位相は止めるだけ**なので、そのままだと
+    // 片足を前に出した形で固まる(pose.js の REST_IN)。
+    const moving = r.speed > WALK_SPEED * STAND_SPEED;
     this._apply(
-      r.grounded ? walkPose(this.phase, gait, m.facing) : airPose(m.vy, m.facing),
+      r.grounded
+        ? this.rest.pose(walkPose(this.phase, gait, m.facing), m.facing, moving, dt)
+        : airPose(m.vy, m.facing),
       y,
     );
     // 足が地面に着いた瞬間。歩行サイクルは半周(π)で片足ぶんなので、

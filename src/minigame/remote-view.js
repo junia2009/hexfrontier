@@ -10,7 +10,8 @@ import * as THREE from 'three';
 import { makeWalker, walkerHeight } from './body.js';
 import { applyPose } from './walker.js';
 import {
-  walkPose, airPose, tumblePose, fishPose, sitPose, emotePose, phasePerUnit,
+  walkPose, airPose, tumblePose, fishPose, sitPose, emotePose,
+  restBlend, phasePerUnit,
 } from './pose.js';
 import { WALK_SPEED, RUN_GAIT } from './motion.js';
 import { ST } from './remote-st.js';
@@ -136,6 +137,8 @@ export class RemoteView {
     const e = {
       parts, tag, tagW: tag?.userData.w ?? 0, name: name ?? null, sp, look: sp.id,
       phase: 0, spin: 0, t: 0, y: 0,
+      rest: restBlend(),   // 止まったら足をそろえる(自分の体と同じ)
+
       emote: 0, emoteT: 0, bubble: null,
     };
     this._sizeTag(e);
@@ -209,7 +212,12 @@ export class RemoteView {
         // 8.8 倍になって、他人の足がずっと滑っていた。
         const gait = Math.min(RUN_GAIT, p.speed / WALK_SPEED);
         e.phase += p.speed * dt * phasePerUnit(gait);
-        pose = walkPose(e.phase, gait, p.facing);
+        // 止まったら足をそろえる。**自分の体と同じ扱いにする** ──
+        // ここを忘れると、相手だけ片足を前に出したまま突っ立って見える。
+        pose = e.rest.pose(
+          walkPose(e.phase, gait, p.facing), p.facing,
+          p.speed > WALK_SPEED * 0.06, dt,
+        );
       }
       applyPose(e.parts, pose, p.x, y, p.z);
     }
