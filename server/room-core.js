@@ -5,7 +5,7 @@
 // 権威はサーバー側にある: クライアントは「自分の席のアクション」を送るだけで、
 // 合法性の判定と乱数は全てここで行い、席ごとに伏せた状態を配る。
 
-import { createGame } from '../src/state.js';
+import { createGame, isMode } from '../src/state.js';
 import { dispatch, validateAction } from '../src/actions.js';
 import { chooseAction } from '../src/ai/cpu-player.js';
 import { totalCards } from '../src/rules/build.js';
@@ -194,7 +194,7 @@ export class RoomCore {
     const next = { ...this.settings };
     // 散策部屋で変えられるのは島の種類だけ。難度も CPU も関係がない
     if (this.kind === 'walk') {
-      if (['base', 'cak', 'dragon', 'fish', 'sea'].includes(patch?.mode)) {
+      if (isMode(patch?.mode)) {
         next.mode = patch.mode;
         // 島の種類を変えたら島も別物にする(同じ種のまま形だけ変わると紛らわしい)
         this.seed = Math.floor(this.rand() * 1e9);
@@ -202,7 +202,7 @@ export class RoomCore {
       this.settings = next;
       return { ok: true };
     }
-    if (['base', 'cak', 'dragon', 'fish', 'sea'].includes(patch?.mode)) next.mode = patch.mode;
+    if (isMode(patch?.mode)) next.mode = patch.mode;
     if (['easy', 'normal', 'hard'].includes(patch?.difficulty)) next.difficulty = patch.difficulty;
     if (typeof patch?.cpuFill === 'boolean') next.cpuFill = patch.cpuFill;
     if (['balanced', 'random'].includes(patch?.diceMode)) next.diceMode = patch.diceMode;

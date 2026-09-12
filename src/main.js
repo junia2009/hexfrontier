@@ -1,7 +1,7 @@
 // 起動・ゲームループ・入力モード管理(設計書 §2, §8)
 // 人間の入力も CPU も、同じ dispatch(action) を通る。
 
-import { createGame, RESOURCES } from './state.js';
+import { createGame, RESOURCES, modeOptions } from './state.js';
 import { dispatch, validateAction } from './actions.js';
 import { chooseAction } from './ai/cpu-player.js';
 import { stealableTargets } from './rules/robber.js';
@@ -184,7 +184,7 @@ function renderSelectPanel() {
       .join('')}</div>`;
   panel.innerHTML = `
     <h3>⬡ ゲーム設定</h3>
-    <div class="srow"><span>ルール</span>${seg('set-mode', [['base', '基本'], ['cak', '都市と騎士'], ['dragon', '🐉ドラゴン'], ['fish', '🐟漁師'], ['sea', '⛵航海者']], settings.mode)}</div>
+    <div class="srow"><span>ルール</span>${seg('set-mode', modeOptions(), settings.mode)}</div>
     <div class="srow"><span>CPU</span>${seg('set-cpu', [['2', '2体'], ['3', '3体']], String(settings.cpuCount))}</div>
     <div class="srow"><span>強さ</span>${seg('set-diff', [['easy', '弱い'], ['normal', '普通'], ['hard', '強い']], settings.difficulty)}</div>
     <div class="srow"><span>出目</span>${seg('set-dice', [['random', '純ランダム'], ['balanced', 'バランス']], settings.diceMode)}</div>
@@ -218,7 +218,7 @@ function renderWalkSetupPanel() {
   // ひとりで歩くときは「自分の見た目を決めてから出る」ほうが自然)
   setHTML(panel, `
     <h3>🚶 島を歩く</h3>
-    <div class="srow"><span>島</span>${seg('walkset-mode', [['base', '基本'], ['cak', '都市と騎士'], ['dragon', '🐉ドラゴン'], ['fish', '🐟漁師'], ['sea', '⛵航海者']], walkSetup.mode)}</div>
+    <div class="srow"><span>島</span>${seg('walkset-mode', modeOptions(), walkSetup.mode)}</div>
     ${islandNoteHtml(walkSetup.mode)}
     <div class="srow"><span>すがた</span>${seg('walkset-look',
       SPECIES.map((sp) => [String(sp.id), `${sp.icon} ${sp.label}`]), String(myLook))}</div>
@@ -320,7 +320,7 @@ function renderOnlinePanel() {
       <small>この合言葉を友達に伝えてください</small>
     </div>
     <div class="seat-list">${seats}</div>
-    <div class="srow"><span>ルール</span>${seg('net-mode', [['base', '基本'], ['cak', '都市と騎士'], ['dragon', '🐉ドラゴン'], ['fish', '🐟漁師'], ['sea', '⛵航海者']], lb.settings.mode, !host)}</div>
+    <div class="srow"><span>ルール</span>${seg('net-mode', modeOptions(), lb.settings.mode, !host)}</div>
     <div class="srow"><span>空席</span>${seg('net-fill', [['on', 'CPUで埋める'], ['off', '人だけ']], lb.settings.cpuFill ? 'on' : 'off', !host)}</div>
     ${lb.settings.cpuFill ? `<div class="srow"><span>強さ</span>${seg('net-diff', [['easy', '弱い'], ['normal', '普通'], ['hard', '強い']], lb.settings.difficulty, !host)}</div>` : ''}
     <div class="srow"><span>出目</span>${seg('net-dice', [['random', '純ランダム'], ['balanced', 'バランス']], lb.settings.diceMode ?? 'random', !host)}</div>
@@ -361,7 +361,7 @@ function renderWalkLobby(panel, lb, err) {
     <div class="seat-list">${seats}</div>
     <div class="srow"><span>すがた</span>${seg('net-look',
       SPECIES.map((sp) => [String(sp.id), `${sp.icon} ${sp.label}`]), String(myLook), false)}</div>
-    <div class="srow"><span>島</span>${seg('net-mode', [['base', '基本'], ['cak', '都市と騎士'], ['dragon', '🐉ドラゴン'], ['fish', '🐟漁師'], ['sea', '⛵航海者']], lb.settings.mode, !host)}</div>
+    <div class="srow"><span>島</span>${seg('net-mode', modeOptions(), lb.settings.mode, !host)}</div>
     <div class="net-note meet-note">${meetFor(lb.settings.mode)
       ? `🎪 この島では <b>${meetFor(lb.settings.mode).name}</b> が開けます(中心の受付から)`
       : 'この島に受付はありません。ただ歩いて、港で釣りができます。'}</div>

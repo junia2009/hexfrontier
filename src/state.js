@@ -33,9 +33,25 @@ export function zeroResources() {
   return { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
 }
 
+// 遊べるルールの一覧。**ここが唯一の出どころ。**
+// 画面の選択肢・サーバーの受け入れ判定・セルフプレイの引数検証が別々に
+// 一覧を持っていると、モードを足したときに必ずどこかが取り残される
+// (実際、以前は同じ配列が6か所に散らばっていた)。
+// 並び順がそのまま画面の並び順になる。
+export const MODES = [
+  { id: 'base', label: '基本', note: '基本ルール' },
+  { id: 'cak', label: '都市と騎士', note: '都市と騎士' },
+  { id: 'dragon', label: '🐉ドラゴン', note: 'ドラゴンの巣' },
+  { id: 'fish', label: '🐟漁師', note: '漁師たち' },
+  { id: 'sea', label: '⛵航海者', note: '航海者たち。盤が半径3になり海と船が入る' },
+];
+export const MODE_IDS = MODES.map((m) => m.id);
+export const isMode = (m) => MODE_IDS.includes(m);
+// 画面の seg() が欲しい形([id, ラベル] の並び)
+export const modeOptions = () => MODES.map((m) => [m.id, m.label]);
+
 // humanIndex: 人間プレイヤーの位置(-1 なら全員CPU、セルフプレイ用)
-// mode: 'base'(基本ルール) | 'cak'(都市と騎士) | 'dragon' | 'fish'(漁師たち)
-//     | 'sea'(航海者たち。盤が半径3になり海と船が入る)
+// mode: MODES の id のどれか
 export function createGame({
   seed = 1, playerCount = 4, humanIndex = 0, names = null, mode = 'base',
   difficulty = 'hard', // CPU難易度: 'easy' | 'normal' | 'hard'(評価ノイズ量)
