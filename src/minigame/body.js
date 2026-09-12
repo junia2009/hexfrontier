@@ -128,6 +128,64 @@ function makeLimb(mat, upper, lower, thick, end, lowMat) {
   return { root, knee };
 }
 
+// ひれ(ペンギン)。腕と同じ関節構成のまま、平たい板にする。
+//
+// ミトンの手が付いた2節の腕だと、どう色を塗ってもペンギンに見えない ──
+// ひれは「肘も手も無い1枚の板」。関節は pose.js が使うので残し、
+// **見た目だけ** 板にする(肘の玉と手を作らず、上下を重ねて1枚に見せる)。
+// 横に薄く前後に広い。真横から見ると広く、後ろから見ると細い ── 本物と同じで、
+// 遊ぶときの背面の画では体の脇にすっと沿う。
+function makeFlipper(mat, upper, lower, thick) {
+  const root = new THREE.Group();
+  const flat = (m) => { m.scale.set(0.40, 1, 1.55); m.castShadow = true; return m; };
+  const up = flat(new THREE.Mesh(new THREE.CapsuleGeometry(thick, upper, 6, 14), mat));
+  up.position.y = -upper / 2;
+  root.add(up);
+
+  const knee = new THREE.Group();
+  knee.position.y = -upper;
+  // 先すぼまり。根元は上節と重ねて、継ぎ目を作らない
+  const lo = flat(new THREE.Mesh(
+    new THREE.CapsuleGeometry(thick * 0.80, lower * 1.15, 6, 14), mat,
+  ));
+  lo.position.y = -lower * 0.52;
+  knee.add(lo);
+  const tip = flat(new THREE.Mesh(new THREE.SphereGeometry(thick * 0.58, 12, 10), mat));
+  tip.position.y = -lower * 1.12;
+  knee.add(tip);
+  root.add(knee);
+
+  return { root, knee };
+}
+
+// 水かきの足(ペンギン)。平たい三つ又。
+//
+// **足の裏の高さを靴と揃えること**。靴のいちばん下は s.lift − s.r ではなく
+// s.lift − 0.78×s.r ── 靴は横倒しのカプセルを z 方向に 0.78 倍しており、
+// その潰した向きが回転で上下になるため。式のとおり s.r で置くと、
+// ペンギンだけ他のすがたより 0.008 ぶん地面に沈む。
+const SHOE_FLAT = 0.78;
+function makeWebFoot(mat, s) {
+  const g = new THREE.Group();
+  const flatY = 0.42;                 // 潰し具合
+  const r = s.r * 0.92;
+  // 裏を靴と同じ高さに合わせる ⇒ 中心は そこ + 潰したあとの半径
+  const cy = s.lift - s.r * SHOE_FLAT + r * flatY;
+  const base = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 12), mat);
+  base.scale.set(1.15, flatY, 1.45);
+  base.position.set(0, cy, s.ahead * 1.15);
+  base.castShadow = true;
+  g.add(base);
+  for (const dx of [-1, 0, 1]) {
+    const toe = new THREE.Mesh(new THREE.SphereGeometry(r * 0.36, 10, 8), mat);
+    toe.scale.set(1, flatY * 1.05, 1.7);
+    toe.position.set(dx * r * 0.52, cy, s.ahead * 1.15 + r * 0.92);
+    toe.castShadow = true;
+    g.add(toe);
+  }
+  return g;
+}
+
 // 目。黒目1つ+ハイライト2つ。
 //
 // **ハイライトがいちばん効く**。同じ黒い球でも、白い点が2つ乗るだけで
@@ -346,7 +404,7 @@ function makeEars(furMat, accMat, tipMat, kind, p) {
 // 細いカプセルを1本生やすと、背中に管が貼り付いているようにしか見えなかった
 // (背面のスクリーンショットでねこのしっぽが「ファスナー」に見えた)ので、
 // 太さと曲がりを付ける ── ねこは根元から先へ反らせ、きつねは玉を重ねて房にする。
-function makeTail(furMat, accMat, pawMat, kind, p) {
+function makeTail(furMat, accMat, pawMat, kind, p, flushZ) {
   const g = new THREE.Group();
   const len = kind === 'fox' ? 0.13 : kind === 'dragon' ? 0.14 : kind === 'cat' ? 0.135 : 0.105;
   const thick = kind === 'fox' ? 0.034 : kind === 'dragon' ? 0.026 : 0.021;
@@ -380,6 +438,14 @@ function makeTail(furMat, accMat, pawMat, kind, p) {
       cur.add(j);
       cur = j;
     }
+  } else if (kind === 'wedge') {
+    // 三角の短いしっぽ(ペンギン)。後ろ姿が黒い塊になるのを防ぐ
+    const m = new THREE.Mesh(new THREE.ConeGeometry(thick * 1.9, len * 0.62, 3), furMat);
+    m.rotation.y = Math.PI / 6;
+    m.scale.set(1.2, 1, 0.42);
+    m.position.y = len * 0.18;
+    m.castShadow = true;
+    g.add(m);
   } else if (kind === 'bob') {
     // まるいしっぽ(くま・ひつじ)。1つ付けるだけで背中が「後ろ姿」になる。
     // 色は手足の先と同じずらし方にする ── 差し色(accent)を使うと、
@@ -424,8 +490,15 @@ function makeTail(furMat, accMat, pawMat, kind, p) {
     fox: [p.bodyY * 0.34, -0.80, -0.30],
     dragon: [p.bodyY * 0.40, -1.15, 0],
     bob: [p.bodyY * 0.50, 0, 0],
+    wedge: [p.bodyY * 0.42, -0.95, 0],
   }[kind] ?? [p.bodyY * 0.45, -0.5, 0];
-  g.position.set(0, root[0], -(p.bodyR + thick * 0.5));
+  // 胴は z を 0.88 に潰してあるので、背中の面は −bodyR ではなく
+  // **−bodyR×0.88**。体から離して生やす房(ねこ・きつね・竜)は外へ出すが、
+  // 体に貼り付く玉とくさびを同じ式で置くと、背中から浮いて別の物に見える。
+  // 毛に覆われた胴(ひつじ)では、面ではなく**毛の外**が背中になる。
+  // 面に合わせて置くと、玉が毛の下に埋まってしっぽが消える。
+  const flush = kind === 'bob' || kind === 'wedge';
+  g.position.set(0, root[0], flush ? -(flushZ ?? p.bodyR * 0.80) : -(p.bodyR + thick * 0.5));
   // rotation.x が正だと前(+Z)へ倒れて体に刺さる。後ろへ倒すので負。
   g.rotation.set(root[1], 0, root[2]);
   return g;
@@ -436,10 +509,28 @@ function makeTail(furMat, accMat, pawMat, kind, p) {
 // **顔に無い色**(橙)で、大きめに作る。
 const BEAK = 0xf6a13a;
 function makeBeak(mat, p) {
-  const m = new THREE.Mesh(new THREE.ConeGeometry(p.headR * 0.30, p.headR * 0.52, 10), mat);
+  const g = new THREE.Group();
+  const r = p.headR;
+  // **白い顔より前に出すこと**。顔は z=1.06R まで膨らんでいるので、
+  // 頭の表面(0.99R)に合わせて置くと嘴がほとんど埋まる。
+  const m = new THREE.Mesh(new THREE.ConeGeometry(r * 0.34, r * 0.72, 12), mat);
   m.rotation.x = Math.PI / 2;
-  m.position.set(0, -p.headR * 0.16, p.headR * 0.90);
+  m.scale.x = 1.15;                // 横に広い。まん丸だと「鼻」に見える
+  m.position.set(0, -r * 0.14, r * 1.02);
   m.castShadow = true;
+  g.add(m);
+  return g;
+}
+
+// 白い顔(ペンギン)。頭の前下半分を明るく抜く。
+// 黒い球に目と嘴を貼っただけでは、顔がどこまでか分からない ──
+// 明るい面を作ると「黒い帽子をかぶった白い顔」になって一気にペンギンになる。
+function makeMask(mat, p) {
+  const r = p.headR;
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r * 0.66, 18, 14), mat);
+  m.scale.set(1.02, 0.86, 0.52);
+  // 頭の表面(y=-0.16R あたりで z≈0.99R)より前に出す
+  m.position.set(0, -r * 0.16, r * 0.72);
   return m;
 }
 
@@ -718,7 +809,9 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   const blushMat = mat(BLUSH);
   // 顔が暗いすがただけ目に明るい縁を付ける(makeEye)
   const faceColor = sp.face ?? (sp.fur ? color : SKIN);
-  const rimMat = lightness(faceColor) < 0.30 ? mat(0xf4f1ee) : null;
+  // 白い顔(ペンギン)を付けるなら縁は要らない ── 明るい面の上に
+  // さらに明るい縁を敷いても見えないし、白の中に白い輪ができる。
+  const rimMat = !parts.mask && lightness(faceColor) < 0.30 ? mat(0xf4f1ee) : null;
 
   // 腰。ここを動かすと全身が付いてくる
   const hips = new THREE.Group();
@@ -792,7 +885,9 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   head.add(mouth.smile, mouth.open);
 
   const arms = [-1, 1].map((sx) => {
-    const limb = makeLimb(skin, p.upperArm, p.foreArm, p.armR, makeHand(paw, p.handR));
+    const limb = parts.flipper
+      ? makeFlipper(skin, p.upperArm, p.foreArm, p.armR)
+      : makeLimb(skin, p.upperArm, p.foreArm, p.armR, makeHand(paw, p.handR));
     limb.root.position.set(sx * p.shoulder.x, p.shoulder.y, 0);
     chest.add(limb.root);
     return limb;
@@ -812,7 +907,10 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   arms[0].knee.add(bow.group);
 
   const legs = [-1, 1].map((sx) => {
-    const limb = makeLimb(cloth, p.thigh, p.shin, p.legR, makeShoe(sock ?? shoe, p.shoe), sock);
+    const foot = parts.webbed
+      ? makeWebFoot(mat(BEAK), p.shoe)
+      : makeShoe(sock ?? shoe, p.shoe);
+    const limb = makeLimb(cloth, p.thigh, p.shin, p.legR, foot, sock);
     limb.root.position.set(sx * p.hipX, 0, 0);
     hips.add(limb.root);
     return limb;
@@ -825,6 +923,7 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   if (parts.muzzle) head.add(makeMuzzle(skin, accent, mat(EYE), p));
   if (parts.ruff) head.add(makeRuff(accent, p));
   if (parts.whiskers) head.add(makeWhiskers(mat(tone(color, 0.55)), p));
+  if (parts.mask) head.add(makeMask(accent, p));
   if (parts.beak) head.add(makeBeak(mat(BEAK), p));
   if (parts.horns) head.add(makeHorns(accent, p));
   if (parts.fluff) head.add(makeFluff(skin, p));
@@ -832,7 +931,9 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   if (parts.wings) chest.add(makeWings(skin, accent, p));
   // 腰(体のひねりに付いてくる)
   if (parts.wool) hips.add(makeWool(skin, p));
-  if (parts.tail) hips.add(makeTail(skin, accent, paw, parts.tail, p));
+  if (parts.tail) {
+    hips.add(makeTail(skin, accent, paw, parts.tail, p, parts.wool ? p.bodyR * 1.16 : undefined));
+  }
   if (parts.spikes) hips.add(makeSpikes(accent, p));
   // お腹。ペンギン・かえるは指定の色、それ以外の動物は体の色をずらしたもの。
   // 全員に付けるのは、胴が一色の面だと縫いぐるみに見えないから ──
