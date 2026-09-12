@@ -12,6 +12,12 @@
 
 // 寸法は body.js の CUTE を基準に、必要なところだけ上書きする。
 // 脚の長さを変えるときは hipY も同じだけ動かすこと(靴が宙に浮く)。
+//
+// **CUTE の値を動かしたら、ここの上書きも同じ率で動かすこと。**
+// 上書きは「基準からどれだけずらすか」のつもりで書いてあるのに、実際には
+// 絶対値なので、基準だけ大きくすると上書きしたすがただけ取り残される。
+// 実際、頭を 0.105 → 0.112 にしたときに、頭を上書きしている
+// ひつじ・かえる・ドラゴン・きつねだけ頭が 9% 小さいままになった。
 
 export const SPECIES = [
   {
@@ -40,7 +46,7 @@ export const SPECIES = [
     fur: true,
     accent: 0xf3dcc0,
     // ずんぐり。胴を太く、脚を短く(hipY も一緒に下げる)
-    props: { bodyR: 0.084, hipY: 0.104, thigh: 0.032, shin: 0.030, armR: 0.034 },
+    props: { bodyR: 0.089, hipY: 0.104, thigh: 0.032, shin: 0.030, armR: 0.034 },
     parts: { ears: 'round', snout: true, tail: 'bob' },
   },
   {
@@ -51,7 +57,7 @@ export const SPECIES = [
     fur: true,
     accent: 0x2f2f3a,
     face: 0x3a3a44,            // 顔だけ暗くする(もこもこはその人の色)
-    props: { headR: 0.098, hipY: 0.106, thigh: 0.032, shin: 0.032 },
+    props: { headR: 0.105, hipY: 0.106, thigh: 0.032, shin: 0.032 },
     parts: { fluff: true, ears: 'droop', tail: 'bob' },
     top: 0.03,                 // もこもこのぶん背が高くなる
   },
@@ -65,8 +71,8 @@ export const SPECIES = [
     // 腕はヒレなので短く太く。脚も短い
     props: {
       hipY: 0.100, thigh: 0.030, shin: 0.028,
-      upperArm: 0.034, foreArm: 0.028, armR: 0.034, handR: 0.030,
-      bodyR: 0.078,
+      upperArm: 0.034, foreArm: 0.028, armR: 0.034, handR: 0.033,
+      bodyR: 0.082,
     },
     parts: { beak: true, belly: true },
   },
@@ -77,7 +83,7 @@ export const SPECIES = [
     icon: '🐸',
     fur: true,
     accent: 0xe9f5c8,          // お腹
-    props: { headR: 0.100, hipX: 0.058, legR: 0.038 },
+    props: { headR: 0.107, hipX: 0.058, legR: 0.038 },
     parts: { eyesOnTop: true, belly: true },
   },
   {
@@ -88,7 +94,7 @@ export const SPECIES = [
     fur: true,
     accent: 0xffe08a,          // 角・背びれ・翼の膜
     // 少しだけ大きく構える(小さいと「かっこいい」から遠ざかる)
-    props: { bodyR: 0.078, headR: 0.102 },
+    props: { bodyR: 0.082, headR: 0.109 },
     parts: { horns: true, wings: true, tail: 'dragon', spikes: true, snout: true },
     top: 0.06,                 // 反った角のぶん
   },
@@ -99,7 +105,7 @@ export const SPECIES = [
     icon: '🦊',
     fur: true,
     accent: 0xfff4e2,          // 耳の内側・しっぽの先
-    props: { headR: 0.100 },
+    props: { headR: 0.107 },
     parts: { ears: 'fox', tail: 'fox', snout: true },
     top: 0.02,
   },
