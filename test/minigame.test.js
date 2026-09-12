@@ -19,6 +19,7 @@ import {
 } from '../src/minigame/ground.js';
 import {
   walkPose, airPose, tumblePose, sinkPose, fishPose, aimPose, sitPose, emotePose,
+  sitPlayPose, sitPassPose, sitWinPose,
   blendPose, poseFade, poseKeys, SINK_RIGHT,
 } from '../src/minigame/pose.js';
 import { EMOTES, EMOTE_MAX, emoteById, emotesOk } from '../src/minigame/emote.js';
@@ -580,6 +581,12 @@ test('walk: どの姿勢も同じ項目を全部返す(前の姿勢が残らな�
     'エモート(知らない番号)': emotePose('???', 1, 0.3, 0.5),
     '弓を構える': aimPose(1.2, 0.3, 0.6),
     '円卓に座る': sitPose(1.2, 0.3),
+    '円卓に座る(札を持つ)': sitPose(1.2, 0.3, 1),
+    // 円卓のしぐさ。出入りで座り姿へ戻るので、両端と途中を見る
+    ...Object.fromEntries([
+      ['出す', sitPlayPose], ['パス', sitPassPose], ['上がり', sitWinPose],
+    ].flatMap(([name, fn]) => [0, 0.4, 1].map((k) =>
+      [`円卓(${name} ${k})`, fn(1.2, 0.3, k)]))),
   };
   const base = poseKeys(poses['歩き']);
   assert.ok(base.length > 20, `項目が少なすぎる(${base.length})`);

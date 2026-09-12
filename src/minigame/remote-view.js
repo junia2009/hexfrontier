@@ -11,12 +11,14 @@ import { makeWalker, walkerHeight } from './body.js';
 import { applyPose } from './walker.js';
 import {
   walkPose, airPose, tumblePose, fishPose, sitPose, emotePose,
-  restBlend, phasePerUnit,
+  sitPlayPose, sitPassPose, sitWinPose, restBlend, phasePerUnit,
 } from './pose.js';
+import { ACT_MS } from './table-cue.js';
 import { WALK_SPEED, RUN_GAIT } from './motion.js';
 import { ST } from './remote-st.js';
 import { emoteById } from './emote.js';
 import { speciesById, DEFAULT_SPECIES } from './species.js';
+import { makeHandFan, FAN_AT } from './hand-fan.js';
 
 // 席ごとの色。対戦の4色に、散策部屋のぶんを足して8色。
 // 隣り合う席が似た色にならないように並べてある。
@@ -99,6 +101,27 @@ function makeBubble(icon, y) {
   return sprite;
 }
 
+// 手番の矢印。円卓で「いまこの人の番」を頭の上に出す。
+//
+// 卓の縁の光(table.js)だけだと、卓を見ていない向きのときに分からない。
+// 人の上に付いていれば、その人が画面に入った瞬間に手番だと分かる。
+// 大きさは**棒人間の背丈から決める**。決め打ちで置いたら、背丈 0.47 の体に
+// 高さ 0.075 の三角(体の 1/6)が付いて、画面の上まではみ出した。
+const MARK_H = 0.075;
+function makeTurnMark() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffd97d, depthTest: false });
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(MARK_H * 0.5, MARK_H, 5), mat);
+  cone.rotation.x = Math.PI;      // 先を下へ(その人を指す)
+  cone.renderOrder = 12;
+  g.add(cone);
+  g.renderOrder = 12;
+  return g;
+}
+// 名札の上ぶちからどれだけ浮かべるか(名札と同じ倍率で縮む)。
+// 頭と名札のあいだに挟むと、名札の下地に隠れてほとんど見えなかった。
+const MARK_UP = 0.75;
+
 // 名札の大きさを場面で変える倍率。
 // 名札は「遠くにいる相手が誰か分かる」ための大きさ(NAME_H)で作ってあり、
 // 棒人間の背丈とほぼ同じ。円卓に着くと相手は目と鼻の先なので、そのままだと
@@ -112,6 +135,62 @@ export class RemoteView {
     this.groundAt = groundAt;
     this.people = new Map();   // seat -> { parts, tag, name, sp, phase, spin, t, y }
     this.nameScale = 1;
+    this.turnSeat = null;      // 円卓でいま手番の席(自分なら null のまま)
+    this.hands = null;         // 席 → 手札の枚数(円卓に着いている間だけ)
+  }
+
+  // 円卓のしぐさを1つ始める(出す/パス/上がり)。
+  // 知らない kind は落とす ── 場の演出(革命など)は体を動かさない。
+  startAct(seat, kind) {
+    const ms = ACT_MS[kind];
+    if (!ms) return;
+    const e = this.people.get(seat);
+    if (!e) return;
+    e.act = kind;
+    e.actT = 0;
+    e.actMs = ms;
+  }
+
+  // 円卓の手札枚数。**枚数だけ**で中身は受け取らない(隠し情報)。
+  // null を渡すと扇を片付ける(卓が終わったとき)。
+  setHandCounts(counts) {
+    this.hands = counts ?? null;
+  }
+
+  // 扇を出す/しまう。要るときだけ作る ── 島を歩いているだけの人に
+  // 10 枚ぶんの板を持たせても、1枚も見えない。
+  _handFan(e, n) {
+    if (n > 0 && !e.fan) {
+      e.fan = makeHandFan();
+      e.fan.group.position.set(0, FAN_AT.y, FAN_AT.z);
+      e.fan.group.rotation.x = FAN_AT.tilt;
+      e.parts.chest.add(e.fan.group);
+    }
+    if (!e.fan) return;
+    e.fan.setCount(n);
+  }
+
+  // 円卓の手番。頭の上に矢印を出す席を1つだけ選ぶ。
+  setTurnSeat(seat) {
+    this.turnSeat = seat ?? null;
+  }
+
+  // 矢印を出す/しまう。上下にゆっくり弾ませる
+  _turnMark(e, on, t) {
+    if (on && !e.mark) {
+      e.mark = makeTurnMark();
+      e.parts.group.add(e.mark);
+    }
+    if (!e.mark) return;
+    e.mark.visible = on;
+    if (!on) return;
+    // 名札と同じ倍率で縮める。卓に着くと相手は目の前なので、
+    // そのままだと矢印だけが顔より大きくなる
+    const k = this.nameScale;
+    e.mark.scale.setScalar(k);
+    // 名札の上ぶち(_sizeTag と同じ式)のさらに上へ
+    const top = nameY(e.sp) - (1 - k) * NAME_H * 0.5 + NAME_H * k * 0.5;
+    e.mark.position.y = top + MARK_H * k * MARK_UP + Math.sin(t * 4.2) * 0.014;
   }
 
   // 名札の大きさを変える。円卓に着いている間だけ小さくする(上の説明)。
@@ -140,6 +219,9 @@ export class RemoteView {
       rest: restBlend(),   // 止まったら足をそろえる(自分の体と同じ)
 
       emote: 0, emoteT: 0, bubble: null,
+      mark: null,   // 円卓の手番の矢印(要るときだけ作る)
+      fan: null,    // 円卓の手札の扇(同じく)
+      act: null, actT: 0, actMs: 0,   // 円卓のしぐさ
     };
     this._sizeTag(e);
     this.people.set(seat, e);
@@ -189,6 +271,11 @@ export class RemoteView {
       // 送り手が終わりを伝える前に自分の時計で終わってしまったら、立ち姿へ戻す
       const emoteK = emote ? e.emoteT / (emote.ms / 1000) : 1;
       if (e.bubble) e.bubble.visible = emoteK < 1;
+      // 手番の矢印は座っている人にだけ。歩いている人の頭に出ても意味が無い
+      this._turnMark(e, p.st === ST.sit && p.seat === this.turnSeat, e.t);
+      // 手札の扇も座っている人にだけ
+      const cards = p.st === ST.sit ? (this.hands?.[p.seat] ?? 0) : 0;
+      this._handFan(e, cards);
 
       e.parts.rod.group.visible = p.st === ST.fish;
       let pose;
@@ -197,7 +284,17 @@ export class RemoteView {
       } else if (p.st === ST.sit) {
         // 円卓に着いている人。座り姿を出さないと、卓を囲んでいるはずの
         // 全員が立ったまま札を出しているように見える。
-        pose = sitPose(e.t, p.facing);
+        // しぐさの最中はそちらを出す。終わったら座り姿へ戻る
+        if (e.act) {
+          e.actT += dt;
+          if (e.actT >= e.actMs) e.act = null;
+        }
+        const ak = e.act ? e.actT / e.actMs : 0;
+        if (e.act === 'play') pose = sitPlayPose(e.t, p.facing, ak);
+        else if (e.act === 'pass') pose = sitPassPose(e.t, p.facing, ak);
+        else if (e.act === 'win') pose = sitWinPose(e.t, p.facing, ak);
+        // 札を持っていれば、その形に寄せる
+        else pose = sitPose(e.t, p.facing, cards > 0 ? 1 : 0);
       } else if (p.st === ST.fish) {
         pose = fishPose(e.t, p.facing, { phase: 'wait' });
       } else if (p.st === ST.fall) {

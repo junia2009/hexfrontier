@@ -530,20 +530,109 @@ export function aimPose(t, facing, draw = 0) {
 //
 // 手は卓の上へ。何もしていないと「立ち止まっているだけ」に見えるので、
 // ゆっくりした呼吸と、たまの傾ぎだけ入れてある。
-export function sitPose(t, facing) {
+//
+// hold を渡すと**札を持った形**になる(0〜1 で寄せる)。扇は胸に付いて
+// いる(hand-fan.js)ので、姿勢のほうは「その扇を両手で支える」形に寄せる。
+// 腕だけで扇の位置を決めようとすると、すがたごとに腕の長さが違うぶん
+// 手と札がずれる ── 扇を胸に固定して、手をそこへ持っていくほうが揃う。
+export function sitPose(t, facing, hold = 0) {
   const breathe = Math.sin(t * 1.5) * 0.025;
   const lean = Math.sin(t * 0.37) * 0.05;   // ときどき体を傾ける
+  const h = Math.max(0, Math.min(1, hold));
+  const mix = (a, b) => a + (b - a) * h;
   return {
     group: JOINT(0, facing, 0),
     lift: LIFT(0),
     mouth: MOUTH(0),
     hips: JOINT(0, 0, 0),
-    chest: JOINT(0.10 + breathe, lean, 0),
-    head: JOINT(-0.10 - breathe, -lean * 0.6, 0),
+    // 札を見るぶん、少し前かがみになる
+    chest: JOINT(mix(0.10, 0.20) + breathe, lean, 0),
+    head: JOINT(mix(-0.10, -0.02) - breathe, -lean * 0.6, 0),
     // 太ももを前へ倒し、ひざから下を落とす(腰かけの高さに合う)
     legs: [0, 1].map((i) => LIMB(-1.42, (i === 0 ? 1 : -1) * 0.12, 1.30)),
-    // 腕は卓の上に軽く置く。ひじを曲げて手を前へ
-    arms: [0, 1].map((i) => LIMB(-0.95 + breathe, (i === 0 ? -1 : 1) * 0.30, 0.80)),
+    // 腕は卓の上に軽く置く。ひじを曲げて手を前へ。
+    //
+    // 札を持つときは**腕をほぼ伸ばして、内側・前へ**。
+    // 最初は「ひじを締めて手を上げる」つもりで肩を 87° 前へ倒したが、
+    // 手の位置を測ったら胸から z=0.046 までしか出ていなかった ── ひじの
+    // 曲げ(+1.42)が肩の前倒し(−1.52)をちょうど打ち消して、前腕が
+    // 真下を向いていた。腕の長さは 0.078 しかないので、前へ出したいなら
+    // 伸ばすしかない。
+    // 横向きの符号も逆だった。Z 回りの正の回転は −Y を +X へ倒すので、
+    // **左腕(i=0)に正**を与えると内側に寄る(前は外へ開いていた)。
+    arms: [0, 1].map((i) => LIMB(
+      mix(-0.95, -0.75) + breathe,
+      (i === 0 ? -1 : 1) * mix(0.30, -0.445),
+      mix(0.80, 0.22),
+    )),
+  };
+}
+
+// ---- 円卓のしぐさ ----
+//
+// 座り姿(sitPose)に**上書きで混ぜる**。別の姿勢として作らないのは、
+// 呼吸も脚の形も座り姿のままでいてほしいから ── しぐさの間だけ足が
+// 伸びたり呼吸が止まったりすると、同じ人に見えなくなる。
+//
+// k は 0→1 で進む。どれも「出て、戻る」山形にするので、
+// 終わりに座り姿へそのまま戻る(つなぎの処理が要らない)。
+const hump = (k) => Math.sin(Math.max(0, Math.min(1, k)) * Math.PI);
+
+// 札を出す。体を前に送り出して、両手を卓の上へ伸ばす。
+export function sitPlayPose(t, facing, k) {
+  const p = sitPose(t, facing, 1);
+  const h = hump(k);
+  return {
+    ...p,
+    chest: JOINT(p.chest.x + h * 0.30, p.chest.y, p.chest.z),
+    // **首は逆に起こす。** 体と同じだけ頭も倒すと、うつむいて顔が
+    // 見えなくなる ── 卓に身を乗り出しても、目は場を見ている。
+    head: JOINT(p.head.x - h * 0.14, p.head.y, p.head.z),
+    // 腕を前へ伸ばす(ひじも開く)
+    arms: p.arms.map((a, i) => LIMB(
+      a.rootX - h * 0.75,
+      a.rootZ + (i === 0 ? -1 : 1) * h * 0.18,
+      a.knee - h * 0.20,
+    )),
+  };
+}
+
+// パス。体を引いて、両手を横へ開く(「無いよ」の形)。
+export function sitPassPose(t, facing, k) {
+  const p = sitPose(t, facing, 1);
+  const h = hump(k);
+  return {
+    ...p,
+    chest: JOINT(p.chest.x - h * 0.16, p.chest.y, p.chest.z),
+    head: JOINT(p.head.x - h * 0.10, p.head.y, p.head.z + h * 0.16),
+    arms: p.arms.map((a, i) => LIMB(
+      a.rootX + h * 0.28,
+      a.rootZ + (i === 0 ? -1 : 1) * h * 0.65,   // 外へ開く
+      a.knee - h * 0.35,
+    )),
+  };
+}
+
+// 上がり。両手を挙げて万歳する。
+// **手札が無いので扇も無い。** 腕は真上まで(-π 近く)振り上げないと
+// 「前へならえ」にしか見えない(airPose と同じ理由)。
+export function sitWinPose(t, facing, k) {
+  const p = sitPose(t, facing, 0);
+  const kk = Math.max(0, Math.min(1, k));
+  // はじめに勢いよく挙げて、あとはゆっくり下ろす
+  const up = kk < 0.25 ? ease01(kk / 0.25) : 1 - ease01((kk - 0.25) / 0.75) * 0.35;
+  const bounce = Math.sin(kk * Math.PI * 4) * 0.06 * (1 - kk);
+  return {
+    ...p,
+    lift: LIFT(bounce * 0.35),
+    mouth: MOUTH(1),
+    chest: JOINT(p.chest.x - up * 0.22, p.chest.y, p.chest.z),
+    head: JOINT(p.head.x - up * 0.30, p.head.y, p.head.z),
+    arms: [0, 1].map((i) => LIMB(
+      -0.95 - up * 2.0,
+      (i === 0 ? -1 : 1) * (0.30 + up * 0.30),
+      0.80 - up * 0.65,
+    )),
   };
 }
 

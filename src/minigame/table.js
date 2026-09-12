@@ -17,6 +17,7 @@ import { WALK_SCALE, HIP_Y } from './scale.js';
 import { TABLE_RADIUS, SEAT_R, tableSeats } from './ground.js';
 import { makeSignFace } from './desk.js';
 import { RANKS, SUITS, isJoker, rankOf, suitOf } from './daifugo.js';
+import { arcSegments } from './table-cue.js';
 
 // 素の寸法(縮尺を掛ける前)
 const R = TABLE_RADIUS / WALK_SCALE;      // 天板の半径
@@ -28,6 +29,24 @@ const STOOL_R = 0.055;
 const CARD_W = 0.13;
 const CARD_H = 0.18;
 const CARD_GAP = 0.095;
+
+// 手番の印。**天板の縁を光らせる**。
+//
+// 足元に輪を置くのも試したが、座った目の高さでは向かいの人の体と脚が
+// ちょうど重なって、肝心の輪が隠れる。天板なら必ず視界にあるし、
+// 「その方角の人の番」が席に着いたまま一目で分かる。
+const TURN_Y = TOP_Y + 0.0215;        // 布のすぐ上。場の札(+0.022)より下
+const TURN_ARC = 0.62;                // 光る幅(ラジアン)
+// 残り時間。内側に細い輪をもう1本。**幅ではなく長さで減らす** ──
+// 手番の印そのものを細めていくと、残り少ないときにいちばん見えなくなる。
+const CLOCK_SEGS = 24;
+// 残りがこれを切ってから出す(45 秒のうち、のこり 20 秒あたりから)
+const CLOCK_FROM = 0.45;
+
+// RingGeometry は XY 平面で、θ=0 が +X。寝かせる(X 回り −90°)と
+// θ=0 が +X のまま、θ=+90° が −Z になる。席の方角 a は (sin a, cos a) なので
+// θ = a − π/2 が同じ向き。
+const thetaFor = (a) => a - Math.PI / 2;
 
 // 札の絵を canvas に描いて板に貼る(フォントも画像も積まずに済む。
 // desk.js の看板と同じやり方)。同じ札は作り直さないので溜めておく。
@@ -133,6 +152,74 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
   flag.rotation.z = -Math.PI / 2;
   flag.position.set(0.04, SIGN_Y + 0.23, 0);
 
+  // ---- 手番の印(天板の縁) ----
+  //
+  // **見る人の向きでは回さない。** 場の札(fieldGroup)は読む向きを
+  // 合わせるために回しているが、手番の印は「卓のどの方角の人か」を
+  // 指すものなので、卓の向きに固定する。
+  // **足し算で重ねる(AdditiveBlending)。** ふつうに塗ると、座った目の高さ
+  // からは天板を斜めに見ることになって、緑の上の淡い黄色が「色あせた板」に
+  // しか見えなかった。足し算なら下地が何色でも明るくなるので、光に見える。
+  const turnMat = new THREE.MeshBasicMaterial({
+    color: 0xffc14d, transparent: true, opacity: 0.9, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const turnArc = new THREE.Mesh(
+    new THREE.RingGeometry(R * 0.60, R * 0.86, 18, 1, 0, TURN_ARC), turnMat,
+  );
+  turnArc.rotation.x = -Math.PI / 2;
+  turnArc.position.y = TURN_Y;
+  turnArc.renderOrder = 3;
+  turnArc.visible = false;
+  g.add(turnArc);
+
+  // 残り時間。卓をぐるりと囲む細い輪が、減るほど短くなる。
+  //
+  // **残りが少なくなるまで出さない。** 45 秒まるまる光らせると、卓の上に
+  // ずっと明るい輪があるだけで、肝心の手番の印がその明るさに負ける。
+  // 急かす印なのだから、急ぐべきときにだけ出て、近づくほど濃くなればよい。
+  //
+  // **布の内側に置く。** 縁の外(木の部分)に置いたら、座った目からは
+  // 天板の縁に隠れて向こう側がまったく見えなかった。
+  const clockMat = new THREE.MeshBasicMaterial({
+    color: 0xff9a3c, transparent: true, opacity: 0.85, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const clockArc = new THREE.Mesh(new THREE.RingGeometry(R * 0.80, R * 0.86, 40, 1), clockMat);
+  clockArc.rotation.x = -Math.PI / 2;
+  clockArc.position.y = TURN_Y;
+  clockArc.renderOrder = 3;
+  clockArc.visible = false;
+  g.add(clockArc);
+  let clockSeen = -1;   // いま何本ぶんの形を作ってあるか
+
+  // 場に札が出たときの「着地」。0 で出たて、1 で落ち着いた形。
+  // **どの席から出たかは向きに出さない。** 場の入れ物は見る人の向きへ
+  // 回してあるので、出した人の方角から飛ばすには回転を打ち消す計算がいる。
+  // 上から落として弾ませるだけで「いま出た」は十分に伝わる。
+  let land = 1;
+  const LAND_S = 0.22;
+
+  // 場が流れるときの掃き出し。**すぐ消さない** ── 札がふっと消えるだけだと
+  // 「流れた」のか「見間違い」なのか分からない。持ち上げながら小さくして、
+  // 消えるところを見せる。
+  let sweep = -1;               // -1 は掃き出していない
+  const SWEEP_S = 0.30;
+
+  // 役が出たときの閃光。布の上に重ねた円盤が、広がりながら消える。
+  const flashMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, transparent: true, opacity: 0, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const flash = new THREE.Mesh(new THREE.CircleGeometry(R * 0.9, 28), flashMat);
+  flash.rotation.x = -Math.PI / 2;
+  flash.position.y = TURN_Y + 0.001;
+  flash.renderOrder = 4;
+  flash.visible = false;
+  g.add(flash);
+  let flashT = -1;
+  const FLASH_S = 0.55;
+
   // 場に出ている札を置くところ。
   //   外(fieldGroup) … 読む向きを合わせるために Y で回す
   //   内(fieldFlat)  … 板を寝かせて、札の上を +Z へ向ける
@@ -147,6 +234,12 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
   fieldFlat.position.z = -R * 0.25;
   fieldGroup.add(fieldFlat);
   const cardGeo = new THREE.PlaneGeometry(CARD_W, CARD_H);
+  const clearField = () => {
+    for (const gone of [...fieldFlat.children]) {
+      fieldFlat.remove(gone);
+      gone.material?.dispose?.();
+    }
+  };
 
   // 柱・看板・旗はひとまとまりにする。一人称で座ると目の前に立つので、
   // 座っている間だけ隠せるようにしておく(遠くからの目印としては要る)。
@@ -161,17 +254,81 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
     // 一人称の目の高さでは、卓のまん中から伸びる柱がまともに視界を塞ぐ。
     // 相手の画面では出たままなので、世界から消えるわけではない。
     setSignVisible(on) { signPost.visible = !!on; },
+    // 手番の印。angle は席の方角(ground.js の tableSeats の angle)、
+    // remain01 は考える時間の残り(1 → 0)。angle が null なら消す。
+    //
+    // **形を作り直すのは変わったときだけ。** 残り時間は毎フレーム動くので、
+    // 素直に作り直すと1秒に 60 回 RingGeometry を捨てることになる。
+    // 見た目の刻みは 24 段しかないので、その段が変わったときだけでよい。
+    setTurn(angle, remain01 = 0, t = 0) {
+      const on = angle != null;
+      turnArc.visible = on;
+      clockArc.visible = on && remain01 > 0 && remain01 < CLOCK_FROM;
+      if (!on) return;
+      // 弧は θ∈[0, TURN_ARC] で作ってあるので、真ん中が席の方角に来るよう回す。
+      // rotation.z は(既定の XYZ 順では)寝かせる前に自分の面の中で回るので、
+      // そのまま「弧をどこから始めるか」になる。
+      turnArc.rotation.z = thetaFor(angle) - TURN_ARC / 2;
+      // ゆっくり息をする。止まった光より「いま動いている卓」に見える
+      turnMat.opacity = 0.55 + Math.sin(t * 3.2) * 0.25;
+      if (!clockArc.visible) return;
+      // 残りが減るほど濃く。出はじめは薄くて、最後ははっきり
+      clockMat.opacity = 0.25 + (1 - remain01 / CLOCK_FROM) * 0.65;
+      const seg = arcSegments(remain01, CLOCK_SEGS);
+      if (seg === clockSeen) return;
+      clockSeen = seg;
+      clockArc.geometry.dispose();
+      clockArc.geometry = new THREE.RingGeometry(
+        R * 0.80, R * 0.86, Math.max(2, seg * 2), 1,
+        Math.PI / 2, (seg / CLOCK_SEGS) * Math.PI * 2,
+      );
+    },
     // 場の札を並べ直す。cards は daifugo.js の番号(空なら片付ける)。
     // seatAngle は見る人の席の角度 ── **札の上をその人と反対側へ向ける**ので、
     // どこに座っていても自分から見て正しい向きで読める。
+    // 毎フレーム呼ぶ。着地・掃き出し・閃光を進める
+    update(dt) {
+      if (flashT >= 0) {
+        flashT += dt;
+        const k = Math.min(1, flashT / FLASH_S);
+        flash.visible = k < 1;
+        flashMat.opacity = (1 - k) * 0.55;
+        flash.scale.setScalar(0.35 + k * 0.85);
+        if (k >= 1) flashT = -1;
+      }
+      if (sweep >= 0) {
+        sweep += dt;
+        const k = Math.min(1, sweep / SWEEP_S);
+        fieldGroup.position.y = TOP_Y + 0.022 + k * 0.10;
+        fieldGroup.scale.setScalar(1 - k * 0.9);
+        if (k >= 1) { sweep = -1; clearField(); }
+        return;
+      }
+      if (land >= 1) return;
+      land = Math.min(1, land + dt / LAND_S);
+      const k = land * land * (3 - 2 * land);   // 両端でなめらかに
+      fieldGroup.position.y = TOP_Y + 0.022 + (1 - k) * 0.06;
+      fieldGroup.scale.setScalar(1 + (1 - k) * 0.22);
+    },
+    // 役が出た合図。色だけ変えて、同じ閃光を使い回す
+    flash(color = 0xffffff) {
+      flashMat.color.setHex(color);
+      flashT = 0;
+      flash.visible = true;
+    },
     setField(cards = [], seatAngle = Math.PI) {
       fieldGroup.rotation.y = seatAngle + Math.PI;
-      for (const gone of [...fieldFlat.children]) {
-        fieldFlat.remove(gone);
-        gone.material?.dispose?.();
-      }
       const n = cards.length;
-      if (!n) return;
+      // 場が空になった。**いま札が出ているときだけ**掃き出しを始める ──
+      // もともと空なら何も起きていないので、毎フレーム動き出してしまう。
+      if (!n) {
+        if (fieldFlat.children.length && sweep < 0) sweep = 0;
+        return;
+      }
+      sweep = -1;
+      land = 0;
+      fieldGroup.scale.setScalar(1);
+      clearField();
       // 天板からはみ出さないように、枚数が増えたら重ねて詰める
       const gap = Math.min(CARD_GAP, (R * 1.5) / n);
       cards.forEach((c, i) => {
