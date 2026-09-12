@@ -61,6 +61,7 @@ import { pickEdge, pickHex, pickVertex } from './input.js';
 import {
   NetClient, createRoom, clientId, savedName, saveName, serverBase,
 } from './net/client.js';
+import { installCrashHandler } from './crash.js';
 
 // 自分の席番号。ローカル戦は常に 0、オンライン対戦ではサーバーが割り当てた席になる。
 let HUMAN = 0;
@@ -77,6 +78,14 @@ let cpuTimer = null;
 let viewMode = '3d'; // '2d' | '3d'
 let renderer3d = null;
 let renderer3dFailed = false;
+
+// 大域のエラー捕捉。**このファイルの起動処理(末尾)より前**に差す ──
+// 初期化のどこかで落ちると以降が一切動かないので、末尾で差しても何も出せない。
+// (import したモジュール自身の評価で落ちる場合はここまで来ないので拾えない。
+//  それは真っ白になるので、読み込み失敗として error イベントで見える。)
+// シードとモードを添えるのは、その2つがあれば同じ島を手元で作り直せるから。
+// 値ではなく関数で渡すのは、落ちた時点の state を読みたいため。
+installCrashHandler(() => ({ seed: state?.seed ?? null, mode: state?.mode ?? '' }));
 
 // 端末が古い版を掴んだまま(特にPWA)にならないよう、配信中の版と照合する。
 // タイトル画面でしか出さないので、対戦中に邪魔をすることはない。

@@ -117,29 +117,45 @@ function chi2Of(observed, expected) {
   report('隣接シード間の独立性(非重複・6×6)', chi2Of(cells, cells.map(() => pairs / 36)), 35);
 }
 
-// ---- 6. 実ゲーム内の出目分布(セルフプレイ60ゲームのログ)----
+// ---- 6. 実ゲーム内の出目分布(セルフプレイ60ゲーム)----
+//
+// **記録(state.log)から数えてはいけない。** addLog が直近200件で打ち切るので、
+// 記録に残るのは「終盤のロールだけ」になる。cak 60ゲームで実測すると
+// 全5,554ロールのうち記録に残るのは966件(83%が消える)で、
+// その尻尾だけを検定すると χ²=28.51(臨界値23.21を超えて ❌)になる。
+// 同じゲームを通し集計 state.diceCounts で数えると χ²=10.20 で問題なし ──
+// **赤かったのは出目ではなく測りかただった。**
+//
+// diceCounts は錬金術師で「指定した」出目も足している(実際に出た目として
+// 扱う仕様)。それは乱数ではないので、指定した分はここで引いてから検定する。
 {
-  const counts = Array(13).fill(0);
-  let rolls = 0;
-  for (let seed = 3000; seed < 3060; seed++) {
-    let state = createGame({ seed, playerCount: 4, humanIndex: -1, mode: 'cak' });
-    let n = 0;
-    while (state.phase !== 'ended' && ++n < 15000) {
-      const pid = state.awaiting ? state.awaiting.players[0] : state.currentPlayer;
-      state = dispatch(state, chooseAction(state, pid));
-    }
-    for (const l of state.log) {
-      const m = l.match(/のロール: (\d) \+ (\d) =/);
-      if (m) {
-        counts[Number(m[1]) + Number(m[2])]++;
-        rolls++;
-      }
-    }
-  }
   const prob = [0, 0, 1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1].map((w) => w / 36);
-  report(`実ゲーム内の合計分布(60ゲーム・${rolls}ロール)`,
-    chi2Of(counts.slice(2), prob.slice(2).map((p) => p * rolls)), 10,
-    `7の率=${(counts[7] / rolls).toFixed(4)}`);
+  for (const mode of ['cak', 'base']) {
+    const counts = Array(13).fill(0); // diceCounts の合計(指定ぶんを含む)
+    const picked = Array(13).fill(0); // 錬金術師で指定したぶん
+    let nPicked = 0;
+    for (let seed = 3000; seed < 3060; seed++) {
+      let state = createGame({ seed, playerCount: 4, humanIndex: -1, mode });
+      let n = 0;
+      while (state.phase !== 'ended' && ++n < 15000) {
+        const pid = state.awaiting ? state.awaiting.players[0] : state.currentPlayer;
+        const act = chooseAction(state, pid);
+        // ROLL_DICE は turnFlags.alchemist を消費するので、振る前に見る
+        const pick = act?.type === 'ROLL_DICE' ? state.turnFlags?.alchemist : null;
+        state = dispatch(state, act);
+        if (pick) {
+          picked[pick[0] + pick[1]]++;
+          nPicked++;
+        }
+      }
+      for (let i = 2; i <= 12; i++) counts[i] += state.diceCounts[i];
+    }
+    const rolled = counts.map((c, i) => c - picked[i]);
+    const rolls = rolled.slice(2).reduce((a, b) => a + b, 0);
+    report(`実ゲーム内の合計分布(${mode}・60ゲーム・${rolls}ロール)`,
+      chi2Of(rolled.slice(2), prob.slice(2).map((p) => p * rolls)), 10,
+      `7の率=${(rolled[7] / rolls).toFixed(4)}${nPicked ? `(錬金術師の指定${nPicked}件を除外)` : ''}`);
+  }
 }
 
 console.log(failures === 0 ? '\n監査結果: 全テスト合格 🎲' : `\n監査結果: ${failures}件の異常`);

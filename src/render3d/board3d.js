@@ -19,6 +19,8 @@ import {
 } from '../terrain.js';
 // 構図を取り直すかどうかの判断は、描画から切り離して試せるようにしてある
 import { isPortrait, needsRefit } from '../view-fit.js';
+// 描画ループで例外が出たときの共通の出口
+import { reportCrash } from '../crash.js';
 // 影の箱の置き方(大きさと、升目への吸着)も同じく切り離してある
 import {
   snapFocus, SUN_DIST, SHADOW_BOX_BOARD, SHADOW_BOX_WALK,
@@ -1847,30 +1849,48 @@ export class Board3D {
     this.resizeObserver.observe(container);
     this.onResize();
 
+    // 次フレームの予約は必ず finally で行う。requestAnimationFrame が
+    // 本体の末尾にあると、**例外1回で画面が永久に止まる**(rAF に辿り着けず、
+    // 誰も次のフレームを頼まない)。黙って continue もしない ──
+    // reportCrash が同じ文面につき1回だけ、シードと版を添えて表に出す。
     const loop = (t) => {
       if (this.disposed) return;
-      // カメラを誰が持つか。onFrame(ミニゲーム)がいる間は向こうが持つ。
-      // controls.enabled = false は「入力を受けない」だけで、update() は
-      // damping でカメラを動かし続ける ── そのまま呼ぶと、ミニゲーム側の
-      // カメラ操作と毎フレーム取り合って画面がガタつく。
-      if (!this.onFrame) this.controls.update();
-      // 選べる場所は屋外のスマホでも見える濃さで点滅させる(下限を上げる)
-      const a = 0.62 + 0.18 * Math.sin(t / 260);
-      for (const m of this.pulseMats) m.opacity = a;
-      this._tickDice(t);
-      if (this.seaUniforms) this.seaUniforms.uTime.value = t / 1000;
-      this._tickSky(t);
-      this._tickRobber(t);
-      this._tickBreath(t);
-      this._tickSpawns(t);
-      this._tickShip(t);
-      this._tickAmbient(t);
-      // ミニゲーム(島を歩く)が1フレームごとに割り込む口。
-      // WebGL コンテキストを2つ持つとモバイルで重すぎるので、
-      // レンダラーも rAF もここのものを共有する。
-      this.onFrame?.(t);
-      this.renderer.render(this.scene, this.camera);
-      requestAnimationFrame(loop);
+      try {
+        // カメラを誰が持つか。onFrame(ミニゲーム)がいる間は向こうが持つ。
+        // controls.enabled = false は「入力を受けない」だけで、update() は
+        // damping でカメラを動かし続ける ── そのまま呼ぶと、ミニゲーム側の
+        // カメラ操作と毎フレーム取り合って画面がガタつく。
+        if (!this.onFrame) this.controls.update();
+        // 選べる場所は屋外のスマホでも見える濃さで点滅させる(下限を上げる)
+        const a = 0.62 + 0.18 * Math.sin(t / 260);
+        for (const m of this.pulseMats) m.opacity = a;
+        this._tickDice(t);
+        if (this.seaUniforms) this.seaUniforms.uTime.value = t / 1000;
+        this._tickSky(t);
+        this._tickRobber(t);
+        this._tickBreath(t);
+        this._tickSpawns(t);
+        this._tickShip(t);
+        this._tickAmbient(t);
+        // ミニゲーム(島を歩く)が1フレームごとに割り込む口。
+        // WebGL コンテキストを2つ持つとモバイルで重すぎるので、
+        // レンダラーも rAF もここのものを共有する。
+        //
+        // 割り込みだけ別に囲む。ここで落ちたのを外側で受けると render まで
+        // 巻き込んで盤面も描かれなくなるので、割り込みを外して
+        // 盤面だけでも動かし続ける。
+        try {
+          this.onFrame?.(t);
+        } catch (e) {
+          reportCrash(e, 'ミニゲームの描画');
+          this.onFrame = null;
+        }
+        this.renderer.render(this.scene, this.camera);
+      } catch (e) {
+        reportCrash(e, '描画');
+      } finally {
+        if (!this.disposed) requestAnimationFrame(loop);
+      }
     };
     requestAnimationFrame(loop);
   }

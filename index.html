@@ -1379,6 +1379,30 @@
   }
   @keyframes notePulse { 50% { opacity: 0.45; } }
 
+  /* 大域のエラー表示(src/crash.js)。HUD の再描画が壊れていても出したいので、
+     どの画面の中にも入れず body 直下に積む。
+     入れ物を1枚かぶせて flex で積むのは、**文面が何行になるか分からない**から
+     ── 個々の toast に bottom を決め打ちすると、折り返した途端に重なる。
+     safe-area を足すのは iPhone のホームバーに文字が隠れないように。 */
+  .crashtoasts {
+    position: fixed; z-index: 9999;
+    left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column-reverse; gap: 6px;
+    pointer-events: none; /* 空の入れ物が盤面のタップを食わないように */
+  }
+  .crashtoast {
+    pointer-events: auto;
+    padding: 9px 12px;
+    background: rgba(70, 18, 22, 0.94);
+    border: 1px solid rgba(240, 120, 120, 0.55);
+    border-radius: 10px;
+    color: #ffdcd8; font-size: 11.5px; line-height: 1.45;
+    white-space: pre-line; word-break: break-word;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+  }
+  .crashtoast .hint { display: block; margin-top: 3px; opacity: 0.6; font-size: 10px; }
+
   .select-panel {
     background: linear-gradient(180deg, #17334f, #0f2439);
     border: 1px solid rgba(130, 180, 230, 0.3);
