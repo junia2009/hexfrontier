@@ -146,6 +146,10 @@ const FISH_AIM = sc(0.42);  // 本人から浮きのほうへ、どれだけ先�
 // 投げる動作の振りかぶり(CAST_TIME の 35% = 0.19 秒)とほぼ同じ長さにして、
 // 「寄りながら振りかぶり、構えてから投げる」に見せる。
 const FISH_SETTLE = 0.22;
+// 釣りをやめたあと、見る先を沖から本人へ戻すのにかける時間(秒)。
+// 釣りのカメラは本人より FISH_AIM だけ沖を見ているので、そのまま
+// 本人へ戻すと視線が1コマで 7.5° 回る(実測)。walker.js の ROD_OUT と揃える。
+const FISH_AIM_OUT = 0.45;
 
 // 散策部屋: 自分の位置を送る間隔(サーバーの配る間隔と揃える)
 const SEND_MS = 100;
@@ -358,6 +362,7 @@ export class WalkMode {
     this.fishing = null;     // 釣っている間だけ Fishing が入る
     this.fishFrom = null;    // 釣り場へ寄っている間だけ入る(_settleToSpot)
     this.fishCam = null;     // 釣りのカメラの極座標(_placeFishCamera)
+    this.aimOut = null;      // 釣りをやめた直後、見る先を戻している間だけ入る
     this.fishSeed = fishSeed;
     this.fishT = 0;
     this.ffx = new FishingFx(board3d.scene, SEA_Y);
@@ -752,8 +757,16 @@ export class WalkMode {
     if (!this.fishing) return;
     this.fishing = null;
     this.fishFrom = null;
+    // **カメラは釣りの構図から続ける。** 歩きのカメラは camYaw を使うので、
+    // ここで戻さないと、やめた瞬間に回り込んでいたぶん(FISH_YAW = 43°)
+    // だけ視点が飛ぶ(実測: 1コマで 0.097 単位・4.3°)。
+    // 歩き出せば _frame が進行方向へゆっくり戻してくれる。
+    if (this.fishCam) this.camYaw = this.fishCam.yaw;
     this.fishCam = null;
-    this.walker.setRod(false);
+    // 見る先も釣りの構図から戻す(FISH_AIM_OUT)
+    const s = this.spot;
+    this.aimOut = s ? { x: s.outX * FISH_AIM, z: s.outZ * FISH_AIM, t: 0 } : null;
+    this.walker.setRod(false);   // 竿は下ろしてからしまう(walker.js の ROD_OUT)
     this.ffx.hide();
   }
 
@@ -1278,10 +1291,19 @@ export class WalkMode {
     );
     if (snap) cam.position.copy(want);
     else cam.position.lerp(want, smooth(9, dt));
+    // 釣りをやめた直後だけ、見る先に沖ぶんを残して戻す(FISH_AIM_OUT)
+    let ax = 0; let az = 0;
+    const a = this.aimOut;
+    if (a) {
+      a.t += dt;
+      const k = 1 - ease01(a.t / FISH_AIM_OUT);
+      if (k <= 0) this.aimOut = null;
+      else { ax = a.x * k; az = a.z * k; }
+    }
     cam.lookAt(
-      w.x + sx,
+      w.x + sx + ax,
       groundY + lift + sc(0.36) * (1 - dive) + sc(0.1) * dive,
-      w.z + sz,
+      w.z + sz + az,
     );
   }
 
