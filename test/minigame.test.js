@@ -19,7 +19,7 @@ import {
 } from '../src/minigame/ground.js';
 import {
   walkPose, airPose, tumblePose, sinkPose, fishPose, aimPose, sitPose, emotePose,
-  blendPose, poseKeys,
+  blendPose, poseFade, poseKeys, SINK_RIGHT,
 } from '../src/minigame/pose.js';
 import { EMOTES, EMOTE_MAX, emoteById, emotesOk } from '../src/minigame/emote.js';
 
@@ -747,20 +747,40 @@ test('emote: blendPose は端で元の姿勢そのもの', () => {
   // 向きを変えて呼ぶ。同じ向き同士だと group.y の扱いを見落とす
   const a = walkPose(1.2, 0.8, 0.3);
   const b = fishPose(1.1, -2.0, { phase: 'fight', tension: 0.6 });
-  // 向き(group.y)だけは混ぜない約束なので、比較から外して見る
-  const noFacing = (p) => ({ ...p, group: { ...p.group, y: null } });
-  assert.deepEqual(noFacing(blendPose(a, b, 0)), noFacing(a), 'k=0 で a に戻らない');
-  assert.deepEqual(noFacing(blendPose(a, b, 1)), noFacing(b), 'k=1 で b にならない');
+  assert.deepEqual(blendPose(a, b, 0), a, 'k=0 で a に戻らない');
+  assert.deepEqual(blendPose(a, b, 1), b, 'k=1 で b にならない');
   // 範囲外は端で止める(NaN や行き過ぎた角度を作らない)
-  assert.deepEqual(noFacing(blendPose(a, b, -5)), noFacing(a));
-  assert.deepEqual(noFacing(blendPose(a, b, 9)), noFacing(b));
-  // 向きは常に b のものを通す(-π..π をまたぐ回り込みで暴れさせない)
-  for (const k of [0, 0.5, 1]) assert.equal(blendPose(a, b, k).group.y, b.group.y);
+  assert.deepEqual(blendPose(a, b, -5), a);
+  assert.deepEqual(blendPose(a, b, 9), b);
   // 途中はどちらとも違い、あいだにある
   const mid = blendPose(a, b, 0.5);
   const x = (p) => p.arms[1].rootX;
   assert.ok(x(mid) > Math.min(x(a), x(b)) && x(mid) < Math.max(x(a), x(b)),
     'あいだの値になっていない');
+});
+
+// **向きは最短回りで混ぜる。** 生の差で混ぜると ±180° をまたぐときに
+// 長いほうへぐるっと回る ── 海に落ちて水に入る瞬間だけは、転がっていた
+// 向きと沈む向きが 76° 離れていて、ここが効く。
+test('emote: blendPose の向きは最短回り', () => {
+  const wrap = (v) => { let d = v; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+  for (const [fa, fb, want] of [[0.3, -2.0, -2.3], [3.0, -3.0, 0.2832], [-3.0, 3.0, -0.2832]]) {
+    const a = walkPose(1.2, 0.8, fa);
+    const b = walkPose(1.2, 0.8, fb);
+    assert.ok(Math.abs(wrap(blendPose(a, b, 0).group.y - fa)) < 1e-9, `k=0 が a の向きでない(${fa})`);
+    assert.ok(Math.abs(wrap(blendPose(a, b, 1).group.y - fb)) < 1e-9, `k=1 が b の向きでない(${fb})`);
+    // 半分まで来たら、最短回りのちょうど半分
+    const half = blendPose(a, b, 0.5).group.y;
+    assert.ok(Math.abs(wrap(half - (fa + want / 2))) < 1e-3,
+      `${fa} → ${fb} の途中が ${half.toFixed(3)}(最短なら ${(fa + want / 2).toFixed(3)})`);
+    // どのコマも、半周より大きくは回らない
+    let prev = fa;
+    for (let k = 0; k <= 1.0001; k += 1 / 32) {
+      const y = blendPose(a, b, k).group.y;
+      assert.ok(Math.abs(wrap(y - prev)) < 0.4, `${fa} → ${fb} の途中で飛んだ`);
+      prev = y;
+    }
+  }
 });
 
 // 立ち姿から急に万歳の角度へ飛ぶと、1フレームで腕がワープして見える。
@@ -1063,4 +1083,83 @@ test('walk: 接地した足は前から後ろへ抜ける', () => {
   // この骨格では「体に対して後ろへ動く」= 接地して体を送り出している
   assert.ok(back > fwd * 4,
     `接地した足が前へ動いている(後ろ ${back} コマ / 前 ${fwd} コマ)`);
+});
+
+// ---- 海に落ちて、水に入るところ ----
+//
+// 「落ちる時は横になるのに、落ちたあとは縦になる。そこが繋がっていない」
+// という報告。落ちている間(tumblePose)と水の中(sinkPose)で姿勢の
+// 出どころが変わるので、そのまま切り替えると体の向きが1コマで飛ぶ。
+
+const DT_60 = 1 / 60;
+// 体の向き(group)の、いちばん大きい差(ラジアン)
+function turnGap(a, b) {
+  const wrap = (v) => {
+    let d = v;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  };
+  return Math.max(
+    Math.abs(wrap(a.group.x - b.group.x)),
+    Math.abs(wrap(a.group.y - b.group.y)),
+    Math.abs(wrap(a.group.z - b.group.z)),
+  );
+}
+
+test('落水: そのまま切り替えると体の向きが飛ぶ(前提)', () => {
+  // ここが飛ばなくなったら、下のつなぎは要らなくなっている ──
+  // そのときはこの試験が先に落ちて気づける。
+  const spin = 1.1;          // 実測で、桟橋から落ちて着水するときの転がり
+  const a = tumblePose(spin, -2.618);
+  const b = sinkPose(0, -2.618, spin);
+  const gap = turnGap(a, b);
+  assert.ok(gap > 1.0, `転がりと沈みの向きが近すぎる(${gap.toFixed(2)} ラジアン)`);
+});
+
+test('落水: つなぐと1コマで飛ばない', () => {
+  const facing = -2.618;
+  let spin = 1.1;
+  const fade = poseFade(SINK_RIGHT);
+  // 着水の直前に描いていた姿勢から始める(walker.js と同じ)
+  let prev = tumblePose(spin, facing);
+  fade.start(prev);
+  let max = 0;
+  let sinkT = 0;
+  for (let i = 0; i < 60; i++) {
+    sinkT += DT_60;
+    spin += DT_60 * 0.9 * 0.35;            // 水中はゆっくり漂う(motion.js)
+    const now = fade.step(sinkPose(sinkT, facing, spin), DT_60);
+    max = Math.max(max, turnGap(now, prev));
+    prev = now;
+  }
+  // つながないと 1 コマで 1.3 ラジアン(76°)飛ぶ。その 1/10 以下に収まること
+  assert.ok(max < 0.13, `1コマで ${(max * 180 / Math.PI).toFixed(1)}° 動いた`);
+  // 寄せ終わったら、素の沈み姿勢そのもの(混ざったまま残らない)
+  const raw = sinkPose(sinkT, facing, spin);
+  assert.ok(turnGap(prev, raw) < 1e-9, 'つなぎが残っている');
+});
+
+test('落水: つなぎは始めていなければ素通し', () => {
+  const fade = poseFade(SINK_RIGHT);
+  const p = sinkPose(0.3, 1.0, 0.2);
+  assert.equal(fade.active, false);
+  assert.equal(fade.step(p, DT_60), p, '始めていないのに姿勢を作り替えている');
+  assert.equal(fade.start(null), false, '始点が無いのに始まった');
+  assert.equal(fade.k, 1, '動いていないのに途中あつかい');
+});
+
+test('落水: つなぎは寄せる先が動いてもついていく', () => {
+  // 沈む姿勢は毎コマ変わる(ゆらゆら漂う)。止まった姿勢へ寄せるのではなく、
+  // そのときの沈み姿勢へ寄せること。
+  const fade = poseFade(SINK_RIGHT);
+  fade.start(tumblePose(1.1, 0.4));
+  let t = 0;
+  let last = null;
+  for (let i = 0; i < 60; i++) {
+    t += DT_60;
+    last = fade.step(sinkPose(t, 0.4, 0.2 + t * 0.3), DT_60);
+  }
+  const raw = sinkPose(t, 0.4, 0.2 + t * 0.3);
+  assert.deepEqual(last, raw, '寄せ先に追いついていない');
 });
