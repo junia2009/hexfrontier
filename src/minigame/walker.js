@@ -13,10 +13,10 @@
 // このファイルは「その結果をメッシュに反映する」だけ。
 
 import * as THREE from 'three';
-import { WalkerMotion, WALK_SPEED, MAX_DT } from './motion.js';
+import { WalkerMotion, WALK_SPEED, RUN_GAIT, MAX_DT } from './motion.js';
 import {
   walkPose, airPose, tumblePose, sinkPose, aimPose, sitPose, emotePose,
-  fishPoseBlender, rodOutro, PHASE_PER_UNIT,
+  fishPoseBlender, rodOutro, phasePerUnit,
 } from './pose.js';
 import { makeWalker } from './body.js';
 
@@ -206,8 +206,9 @@ export class Walker {
     // 位相は**進んだ距離**で進める(速さ × 刻み = 距離)。
     // 1歩で進む距離は脚の長さから引いてある(pose.js)ので、
     // 縮尺を変えても足と地面の関係が崩れない。
-    this.phase += r.speed * Math.min(dt, MAX_DT) * PHASE_PER_UNIT;
-    const gait = Math.min(1, r.speed / WALK_SPEED);
+    // **駆け足では歩幅が伸びるので、同じ距離でも位相の進みは少ない。**
+    const gait = Math.min(RUN_GAIT, r.speed / WALK_SPEED);
+    this.phase += r.speed * Math.min(dt, MAX_DT) * phasePerUnit(gait);
     this._apply(
       r.grounded ? walkPose(this.phase, gait, m.facing) : airPose(m.vy, m.facing),
       y,

@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { makeDrum } from './logroll-fx.js';
 import {
-  ROLL_WALK, courseGround, makeCourse, rollTime, startSpots,
+  ROLL_WALK, ROLL_ACCEL, courseGround, makeCourse, rollTime, startSpots,
 } from './logroll.js';
 import {
   makeGround, spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
@@ -18,7 +18,9 @@ import {
 import { Raid, ARCHERY_MODES, BOW_Y, reach as arrowReach } from './archery.js';
 import { ArcheryFx } from './archery-fx.js';
 import { makeBlocker, clearAround } from './obstacles.js';
-import { MAX_DT, SINK_DEPTH, WATER_Y, approachAngle, ease01 } from './motion.js';
+import {
+  MAX_DT, SINK_DEPTH, WATER_Y, ACCEL, RUN_SPEED, approachAngle, ease01,
+} from './motion.js';
 import { Walker, WALK_SPEED } from './walker.js';
 import { WaterFx } from './water-fx.js';
 import { Fishing, CAST_TIME } from './fishing.js';
@@ -843,6 +845,12 @@ export class WalkMode {
     }
     // 櫓は撃っていない間も動かす(船は湧かないが、旗と塔はそこにある)
 
+    // **駆け足は「ただ島を歩いているとき」だけ。**
+    // 竜から逃げる・丸太に乗る・櫓で射る は、どれも歩く速さを基準に
+    // 釣り合いを取ってある(竜は歩きの 0.82 倍、CPU は 0.88 倍)。
+    // ここだけ速くすると、竜は振り切り放題・大会は勝ち放題になる。
+    this.walker.motion.runSpeed = this.roll || this.raid || this.hunt ? null : RUN_SPEED;
+
     const kb = this._keyInput();
     const inp = (kb.x || kb.y) ? kb : this.input;
     const w = this.walker.pos;
@@ -1364,6 +1372,7 @@ export class WalkMode {
     // ここは流れに押し負けまいと踏ん張る遊びで、手ごたえは丸太の回転と
     // 釣り合わせて実測してある(logroll.js の ROLL_WALK)。
     this.walker.motion.speed = ROLL_WALK;
+    this.walker.motion.accel = ROLL_ACCEL;   // 舵の効きも丸太のもの
     // 地面を差し替える。**時刻はフレームごとに入れ直す**(丸太は回っている)
     this._setRollTime(rollTime(this.roll.elapsed));
     this.drum = makeDrum(this.b.scene, course, anchor);
@@ -1373,6 +1382,7 @@ export class WalkMode {
   clearLogRoll() {
     const shore = this.rollShore;
     this.walker.motion.speed = WALK_SPEED;   // 島の速さへ戻す
+    this.walker.motion.accel = ACCEL;
     this.drum?.dispose();
     this.drum = null;
     this.roll = null;

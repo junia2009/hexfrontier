@@ -13,16 +13,41 @@ import { s as sc } from './scale.js';
 // 長さは縮尺を掛ける(scale.js)。時間と角速度は掛けない ──
 // 掛けると歩き出しや向き変えのテンポまで変わってしまう。
 //
-// **1.9 から 1.25 へ落としてある。** 速さと脚の長さが釣り合っていないと、
-// 歩きは必ずどこかで破綻する ── 1.9 では、足を地面に着けたまま歩くのに
-// 秒 6.4 歩が要り、体が秒 6.4 回沈んで**画面が振動して見えた**
-// (人の歩きは秒 2 回。振れ幅は背丈の 7% で人と同じくらいなので、
-//  速すぎたのは深さではなく回数のほう)。
-// いまは秒 4.2 歩。散策なので、急ぐより落ち着いて歩けるほうを採った。
-export const WALK_SPEED = sc(1.25);  // タイル/秒
+// **速さと歩数は一本の紐でつながっている。** 脚が短いので、速くすると
+// そのぶん歩数が増える ── 1.9 では秒 6.4 歩になり、体が秒 6.4 回沈んで
+// **画面が振動して見えた**(人の歩きは秒 2 回。振れ幅は背丈の 7% で人と
+// 同じくらいなので、速すぎたのは深さではなく回数のほう)。
+// それで 1.25(秒 4.2 歩)まで落としたが、こんどは島の端から端に 11 秒
+// かかって「遅い」と言われた。
+//
+// **いまは 1.45(秒 4.9 歩、端から端 9.6 秒)。** 歩きの見た目は一切
+// 変えていない(歩幅も沈みの深さもそのまま)。足りないぶんは駆け足が受け持つ。
+export const WALK_SPEED = sc(1.45);  // タイル/秒
+
+// ---- 駆け足 ----
+//
+// 「散策のテンポは歩きのままがいいが、島を横切るのが遅い」への答え。
+// **ボタンを増やさない** ── スティックを全倒しにしたまま RUN_DELAY 続けると
+// 駆け足に入る。ちょっと動かすだけなら今までどおりの歩き、
+// 遠くへ行きたいときだけ勝手に速くなる(キーは押しっぱなし = 全倒し)。
+export const RUN_SPEED = sc(2.4);
+// 歩きを 1 としたときの駆け足。pose.js が歩幅を伸ばす割合に使う。
+export const RUN_GAIT = RUN_SPEED / WALK_SPEED;
+const RUN_STICK = 0.92;          // これ以上倒していたら「全倒し」
+const RUN_DELAY = 0.45;          // 全倒しを続ける時間(秒)
+
 const TURN_SPEED = 9;            // 向き変えの速さ
-const ACCEL = sc(9);             // 加速(小さいほどぬるっと動く)
-const AIR_ACCEL = sc(3.5);       // 空中での効き(地上より鈍く。跳んだ勢いが残る)
+// 速度を目標へ寄せる速さ(1/秒)。**縮尺を掛けない。**
+// ここは長さではなく時間の量で、scale.js の決め(時間と角速度は掛けない)の側。
+// sc(9) にしていたので、全速の 95% に届くまで 0.65 秒 ── 最初の 0.5 秒で
+// 本来の 63% しか進めず、ちょっと動かすたびに重かった(実測)。9 なら 0.32 秒。
+export const ACCEL = 9;
+// 空中での効き。**地上の何割か**で持つ(昔は 9 : 3.5 の絶対値だった)。
+// 割合にしておくと、場面ごとに地上の効きを変えても比が崩れない ──
+// 丸太の上だけ鈍いまま(ROLL_ACCEL)にしたとき、空中も一緒に鈍くなる。
+// 絶対値のままにしたら、丸太の上で空中の舵だけ 2 倍効くようになって、
+// 達人が 90 秒逃げ切ってしまった(実測)。
+const AIR_RATIO = 3.5 / 9;
 const MAX_STEP = sc(0.05);       // 1回の計算で進める上限(すり抜け防止)
 export const MAX_DT = 0.25;      // これを超えた分は捨てる(タブ復帰で飛ばない)
 
@@ -97,6 +122,15 @@ export class WalkerMotion {
     // 歩く速さ。**場面ごとに差し替えられる** ── 島の散策は落ち着いた速さ、
     // 丸太の上は踏ん張る速さ(logroll.js の ROLL_WALK)。
     this.speed = WALK_SPEED;
+    // 速度を目標へ寄せる速さも場面ごと。**丸太の上だけ鈍いままにしてある**
+    // ── 丸太乗りの難しさは「流されるのを足で押し返せるか」なので、
+    // 舵の効きを上げると腕前の差が消える(実測: 9 にしたら達人が 90 秒
+    // 逃げ切って勝負が決まらなくなった)。logroll.js の ROLL_ACCEL。
+    this.accel = ACCEL;
+    // 駆け足。null にすると入らない(丸太の上など、別の速さで動く場面)
+    this.runSpeed = RUN_SPEED;
+    this.runHold = 0;      // 全倒しを続けている時間
+    this.running = false;
   }
 
   // 足元の高さを、いまの地面へ即座に合わせる。
@@ -179,19 +213,25 @@ export class WalkerMotion {
   _step(step, input, camYaw) {
     // 入力をカメラ基準からワールド基準へ
     const mag = Math.min(1, Math.hypot(input.x, input.y));
+    // 全倒しを続けたら駆け足へ。緩めた瞬間に歩きへ戻る
+    // (地面から離れている間は数えない ── 跳んでいる最中に切り替わらない)
+    this.runHold = this.runSpeed && this.grounded && mag > RUN_STICK
+      ? this.runHold + step : 0;
+    this.running = this.runHold >= RUN_DELAY;
+    const speed = this.running ? this.runSpeed : this.speed;
     let wantX = 0;
     let wantZ = 0;
     if (mag > 0.06) {
       // 画面右は -X 方向。カメラは +Z を向いて置いてあるので、
       // 入力の x をそのまま使うと左右が逆になる(符号を反転させる)。
       const dir = Math.atan2(-input.x, input.y) + camYaw;
-      wantX = Math.sin(dir) * this.speed * mag;
-      wantZ = Math.cos(dir) * this.speed * mag;
+      wantX = Math.sin(dir) * speed * mag;
+      wantZ = Math.cos(dir) * speed * mag;
       this.facing = approachAngle(this.facing, dir, TURN_SPEED * step);
     }
 
     // 速度を目標へ寄せる(ぬるっと動き出し、ぬるっと止まる)
-    const accel = this.grounded ? ACCEL : AIR_ACCEL;
+    const accel = this.accel * (this.grounded ? 1 : AIR_RATIO);
     this.vel.x += (wantX - this.vel.x) * Math.min(1, accel * step);
     this.vel.z += (wantZ - this.vel.z) * Math.min(1, accel * step);
 

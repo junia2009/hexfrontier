@@ -94,6 +94,11 @@ const SURFACE_FROM = 0.44;   // 歩きに対する割合
 const SURFACE_TO = 1.11;
 // 丸太の上での歩く速さ。島の散策(WALK_SPEED)とは切り離してある。
 export const ROLL_WALK = sc(1.9);
+// 丸太の上での舵の効き。**島の歩き(ACCEL = 9)より鈍いままにしてある。**
+// ここを島と揃えると、流されてもすぐ押し返せるので腕前の差が消える
+// ── 実測で、達人が 90 秒逃げ切って勝負が決まらなくなった。
+// 島の歩きが縮尺で割られていたころの値(sc(9))がそのまま釣り合っている。
+export const ROLL_ACCEL = sc(9);
 const SPIN_FROM = (ROLL_WALK * SURFACE_FROM) / DRUM_R;   // ラジアン/秒
 const SPIN_TO = (ROLL_WALK * SURFACE_TO) / DRUM_R;
 const SPIN_RAMP = 70;     // 秒。ここまでで SPIN_TO へ上がりきる

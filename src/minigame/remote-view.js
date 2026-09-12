@@ -9,8 +9,10 @@
 import * as THREE from 'three';
 import { makeWalker, walkerHeight } from './body.js';
 import { applyPose } from './walker.js';
-import { walkPose, airPose, tumblePose, fishPose, sitPose, emotePose } from './pose.js';
-import { WALK_SPEED } from './motion.js';
+import {
+  walkPose, airPose, tumblePose, fishPose, sitPose, emotePose, phasePerUnit,
+} from './pose.js';
+import { WALK_SPEED, RUN_GAIT } from './motion.js';
 import { ST } from './remote-st.js';
 import { emoteById } from './emote.js';
 import { speciesById, DEFAULT_SPECIES } from './species.js';
@@ -201,8 +203,13 @@ export class RemoteView {
       } else if (p.st === ST.air) {
         pose = airPose(vy, p.facing);
       } else {
-        e.phase += p.speed * dt * 5.2;
-        pose = walkPose(e.phase, Math.min(1, p.speed / WALK_SPEED), p.facing);
+        // **位相は進んだ距離から引く。** 決め打ちの係数(5.2)が残っていて、
+        // 自分の体(walker.js)だけ直してここが取り残されていた ──
+        // 縮尺を ×0.5 にしたとき、相手だけ 1歩で進む距離が足の振れ幅の
+        // 8.8 倍になって、他人の足がずっと滑っていた。
+        const gait = Math.min(RUN_GAIT, p.speed / WALK_SPEED);
+        e.phase += p.speed * dt * phasePerUnit(gait);
+        pose = walkPose(e.phase, gait, p.facing);
       }
       applyPose(e.parts, pose, p.x, y, p.z);
     }

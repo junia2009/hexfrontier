@@ -941,11 +941,20 @@ test('walk: 瞬間移動したら足元はすぐその場の高さになる', ()
 // 「滑っている」と実機で報告された歩きを、数で押さえる。
 // solePos は本物のメッシュと 0.0095 以内で一致することを確認済み。
 
-// 平らな地面を歩かせて、1コマずつ足の裏の位置を出す
-function walkFrames(mag = 1, frames = 900) {
+// 平らな地面を歩かせて、1コマずつ足の裏の位置を出す。
+//
+// **1周あたりのコマ数を揃えて測る。** この測り方は標本化にひどく依存して
+// いて、同じ歩きでも 1周 8 コマなら 6%、32 コマで 47%、1024 コマで 66% に
+// なる。fps を固定すると、歩く速さを上げただけで 1周あたりのコマ数が減って
+// 数字が下がる ── 実際 WALK_SPEED を 1.25 → 1.45 にしたとき、脚の運びは
+// 1ミリも変えていないのに 44% → 26% と「良くなった」ように見えた。
+const CYCLE_FRAMES = 28;   // 1周(2π)を何コマで測るか
+function walkFrames(mag = 1, cycles = 32) {
   const m = new WalkerMotion(() => ({ y: 0, ok: true }));
   m.setPosition(0, 0);
-  const dt = 1 / 60;
+  // 1コマで位相が 2π/CYCLE_FRAMES だけ進む刻み
+  const dt = (Math.PI * 2) / CYCLE_FRAMES / (WALK_SPEED * mag * PHASE_PER_UNIT);
+  const frames = CYCLE_FRAMES * cycles;
   let phase = 0;
   const out = [];
   for (let i = 0; i < frames; i++) {
