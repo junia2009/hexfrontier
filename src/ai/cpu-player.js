@@ -5,7 +5,8 @@
 import { validateAction } from '../actions.js';
 import { LAYOUT, boardVertexIds } from '../rules/board.js';
 import {
-  COSTS, WALL_COST, canAfford, countPieces, PIECE_LIMITS, totalResources, totalCards,
+  COSTS, WALL_COST, canAfford, countPieces, handLimit, PIECE_LIMITS,
+  totalResources, totalCards,
 } from '../rules/build.js';
 import { stealableTargets } from '../rules/robber.js';
 import { fishCount, hasOldShoe, shoeTargets } from '../rules/fish.js';
@@ -158,6 +159,12 @@ function chooseRaze(state, pid) {
 }
 
 // ---- メインターンの目標決定 ----
+
+// 発展カードを買ってよい「目標までの遠さ」。目標にあと何枚以上足りなければ
+// 1枚引きに回してよいか、という敷居(基本ルールのみ。使う場所に説明がある)。
+// 1 にすると詰んだターンは必ず引く / 3 以上にするとほとんど引かない。
+// 2 は 400ゲームの実測で選んだ ── 詳しくは下の表を見ること。
+export const DEV_BUY_SHORT_BY = 2;
 
 // 次に建てたい物を1つ決める(交易・捨て札の基準)
 export function nextGoal(state, pid) {
@@ -783,8 +790,26 @@ export function chooseAction(state, pid) {
       if (cityVid) return { type: 'BUILD_WALL', player: pid, vertexId: cityVid };
     }
   } else if (canAfford(p, COSTS.devCard) && state.bank.devDeck.length > 0) {
-    const wantSettlement = goal?.kind === 'settlement' || goal?.kind === 'city';
-    if (!wantSettlement || totalResources(p) > 8) {
+    // ここに来た時点で、この手番はもう詰んでいる ── 建てられず(1〜4)、
+    // 目標へ向けた交易も成立しなかった(5)。持ったままターンを終えるより、
+    // 羊+麦+鉄を1枚に替えるほうがたいていよい。
+    //
+    // 以前は「開拓地/都市を狙っている間は手札が8枚を超えたときだけ」
+    // だった。ところが nextGoal は 85% のターンで city/settlement を返す
+    // (昇格できる開拓地はほぼ常にある)ので、事実上ほとんど買えなかった:
+    // 実測 0.79枚/人/ゲーム、最大騎士力が成立する試合は 6.3%。
+    // 3騎士を集めるには到底足りず、2点が誰とも争われないまま残っていた。
+    //
+    // 代わりに「**目標にあと1枚で届くときだけ我慢する**」で判断する。
+    // 目前の都市を崩してまで引く必要はないが、まだ2枚以上足りない
+    // ターンなら、遅れるのは誤差で、引ける価値のほうが大きい。
+    //
+    // 手札が捨て札の上限に達しているときも引く ── 7が出たら半分失うので、
+    // 抱えたままにするくらいなら1枚に替えたほうがよい(上限は cak の
+    // 城壁で動くので、数字を書かずに handLimit を見る)。
+    const shortBy = Object.values(goal ? missingFor(p, goal.cost) : {})
+      .reduce((a, b) => a + b, 0);
+    if (shortBy >= DEV_BUY_SHORT_BY || totalCards(p) > handLimit(state, pid)) {
       const a = valid(state, { type: 'BUY_DEV_CARD', player: pid });
       if (a) return a;
     }
