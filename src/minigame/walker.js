@@ -15,8 +15,8 @@
 import * as THREE from 'three';
 import { WalkerMotion, WALK_SPEED, MAX_DT } from './motion.js';
 import {
-  walkPose, airPose, tumblePose, sinkPose, fishPose, aimPose, sitPose, emotePose,
-  PHASE_PER_UNIT,
+  walkPose, airPose, tumblePose, sinkPose, aimPose, sitPose, emotePose,
+  fishPoseBlender, PHASE_PER_UNIT,
 } from './pose.js';
 import { makeWalker } from './body.js';
 
@@ -61,6 +61,7 @@ export class Walker {
     scene.add(this.parts.group);
     this.motion = new WalkerMotion(groundAt, blockAt);
     this.phase = 0;       // 歩行サイクル
+    this.fishPose = fishPoseBlender();   // 釣りの段をつなぐ(pose.js)
   }
 
   // 実際に足を置いている高さ(段差をならしたもの)。持ち主は motion。
@@ -104,6 +105,9 @@ export class Walker {
   // 竿を出す/しまう。出している間は歩かせない(walk-mode.js が入力を止める)
   setRod(on) {
     this.parts.rod.group.visible = !!on;
+    // 出したときは姿勢のつなぎを白紙に戻す ──
+    // 前回の釣りの終わり(掲げた姿勢)から混ざらないように
+    if (on) this.fishPose.reset();
   }
 
   // 釣りの姿勢だけを当てる。歩きの update とは排他(釣り中は動かない)。
@@ -112,7 +116,9 @@ export class Walker {
     this.phase = 0;
     const g = this.motion.groundAt(this.pos.x, this.pos.z);
     this.motion.snapFoot();
-    this._apply(fishPose(t, this.motion.facing, k), g.y);
+    // 段(投げ → 待ち → アタリ → 取り込み → 釣果)の切り替えは
+    // fishPoseBlender がつなぐ(pose.js の FISH_BLEND)
+    this._apply(this.fishPose.pose(t, this.motion.facing, k), g.y);
   }
 
   // 弓を出す/しまう

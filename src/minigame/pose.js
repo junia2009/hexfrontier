@@ -253,13 +253,20 @@ export function sinkPose(t, facing, spin) {
 // 投げ(0.55 秒)に対して 0.45 = 0.25 秒。**ここを 0 にすると元の不具合に戻る**
 // ── 振り出しきった姿勢から構えへ 1 コマで落ちる。
 export const CAST_RECOVER = 0.45;
+// 「投げていない」を表す進み具合。振り出しも戻りも終わったところより先。
+const NO_CAST = 1 + CAST_RECOVER + 1;
 
 export function fishPose(t, facing, k = {}) {
   const phase = k.phase ?? 'wait';
   const tension = Math.max(0, Math.min(1, k.tension ?? 0));
   // 投げの進み具合。1.0 で浮きが落ちるが、**そこで切らない**
   // (CAST_RECOVER のぶんだけ伸ばして、振り出したあとの戻りに使う)。
-  const cast = Math.max(0, k.cast ?? 0);
+  //
+  // **渡されないときは「投げ終わったあと」**。0 にしてはいけない ──
+  // 0 は「これから振りかぶる」なので、竿を後ろへ 0.75 引いた姿勢になる。
+  // 散策部屋で他の人の釣りを描くとき(remote-view.js)は cast を渡さないので、
+  // ここを 0 にしていたら相手だけ竿を担いだまま止まって見えていた。
+  const cast = Math.max(0, k.cast ?? NO_CAST);
   const fighting = phase === 'fight';
   const sway = Math.sin(t * 1.3) * 0.02;   // 待っている間のわずかな揺れ
 
@@ -324,6 +331,73 @@ export function fishPose(t, facing, k = {}) {
       const crank = k.reeling ? Math.sin(t * 11) * 0.45 : 0;
       return LIMB(-1.45 - hold * 0.3 + crank * 0.35, -0.3, 0.75 + crank);
     }),
+  };
+}
+
+// 段が変わったとき、直前の姿勢から混ぜる時間(秒)。
+//
+// **段の切り替えは、そのままだと1コマで姿勢が飛ぶ。** 実測で、竿先が
+// 1コマに動く距離は(ふだんは 0.0001〜0.007 なのに):
+//   待ち → アタリ 0.015 / アタリ → 取り込み 0.029 / 取り込み → 釣果 0.088
+// 釣果の 0.088 は身長の 1/5。魚を持ち上げるのではなく、瞬間移動して見える。
+//
+// **アタリだけ短い。** 竿がぐっと入るのが「いま合わせろ」の合図なので、
+// なまらせると合図として弱くなる。飛んで見えない程度に留める。
+const FISH_BLEND = { bite: 0.07, default: 0.18 };
+// これ以下の段差しかないなら混ぜない(ラジアン ≒ 1.1°)。
+// **混ぜること自体にも動きがある** ── 重みの立ち上がりが素の動きに乗るので、
+// もともと繋がっている切り替わり(投げ → 待ち)まで混ぜると、かえって速く
+// なる(実測 0.049 → 0.073 ラジアン/コマ)。段差があるときだけ効かせる。
+const FISH_GAP = 0.02;
+
+// 2つの姿勢の、いちばん大きい関節の差(ラジアン)。
+// 「段は変わったが姿勢はほとんど同じ」を見分けるのに使う。
+export function poseGap(a, b) {
+  if (!a || !b) return Infinity;
+  let g = Math.abs((a.lift ?? 0) - (b.lift ?? 0));
+  const j = (x, y) => {
+    g = Math.max(g, Math.abs(x.x - y.x), Math.abs(x.z - y.z));
+  };
+  j(a.group, b.group); j(a.hips, b.hips); j(a.chest, b.chest); j(a.head, b.head);
+  for (const part of ['legs', 'arms']) {
+    for (let i = 0; i < 2; i++) {
+      const x = a[part][i]; const y = b[part][i];
+      g = Math.max(g,
+        Math.abs(x.rootX - y.rootX), Math.abs(x.rootZ - y.rootZ), Math.abs(x.knee - y.knee));
+    }
+  }
+  return g;
+}
+
+// 釣りの姿勢の「つなぎ」。段が変わるたびに、**直前に描いた姿勢**から混ぜる。
+// 混ぜる元は生の姿勢ではなく直前の出力 ── 混ぜている途中でまた段が
+// 変わったとき(アタリ → 取り込みは 1 秒とかからない)に、そこで飛ぶ。
+//
+// 状態を持つのはここだけにして、walker.js は呼ぶだけにしてある
+// (THREE を読まないので node --test から直接試せる)。
+export function fishPoseBlender() {
+  let phase = null; let from = null; let last = null; let at = 0;
+  return {
+    // 竿を出し直したとき(= 新しく釣り始めたとき)に呼ぶ。
+    // 前回の釣りの終わりの姿勢から混ざらないように。
+    reset() { phase = null; from = null; last = null; at = 0; },
+    pose(t, facing, k = {}) {
+      const now = fishPose(t, facing, k);
+      const ph = k.phase ?? 'wait';
+      if (ph !== phase) {
+        // **段が変わった「せい」で飛ぶ量を測る。** 同じ時刻・同じ引き具合で
+        // 前の段の姿勢を出して比べる ── 直前のコマと比べてしまうと、
+        // ふだんの動き(投げの振りかぶりは1コマ 0.065)まで段差に見える。
+        // last が無いのは竿を出した最初のコマで、混ぜる元がそもそもない。
+        const was = phase == null || !last
+          ? null : fishPose(t, facing, { ...k, phase });
+        from = poseGap(was, now) > FISH_GAP ? last : null;
+        at = t; phase = ph;
+      }
+      const w = from ? (t - at) / (FISH_BLEND[ph] ?? FISH_BLEND.default) : 1;
+      last = w >= 1 ? now : blendPose(from, now, ease01(w));
+      return last;
+    },
   };
 }
 
@@ -408,7 +482,6 @@ export function blendPose(a, b, k) {
   return {
     // 向きは混ぜない(同じ値が入っている。回り込みで暴れるのを避ける)
     group: JOINT(mix(a.group.x, b.group.x), b.group.y, mix(a.group.z, b.group.z)),
-    lift: LIFT(0),
     // 口は開いているか閉じているかの2択。混ぜられないので近いほうを採る
     mouth: MOUTH(t < 0.5 ? a.mouth.open : b.mouth.open),
     lift: LIFT(mix(a.lift ?? 0, b.lift ?? 0)),
