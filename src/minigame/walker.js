@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { WalkerMotion, WALK_SPEED, MAX_DT } from './motion.js';
 import {
   walkPose, airPose, tumblePose, sinkPose, aimPose, sitPose, emotePose,
-  fishPoseBlender, PHASE_PER_UNIT,
+  fishPoseBlender, rodOutro, PHASE_PER_UNIT,
 } from './pose.js';
 import { makeWalker } from './body.js';
 
@@ -62,6 +62,9 @@ export class Walker {
     this.motion = new WalkerMotion(groundAt, blockAt);
     this.phase = 0;       // 歩行サイクル
     this.fishPose = fishPoseBlender();   // 釣りの段をつなぐ(pose.js)
+    this.lastPose = null;         // 直前に当てた姿勢(戻しの始点に使う)
+    this.outro = rodOutro();      // 竿をしまう途中のつなぎ(pose.js)
+    this.outroDt = 0;             // その時計。update だけが進める
   }
 
   // 実際に足を置いている高さ(段差をならしたもの)。持ち主は motion。
@@ -103,11 +106,22 @@ export class Walker {
   }
 
   // 竿を出す/しまう。出している間は歩かせない(walk-mode.js が入力を止める)
+  //
+  // **しまうときは、すぐには消さない。** 釣りの構えから立ち姿へ戻る
+  // ROD_OUT 秒のあいだ竿を持たせたまま腕を下ろし、下ろしきる手前でたたむ。
   setRod(on) {
-    this.parts.rod.group.visible = !!on;
-    // 出したときは姿勢のつなぎを白紙に戻す ──
-    // 前回の釣りの終わり(掲げた姿勢)から混ざらないように
-    if (on) this.fishPose.reset();
+    const rod = this.parts.rod.group;
+    if (on) {
+      rod.visible = true;
+      rod.scale.setScalar(1);
+      // 前回の釣りの終わり(掲げた姿勢)から混ざらないように白紙に戻す
+      this.fishPose.reset();
+      this.outro.start(null);
+      return;
+    }
+    if (!rod.visible) return;
+    // 戻す先(歩きの姿勢)は update が毎コマ出すので、始点だけ控える
+    if (!this.outro.start(this.lastPose)) rod.visible = false;
   }
 
   // 釣りの姿勢だけを当てる。歩きの update とは排他(釣り中は動かない)。
@@ -174,6 +188,9 @@ export class Walker {
   // input: { x, y } — 画面基準の入力(-1〜1)。camYaw はカメラの向き(ラジアン)
   update(dt, input, camYaw) {
     const m = this.motion;
+    // 戻しの時計は update でだけ進める ── 戻している間は歩きの姿勢を
+    // 出しているので、ここ以外で進むことがない
+    this.outroDt = dt;
     const r = m.update(dt, input, camYaw);
     const y = r.footY + m.y;
 
@@ -203,7 +220,18 @@ export class Walker {
   }
 
   _apply(pose, y) {
-    applyPose(this.parts, pose, this.pos.x, y, this.pos.z);
+    this.lastPose = this._unfish(pose);
+    applyPose(this.parts, this.lastPose, this.pos.x, y, this.pos.z);
+  }
+
+  // 竿をしまっている最中なら、釣りの姿勢から混ぜて返す。
+  _unfish(pose) {
+    if (!this.outro.active) return pose;
+    const r = this.outro.step(pose, this.outroDt);
+    const rod = this.parts.rod.group;
+    if (r.done) { rod.visible = false; rod.scale.setScalar(1); }
+    else rod.scale.setScalar(r.rod);
+    return r.pose;
   }
 
   dispose() {

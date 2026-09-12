@@ -4,7 +4,9 @@
 // 1コマで落としていた ── 竿先が身長の 1/3 ぶん飛んでいた。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fishPose, fishPoseBlender, CAST_RECOVER } from '../src/minigame/pose.js';
+import {
+  fishPose, fishPoseBlender, rodOutro, walkPose, CAST_RECOVER, ROD_OUT,
+} from '../src/minigame/pose.js';
 import { CAST_TIME } from '../src/minigame/fishing.js';
 
 const DT = 1 / 60;
@@ -209,4 +211,75 @@ test('釣りの姿勢: つなぎは素の動きを速くしない', () => {
   }
   assert.ok(withB <= normal * 1.02,
     `つなぎを入れたら速くなった(${withB.toFixed(4)} > ${normal.toFixed(4)})`);
+});
+
+// ---- 竿をしまうところ(rodOutro)----
+
+test('釣りをやめる: 腕が1コマで振り下ろされない', () => {
+  // 釣りの構えと立ち姿は右腕で 2.15 ラジアン(123°)離れている。
+  // つながないと、やめた次のコマで腕が下まで落ちる。
+  const fishing = fishPose(3, 0, { phase: 'wait' });
+  const standing = walkPose(0, 0, 0);
+  const jump = Math.abs(fishing.arms[1].rootX - standing.arms[1].rootX);
+  assert.ok(jump > 2, `前提が変わった(構えの差が ${jump.toFixed(2)} しかない)`);
+
+  const o = rodOutro();
+  assert.ok(o.start(fishing), '戻しが始まらない');
+  let prev = fishing.arms[1].rootX;
+  let max = 0; let last = null;
+  for (let i = 0; i < 60; i++) {
+    const r = o.step(walkPose(0, 0, 0), DT);
+    max = Math.max(max, Math.abs(r.pose.arms[1].rootX - prev));
+    prev = r.pose.arms[1].rootX;
+    last = r;
+    if (r.done) break;
+  }
+  assert.ok(max < jump / 8, `1コマで ${max.toFixed(3)} 動いた(つながないと ${jump.toFixed(2)})`);
+  assert.ok(last.done, `${ROD_OUT} 秒で終わっていない`);
+  assert.equal(o.active, false, '終わったのに戻しが残っている(次の釣りまで引きずる)');
+  assert.ok(Math.abs(prev - standing.arms[1].rootX) < 1e-9, '立ち姿に戻りきっていない');
+});
+
+test('釣りをやめる: 竿は下ろしきる手前からたたむ', () => {
+  const o = rodOutro();
+  o.start(fishPose(3, 0, { phase: 'wait' }));
+  const rods = [];
+  for (let i = 0; i < 60; i++) {
+    const r = o.step(walkPose(0, 0, 0), DT);
+    rods.push(r.rod);
+    if (r.done) break;
+  }
+  assert.ok(rods[0] === 1, `始めからたたみ始めている(${rods[0]})`);
+  assert.ok(rods[rods.length - 1] === 0, 'たたみ終わっていない');
+  for (let i = 1; i < rods.length; i++) {
+    assert.ok(rods[i] <= rods[i - 1] + 1e-12, `${i} コマ目で竿が伸びた`);
+  }
+  // 前半はまだそのまま(腕を下ろしている最中に消え始めない)
+  assert.ok(rods[Math.floor(rods.length * 0.4)] === 1, '早々にたたみ始めている');
+});
+
+test('釣りをやめる: 始めていなければ素通し', () => {
+  const o = rodOutro();
+  assert.equal(o.active, false);
+  const p = walkPose(1.2, 1, 0.5);
+  const r = o.step(p, DT);
+  assert.equal(r.pose, p, '何もしていないのに姿勢を作り替えている');
+  assert.equal(r.done, true);
+  assert.equal(o.start(null), false, '始点が無いのに始まった');
+});
+
+test('釣りをやめる: 戻す先が動いていてもついていく', () => {
+  // やめた直後に歩き出せる。戻す先(歩きの姿勢)は毎コマ変わるので、
+  // 止まった姿勢へ寄せるのではなく、そのときの歩きへ寄せること。
+  const o = rodOutro();
+  o.start(fishPose(3, 0, { phase: 'wait' }));
+  let ph = 0; let last = null;
+  for (let i = 0; i < 60; i++) {
+    ph += 0.25;
+    last = o.step(walkPose(ph, 1, 0), DT);
+    if (last.done) break;
+  }
+  const now = walkPose(ph, 1, 0);
+  assert.ok(Math.abs(last.pose.arms[1].rootX - now.arms[1].rootX) < 1e-9,
+    '歩いている姿勢に追いついていない');
 });

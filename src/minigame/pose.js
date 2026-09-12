@@ -401,6 +401,40 @@ export function fishPoseBlender() {
   };
 }
 
+// 竿をしまってから、歩きの姿勢へ戻しきるまでの時間(秒)。
+// 釣りの構えと立ち姿は**右腕で 2.15 ラジアン(123°)離れている**ので、
+// そのまま切り替えると腕が1コマで振り下ろされる(実測)。
+export const ROD_OUT = 0.45;
+// 竿をたたみ始めるところ(戻しの何割を過ぎてから)。
+// 下ろしきる手前からたたむ ── 腕が下がりきってから消すと、
+// 下向きの棒が1コマで消えるのがかえって目につく。
+const ROD_FOLD = 0.45;
+
+// 竿をしまうときの「抜け」。**戻す先は歩きの姿勢**で、それは毎コマ
+// 変わる(歩き出せば歩く姿勢になる)ので、始点だけ控えて混ぜていく。
+// 状態を持つのはここだけにして、walker.js は結果を流し込むだけにしてある。
+export function rodOutro() {
+  let from = null; let t = 0;
+  return {
+    // いま画面に出ている姿勢から戻し始める
+    start(pose) { from = pose ?? null; t = 0; return from != null; },
+    get active() { return from != null; },
+    // pose は戻す先(歩きの姿勢)。{ pose, rod, done } を返す。
+    // rod は竿の大きさ(1 = そのまま / 0 = たたみ終わり)。
+    step(pose, dt) {
+      if (!from) return { pose, rod: 0, done: true };
+      t += dt;
+      const k = t / ROD_OUT;
+      if (k >= 1) { from = null; return { pose, rod: 0, done: true }; }
+      return {
+        pose: blendPose(from, pose, ease01(k)),
+        rod: 1 - ease01((k - ROD_FOLD) / (1 - ROD_FOLD)),
+        done: false,
+      };
+    },
+  };
+}
+
 // ---- 弓を構える(蛮族を射る)----
 
 // draw は引き絞り(0〜1)。0 でも構えている(弓を前へ出している)ので、
