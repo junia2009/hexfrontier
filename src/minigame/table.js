@@ -17,6 +17,7 @@ import { WALK_SCALE, HIP_Y } from './scale.js';
 import { TABLE_RADIUS, SEAT_R, tableSeats } from './ground.js';
 import { makeSignFace } from './desk.js';
 import { RANKS, SUITS, isJoker, rankOf, suitOf } from './daifugo.js';
+import { arcSegments } from './table-cue.js';
 
 // 素の寸法(縮尺を掛ける前)
 const R = TABLE_RADIUS / WALK_SCALE;      // 天板の半径
@@ -28,6 +29,24 @@ const STOOL_R = 0.055;
 const CARD_W = 0.13;
 const CARD_H = 0.18;
 const CARD_GAP = 0.095;
+
+// 手番の印。**天板の縁を光らせる**。
+//
+// 足元に輪を置くのも試したが、座った目の高さでは向かいの人の体と脚が
+// ちょうど重なって、肝心の輪が隠れる。天板なら必ず視界にあるし、
+// 「その方角の人の番」が席に着いたまま一目で分かる。
+const TURN_Y = TOP_Y + 0.0215;        // 布のすぐ上。場の札(+0.022)より下
+const TURN_ARC = 0.62;                // 光る幅(ラジアン)
+// 残り時間。内側に細い輪をもう1本。**幅ではなく長さで減らす** ──
+// 手番の印そのものを細めていくと、残り少ないときにいちばん見えなくなる。
+const CLOCK_SEGS = 24;
+// 残りがこれを切ってから出す(45 秒のうち、のこり 20 秒あたりから)
+const CLOCK_FROM = 0.45;
+
+// RingGeometry は XY 平面で、θ=0 が +X。寝かせる(X 回り −90°)と
+// θ=0 が +X のまま、θ=+90° が −Z になる。席の方角 a は (sin a, cos a) なので
+// θ = a − π/2 が同じ向き。
+const thetaFor = (a) => a - Math.PI / 2;
 
 // 札の絵を canvas に描いて板に貼る(フォントも画像も積まずに済む。
 // desk.js の看板と同じやり方)。同じ札は作り直さないので溜めておく。
@@ -133,6 +152,47 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
   flag.rotation.z = -Math.PI / 2;
   flag.position.set(0.04, SIGN_Y + 0.23, 0);
 
+  // ---- 手番の印(天板の縁) ----
+  //
+  // **見る人の向きでは回さない。** 場の札(fieldGroup)は読む向きを
+  // 合わせるために回しているが、手番の印は「卓のどの方角の人か」を
+  // 指すものなので、卓の向きに固定する。
+  // **足し算で重ねる(AdditiveBlending)。** ふつうに塗ると、座った目の高さ
+  // からは天板を斜めに見ることになって、緑の上の淡い黄色が「色あせた板」に
+  // しか見えなかった。足し算なら下地が何色でも明るくなるので、光に見える。
+  const turnMat = new THREE.MeshBasicMaterial({
+    color: 0xffc14d, transparent: true, opacity: 0.9, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const turnArc = new THREE.Mesh(
+    new THREE.RingGeometry(R * 0.60, R * 0.86, 18, 1, 0, TURN_ARC), turnMat,
+  );
+  turnArc.rotation.x = -Math.PI / 2;
+  turnArc.position.y = TURN_Y;
+  turnArc.renderOrder = 3;
+  turnArc.visible = false;
+  g.add(turnArc);
+
+  // 残り時間。卓をぐるりと囲む細い輪が、減るほど短くなる。
+  //
+  // **残りが少なくなるまで出さない。** 45 秒まるまる光らせると、卓の上に
+  // ずっと明るい輪があるだけで、肝心の手番の印がその明るさに負ける。
+  // 急かす印なのだから、急ぐべきときにだけ出て、近づくほど濃くなればよい。
+  //
+  // **布の内側に置く。** 縁の外(木の部分)に置いたら、座った目からは
+  // 天板の縁に隠れて向こう側がまったく見えなかった。
+  const clockMat = new THREE.MeshBasicMaterial({
+    color: 0xff9a3c, transparent: true, opacity: 0.85, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const clockArc = new THREE.Mesh(new THREE.RingGeometry(R * 0.80, R * 0.86, 40, 1), clockMat);
+  clockArc.rotation.x = -Math.PI / 2;
+  clockArc.position.y = TURN_Y;
+  clockArc.renderOrder = 3;
+  clockArc.visible = false;
+  g.add(clockArc);
+  let clockSeen = -1;   // いま何本ぶんの形を作ってあるか
+
   // 場に出ている札を置くところ。
   //   外(fieldGroup) … 読む向きを合わせるために Y で回す
   //   内(fieldFlat)  … 板を寝かせて、札の上を +Z へ向ける
@@ -161,6 +221,35 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
     // 一人称の目の高さでは、卓のまん中から伸びる柱がまともに視界を塞ぐ。
     // 相手の画面では出たままなので、世界から消えるわけではない。
     setSignVisible(on) { signPost.visible = !!on; },
+    // 手番の印。angle は席の方角(ground.js の tableSeats の angle)、
+    // remain01 は考える時間の残り(1 → 0)。angle が null なら消す。
+    //
+    // **形を作り直すのは変わったときだけ。** 残り時間は毎フレーム動くので、
+    // 素直に作り直すと1秒に 60 回 RingGeometry を捨てることになる。
+    // 見た目の刻みは 24 段しかないので、その段が変わったときだけでよい。
+    setTurn(angle, remain01 = 0, t = 0) {
+      const on = angle != null;
+      turnArc.visible = on;
+      clockArc.visible = on && remain01 > 0 && remain01 < CLOCK_FROM;
+      if (!on) return;
+      // 弧は θ∈[0, TURN_ARC] で作ってあるので、真ん中が席の方角に来るよう回す。
+      // rotation.z は(既定の XYZ 順では)寝かせる前に自分の面の中で回るので、
+      // そのまま「弧をどこから始めるか」になる。
+      turnArc.rotation.z = thetaFor(angle) - TURN_ARC / 2;
+      // ゆっくり息をする。止まった光より「いま動いている卓」に見える
+      turnMat.opacity = 0.55 + Math.sin(t * 3.2) * 0.25;
+      if (!clockArc.visible) return;
+      // 残りが減るほど濃く。出はじめは薄くて、最後ははっきり
+      clockMat.opacity = 0.25 + (1 - remain01 / CLOCK_FROM) * 0.65;
+      const seg = arcSegments(remain01, CLOCK_SEGS);
+      if (seg === clockSeen) return;
+      clockSeen = seg;
+      clockArc.geometry.dispose();
+      clockArc.geometry = new THREE.RingGeometry(
+        R * 0.80, R * 0.86, Math.max(2, seg * 2), 1,
+        Math.PI / 2, (seg / CLOCK_SEGS) * Math.PI * 2,
+      );
+    },
     // 場の札を並べ直す。cards は daifugo.js の番号(空なら片付ける)。
     // seatAngle は見る人の席の角度 ── **札の上をその人と反対側へ向ける**ので、
     // どこに座っていても自分から見て正しい向きで読める。

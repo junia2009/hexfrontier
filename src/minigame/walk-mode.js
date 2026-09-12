@@ -34,6 +34,7 @@ import { speciesById, DEFAULT_SPECIES } from './species.js';
 import { makeDesk } from './desk.js';
 import { meetFor } from './meets.js';
 import { makeTable } from './table.js';
+import { lookYaw } from './table-cue.js';
 import { makeDragon } from '../render3d/board3d.js';
 import { WALK_SCALE, s as sc } from './scale.js';
 
@@ -127,6 +128,12 @@ const TABLE_PITCH = 0.34;
 // ない)ので、歩きのままだと向かいの人の顔だけで画面が埋まる。広げて、
 // 卓と左右の席がいっしょに入るところまで持っていく。
 const TABLE_FOV = 88;
+// 手番の人のほうへ、座ったままカメラを向ける速さ(1秒あたりの寄り)。
+// **勝手に動くのは驚かれる**ので、ゆっくり。
+const TABLE_LOOK = 2.2;
+// 自分でなぞったあと、自動で向き直すのを止めておく時間(秒)。
+// これが無いと、見たい方を向けても次の瞬間に引き戻されて操作できない。
+const TABLE_LOOK_HOLD = 5;
 // 画面の端に出す「敵はあちら」の三角を、縁からどれだけ内側に置くか(画素)
 const MARK_INSET = 26;
 
@@ -315,6 +322,11 @@ export class WalkMode {
     this.drawing = false;
     this.aimT = 0;
     this.sitT = 0;            // 円卓に着いてからの秒数(座り姿勢のゆらぎ)
+    // 円卓の手番。main.js が setTableTurn で流し込む
+    this.turnAngle = null;    // 手番の席の方角(卓の中心から)
+    this.turnAt = null;       // 手番の席の場所(カメラを向けるため)
+    this.turnRemain = 0;      // 考える時間の残り(0〜1)
+    this.lookHold = 0;        // なぞったあと自動追従を止めている残り秒
     if (ARCHERY_MODES.includes(state.mode)) {
       const p = watchPost(state);
       if (p) {
@@ -790,6 +802,9 @@ export class WalkMode {
 
   // カメラを回す(画面の右半分のドラッグ / マウスドラッグ)
   orbit(dx, dy) {
+    // 円卓では手番の人へ自動で向くが、**自分でなぞったら勝手に戻さない**。
+    // 戻してしまうと、見たい方を向けても次の瞬間に引き戻されて操作できない。
+    if (this.tableSeatAt) this.lookHold = TABLE_LOOK_HOLD;
     this.camYaw -= dx * 0.006;
     this.camPitch = Math.max(0.05, Math.min(0.9, this.camPitch + dy * 0.004));
   }
@@ -950,6 +965,7 @@ export class WalkMode {
     this.walker.motion.facing = spot.face;
     this.camYaw = spot.face;
     this.tableSeatAt = spot;
+    this.tableTotal = Math.max(1, total);
     this.sitT = 0;
     this.emote = null;
     this.setStick(0, 0);
@@ -995,6 +1011,9 @@ export class WalkMode {
   standUp() {
     if (!this.tableSeatAt) return;
     this.setTableField([]);
+    this.desk?.setTurn?.(null);
+    this.turnAngle = null;
+    this.turnAt = null;
     this.tableSeatAt = null;
     this.walker.setVisible(true);
     this.desk?.setSignVisible?.(true);
@@ -1010,10 +1029,39 @@ export class WalkMode {
     }
   }
 
+  // 円卓の手番を受け取る。main.js が届いた表から毎フレーム流し込む。
+  //   seatIndex: 卓に着いている順(t.players の添字)。手番が無ければ null
+  //   mine: それが自分か
+  //   remain01: 考える時間の残り(1 → 0)
+  setTableTurn(seatIndex, mine, remain01 = 0, turnSeat = null) {
+    // 頭の上の矢印は remote-view の担当(座っている相手にだけ出る)
+    this.remoteView.setTurnSeat(mine ? null : turnSeat);
+    if (!this.tableSeatAt || seatIndex == null) {
+      this.turnAngle = null;
+      this.turnAt = null;
+      this.turnRemain = 0;
+      return;
+    }
+    const total = this.tableTotal || 1;
+    const spot = tableSeats(this.deskAt, total)[seatIndex % total];
+    this.turnAngle = spot ? spot.angle : null;
+    // 自分の番のときは卓の真ん中を見る。自分の席を向いても意味が無い
+    this.turnAt = mine ? { x: this.deskAt.x, z: this.deskAt.z } : spot;
+    this.turnRemain = Math.max(0, Math.min(1, remain01));
+  }
+
   // 座っている間のフレーム。歩きの計算はしない(その場に腰かけたまま)
   _sitFrame(dt, t) {
     this.sitT += dt;
     this.walker.sit(this.sitT);
+    // 手番の人のほうへゆっくり向き直す。なぞった直後はしばらく止める
+    this.lookHold = Math.max(0, this.lookHold - dt);
+    if (this.turnAt && this.lookHold <= 0) {
+      // approachAngle は「最短回りで行った先の絶対角」を返す(差ではない)
+      const to = approachAngle(this.camYaw, lookYaw(this.walker.pos, this.turnAt), Infinity);
+      this.camYaw += (to - this.camYaw) * smooth(TABLE_LOOK, dt);
+    }
+    this.desk?.setTurn?.(this.turnAngle, this.turnRemain, t / 1000);
     this._placeTableCamera();
   }
 

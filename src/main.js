@@ -52,6 +52,7 @@ import {
   beatsField, classify, defaultRules, fitsShibari, forbiddenFinish,
   isJoker, playsFor, rankOf, suitOf,
 } from './minigame/daifugo.js';
+import { AUTO_MS as DFG_AUTO_MS } from './minigame/meet/daifugo-table.js';
 import { EMOTES } from './minigame/emote.js';
 import { WALK_SEATS } from './minigame/remote-st.js';
 import { SPECIES, speciesById, cleanSpecies, DEFAULT_SPECIES } from './minigame/species.js';
@@ -1714,6 +1715,19 @@ function dfgCheck(t) {
   return { ok: true, why: foul ? `⚠ ${foul}` : '' };
 }
 
+// 卓の 3D の見た目を、届いた表に合わせる。
+//
+// **通信には何も足していない。** 誰の番か(turn)も、考える時間の残り
+// (turnRemain)も、もともと全員に配られている ── 各自の画面が同じ表を
+// 見て同じ演出を出すので、席ごとにずれない。
+function dfgScene(t, seat) {
+  if (!walk) return;
+  const who = t.awaiting ? t.awaiting.player : t.turn;
+  const idx = who == null ? null : t.players.indexOf(who);
+  const remain = (contest.turnRemain ?? 0) / DFG_AUTO_MS;
+  walk.setTableTurn(idx < 0 ? null : idx, who === seat, remain, who);
+}
+
 function renderDaifugo() {
   const el = document.getElementById('dfg');
   if (!el) return;
@@ -1732,6 +1746,7 @@ function renderDaifugo() {
     dfgFieldKey = fieldKey;
     walk?.setTableField(t.field?.cards ?? []);
   }
+  dfgScene(t, seat);
   const mine = t.turn === seat && !t.awaiting;
   const waiting = t.awaiting?.player === seat;
   renderDfgTop(t, seat, mine || waiting);
