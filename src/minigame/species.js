@@ -41,7 +41,7 @@ export const SPECIES = [
     accent: 0xf3dcc0,
     // ずんぐり。胴を太く、脚を短く(hipY も一緒に下げる)
     props: { bodyR: 0.084, hipY: 0.104, thigh: 0.032, shin: 0.030, armR: 0.034 },
-    parts: { ears: 'round', snout: true },
+    parts: { ears: 'round', snout: true, tail: 'bob' },
   },
   {
     id: 4,
@@ -52,7 +52,7 @@ export const SPECIES = [
     accent: 0x2f2f3a,
     face: 0x3a3a44,            // 顔だけ暗くする(もこもこはその人の色)
     props: { headR: 0.098, hipY: 0.106, thigh: 0.032, shin: 0.032 },
-    parts: { fluff: true, ears: 'droop' },
+    parts: { fluff: true, ears: 'droop', tail: 'bob' },
     top: 0.03,                 // もこもこのぶん背が高くなる
   },
   {

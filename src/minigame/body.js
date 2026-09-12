@@ -17,6 +17,33 @@ const SKIN = 0xffd9a8;
 const CLOTH = 0x2f6fd0;
 const SHOE = 0x2b3550;
 const EYE = 0x22242a;
+const SHINE = 0xffffff;   // 目のハイライト
+const BLUSH = 0xff8f9e;   // ほっぺ
+
+// ---- 色を作る ----
+//
+// その人の色から「少しだけ違う色」を作って、体を一色でのっぺり塗らないようにする。
+// 誰の色かは変えたくないので、色相はいじらず明るさだけ動かす。
+//
+// **明るくするか暗くするかは元の色で決める**。決め打ちで「暗く」にすると、
+// もともと暗い色(紺のペンギン)では差が出ず、決め打ちで「明るく」にすると
+// 白いひつじで差が出ない。明るい色は暗く、暗い色は明るくすれば必ず差が付く。
+// **明るさは sRGB で測る**。three の色は内部でリニアに直されるので、
+// 何も指定せず getHSL すると「見た目の明るさ」より暗い数字が返る
+// (青 #2f6fd0 は見た目 0.50 なのにリニアでは 0.33)。しきい値を
+// 見た目で決めたいので、どちらも sRGB を指定して読む。
+const _c = new THREE.Color();
+const _t = { h: 0, s: 0, l: 0 };
+function lightness(hex) {
+  return _c.setHex(hex, THREE.SRGBColorSpace).getHSL(_t, THREE.SRGBColorSpace).l;
+}
+// k だけ白(または黒)へ寄せた色。dir を渡さなければ元の明るさから自動で決める。
+const DARK = 0.45;   // これより暗い色は「明るく」、明るい色は「暗く」ずらす
+function tone(hex, k, dir = 0) {
+  const up = dir !== 0 ? dir > 0 : lightness(hex) < DARK;
+  const c = new THREE.Color().setHex(hex, THREE.SRGBColorSpace);
+  return c.lerp(new THREE.Color(up ? 0xffffff : 0x000000), k).getHex(THREE.SRGBColorSpace);
+}
 
 // ずんぐりデフォルメ。頭が大きく首がなく、手はミトン、靴は大きめ。
 // 「足元から頭のてっぺんまで」がタイル1枚(1.0)の半分くらいになるよう組む。
@@ -27,21 +54,28 @@ export const CUTE = {
   // 脚の長さを変えるときは hipY も同じだけ動かすこと。
   // 足首は hipY − thigh − shin なので、脚だけ縮めると靴が宙に浮く。
   hipY: HIP_Y,         // 腰の高さ(脚の付け根)。歩幅の計算に要るので scale.js に置いてある
-  bodyR: 0.072,        // 胴の太さ
-  bodyLen: 0.04,       // 胴の直線部(短くして豆のような形に)
+  bodyR: 0.076,        // 胴の太さ
+  bodyLen: 0.030,      // 胴の直線部(短くして豆のような形に)
   bodyY: 0.062,        // 胴の中心(腰から)
   chestY: 0.115,       // 首の位置(腰から)
-  headR: 0.105,        // 頭。全身の 4 割ほどを頭にすると幼く見える
+  headR: 0.112,        // 頭。全身の 4 割ほどを頭にすると幼く見える
   // 頭を下げすぎると肩ごと胴を飲み込んで、頭に脚が生えたように見える。
   // 頭の下端が胴の上端より少し下、くらいで止める(首は作らない)。
-  headY: 0.110,        // 頭の中心(首から)
-  eye: { r: 0.019, x: 0.040, y: 0.012, z: 0.093 },
-  mouth: { r: 0.024, tube: 0.006, y: -0.030, z: 0.096 },
+  headY: 0.112,        // 頭の中心(首から)
+  // 顔の寸法は**頭の半径に対する比**で持つ。すがたによって頭の大きさが
+  // 違う(ひつじは小さい)ので、絶対値で置くと小さい頭から目がはみ出す。
+  eye: { r: 0.235, x: 0.415, y: 0.03, z: 0.80 },
+  // ハイライト。大きいのを上の外側、小さいのを下の内側に置くと目が丸く見える
+  shine: { big: 0.34, small: 0.17, x: 0.33, y: 0.34 },
+  // 頭に食い込ませる位置。球の表面は x=0.64・y=-0.16 のとき z=0.75 なので、
+  // そこより内に置くと丸ごと埋まって見えなくなる
+  blush: { r: 0.21, x: 0.64, y: -0.16, z: 0.74 },
+  mouth: { r: 0.155, tube: 0.048, y: -0.32, z: 0.90 },
   // 肩は胴の外へ出す(bodyR + armR より内側だと腕が胴に埋まる)
-  shoulder: { x: 0.093, y: 0.015 },
+  shoulder: { x: 0.094, y: 0.015 },
   // 腕は脚(thigh + shin)と同じくらいの長さに揃える。
   // 脚だけ詰めると腕が長く見えて、手が靴のそばまで垂れる。
-  armR: 0.031, upperArm: 0.043, foreArm: 0.035, handR: 0.037,
+  armR: 0.031, upperArm: 0.043, foreArm: 0.035, handR: 0.040,
   hipX: 0.050,         // 脚の間隔。近すぎると2本が1本に見える
   // 脚と靴の寸法は scale.js が持つ ── pose.js が足の裏の位置を出すのに要る
   legR: 0.036, thigh: THIGH, shin: SHIN,
@@ -57,17 +91,25 @@ export const CUTE = {
 
 // 手足1本。上下2節で、付け根から吊り下げる。
 // end は手先/足先に付ける物(無くてもよい)。
+//
+// 分割数を上げてあるのは見た目のため ── 4×8 のカプセルは真横から見ると
+// 輪郭が明らかに角張って、腕が「節のある棒」に見えていた。
+// 継ぎ目に関節の玉を1つ入れるのも同じ理由で、上下の太さが違うぶん、
+// 玉が無いと肘と膝がくびれて見える。
 function makeLimb(mat, upper, lower, thick, end) {
   const root = new THREE.Group();
-  const upperMesh = new THREE.Mesh(new THREE.CapsuleGeometry(thick, upper, 4, 8), mat);
+  const upperMesh = new THREE.Mesh(new THREE.CapsuleGeometry(thick, upper, 6, 14), mat);
   upperMesh.position.y = -upper / 2;
   upperMesh.castShadow = true;
   root.add(upperMesh);
 
   const knee = new THREE.Group();
   knee.position.y = -upper;
+  const joint = new THREE.Mesh(new THREE.SphereGeometry(thick * 1.02, 12, 10), mat);
+  joint.castShadow = true;
+  knee.add(joint);
   const lowerMesh = new THREE.Mesh(
-    new THREE.CapsuleGeometry(thick * 0.92, lower, 4, 8), mat,
+    new THREE.CapsuleGeometry(thick * 0.94, lower, 6, 14), mat,
   );
   lowerMesh.position.y = -lower / 2;
   lowerMesh.castShadow = true;
@@ -81,11 +123,51 @@ function makeLimb(mat, upper, lower, thick, end) {
   return { root, knee };
 }
 
+// 目。黒目1つ+ハイライト2つ。
+//
+// **ハイライトがいちばん効く**。同じ黒い球でも、白い点が2つ乗るだけで
+// 「塗りつぶした穴」が「濡れた目」に変わる。大きいのを上の外側、小さいのを
+// 下の内側に置くと、球に光が回り込んでいるように見える。
+// ハイライトは陰に入っても消えないよう、光を受けない材質にする。
+// rimMat を渡すと、黒目のうしろに一回り大きい明るい縁を敷く。
+// 暗い顔(ひつじの黒い顔・紺のペンギン)では黒目が顔に溶けて、
+// 顔のどこに目があるのか分からなくなる ── 縁があれば暗い顔でも目が立つ。
+function makeEye(sx, e, sh, shineMat, eyeMat, rimMat) {
+  const g = new THREE.Group();
+  if (rimMat) {
+    const rim = new THREE.Mesh(new THREE.SphereGeometry(e.r * 1.24, 16, 14), rimMat);
+    rim.scale.set(0.92, 1, 0.5);
+    rim.position.z = -e.r * 0.06;
+    g.add(rim);
+  }
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(e.r, 16, 14), eyeMat);
+  ball.scale.set(0.9, 1, 0.66);
+  g.add(ball);
+  // 黒目の表面(z = r*0.66)より前に置いて、めり込ませず光の玉として見せる
+  const spark = (r, x, y) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(e.r * r, 8, 8), shineMat);
+    m.position.set(sx * e.r * x, e.r * y, e.r * 0.42);
+    m.scale.set(1, 1, 0.6);
+    return m;
+  };
+  g.add(spark(sh.big, sh.x, sh.y), spark(sh.small, -sh.x * 0.9, -sh.y));
+  return g;
+}
+
+// ほっぺ。頭に少しだけ食い込ませて、レンズのように覗かせる。
+// 透けさせない ── 暗い顔(ひつじ・ペンギン)だと透かしたピンクが濁って消える。
+function makeBlush(sx, b, r, mat) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r * b.r, 12, 10), mat);
+  m.scale.set(1, 0.66, 0.34);
+  m.position.set(sx * r * b.x, r * b.y, r * b.z);
+  return m;
+}
+
 // 口。ふだんはにっこり、驚いたら「お」の口。
 // 2つ作って切り替える(小さく映るので、形が変わったほうが分かりやすい)。
 function makeMouth(mat, m) {
   const smile = new THREE.Mesh(
-    new THREE.TorusGeometry(m.r, m.tube, 5, 12, Math.PI), mat,
+    new THREE.TorusGeometry(m.r, m.tube, 6, 16, Math.PI), mat,
   );
   smile.rotation.z = Math.PI;   // 半円の口角を上げる
   const open = new THREE.Mesh(new THREE.SphereGeometry(m.r * 0.62, 10, 8), mat);
@@ -175,7 +257,7 @@ function makeBow(b) {
 
 // ミトンの手。指は作らない ── 小さく映るので、丸いほうが可愛く見える。
 function makeHand(mat, r) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), mat);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 12), mat);
   m.scale.set(1, 0.9, 0.95);
   m.castShadow = true;
   return m;
@@ -184,7 +266,7 @@ function makeHand(mat, r) {
 // 大きめの靴。横倒しのカプセルで、つま先が前(+Z)へ出る。
 function makeShoe(mat, s) {
   const g = new THREE.Group();
-  const m = new THREE.Mesh(new THREE.CapsuleGeometry(s.r, s.len, 4, 10), mat);
+  const m = new THREE.Mesh(new THREE.CapsuleGeometry(s.r, s.len, 6, 14), mat);
   m.rotation.x = Math.PI / 2;   // 縦のカプセルを寝かせる
   m.scale.set(1, 1, 0.78);      // 少し平たく
   m.position.set(0, s.lift, s.ahead);
@@ -229,23 +311,58 @@ function makeEars(furMat, accMat, kind, p) {
   return g;
 }
 
-// しっぽ。腰の後ろから。ねこは立てて、きつねは太く、ドラゴンは太く長く垂らす
+// しっぽ。腰の後ろから。ねこは立てて、きつねは太く、ドラゴンは太く長く垂らす。
+//
+// **遊ぶときのカメラは背中側**なので、しっぽはいちばん目に入る部品。
+// 細いカプセルを1本生やすと、背中に管が貼り付いているようにしか見えなかった
+// (背面のスクリーンショットでねこのしっぽが「ファスナー」に見えた)ので、
+// 太さと曲がりを付ける ── ねこは根元から先へ反らせ、きつねは玉を重ねて房にする。
 function makeTail(furMat, accMat, kind, p) {
   const g = new THREE.Group();
-  const len = kind === 'fox' ? 0.13 : kind === 'dragon' ? 0.14 : 0.11;
-  const thick = kind === 'fox' ? 0.030 : kind === 'dragon' ? 0.026 : 0.017;
-  // ドラゴンだけ先細り。同じ太さのカプセルだと、横から見て青い棒になる
-  const m = kind === 'dragon'
-    ? new THREE.Mesh(new THREE.ConeGeometry(thick, len, 7), furMat)
-    : new THREE.Mesh(new THREE.CapsuleGeometry(thick, len, 4, 8), furMat);
-  m.position.y = len / 2;
-  m.castShadow = true;
-  g.add(m);
+  const len = kind === 'fox' ? 0.13 : kind === 'dragon' ? 0.14 : kind === 'cat' ? 0.135 : 0.105;
+  const thick = kind === 'fox' ? 0.034 : kind === 'dragon' ? 0.026 : 0.021;
   if (kind === 'fox') {
-    // 先だけ白くする
-    const tip = new THREE.Mesh(new THREE.SphereGeometry(thick * 1.05, 10, 8), accMat);
-    tip.position.y = len;
+    // 房。だんだん太くなる玉を4つ重ねて、先を白くする
+    for (let i = 0; i < 4; i += 1) {
+      const k = 0.62 + i * 0.14;
+      const b = new THREE.Mesh(new THREE.SphereGeometry(thick * k, 12, 10), furMat);
+      b.position.y = len * (0.12 + i * 0.26);
+      b.castShadow = true;
+      g.add(b);
+    }
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(thick * 0.92, 12, 10), accMat);
+    tip.position.y = len * 1.05;
+    tip.castShadow = true;
     g.add(tip);
+  } else if (kind === 'cat') {
+    // 短いカプセルを数珠つなぎにして、1節ずつ少しだけ曲げる。
+    // 2節で折ると「曲がった管」になるが、4節だと弧になって尻尾に見える。
+    let cur = g;
+    const seg = len / 4;
+    for (let i = 0; i < 4; i += 1) {
+      const j = new THREE.Group();
+      if (i > 0) { j.position.y = seg; j.rotation.x = -0.32; }
+      const m = new THREE.Mesh(
+        new THREE.CapsuleGeometry(thick * (1 - i * 0.11), seg, 5, 10), furMat,
+      );
+      m.position.y = seg / 2;
+      m.castShadow = true;
+      j.add(m);
+      cur.add(j);
+      cur = j;
+    }
+  } else if (kind === 'bob') {
+    // まるいしっぽ(くま・ひつじ)。1つ付けるだけで背中が「後ろ姿」になる
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.026, 14, 12), accMat);
+    m.scale.set(1, 1, 0.8);
+    m.castShadow = true;
+    g.add(m);
+  } else {
+    // ドラゴン。先細りの円錐(同じ太さのカプセルだと横から見て棒になる)
+    const m = new THREE.Mesh(new THREE.ConeGeometry(thick, len, 9), furMat);
+    m.position.y = len / 2;
+    m.castShadow = true;
+    g.add(m);
   }
   if (kind === 'dragon') {
     // しっぽにも背びれを続ける。胴で終わると尻切れに見える
@@ -263,18 +380,34 @@ function makeTail(furMat, accMat, kind, p) {
     g.add(tip);
   }
   // 付け根は胴の外へ出す。中に置くと丸ごと埋まって、後ろから見えない。
-  g.position.set(0, p.bodyY * 0.55, -(p.bodyR + thick * 0.5));
+  //
+  // 高さは**お尻**(胴の下のほう)。背中の真ん中から生やすと、背骨のところに
+  // 管が縦に貼り付いたようにしか見えなかった。
+  // 倒す角も足りないと同じことになる ── しっぽが体の輪郭の外へ出るまで倒す。
+  //
+  // **横へも倒す**(rotation.z)。真後ろから見るいちばん多い画では、後ろへ
+  // 倒しただけのしっぽは短くつぶれて「お尻から出た瘤」になってしまう。
+  // 横へ逃がすと体の輪郭の外に出て、空を背にして形が読める。
+  const root = {
+    cat: [p.bodyY * 0.30, -0.18, 0.40],
+    fox: [p.bodyY * 0.34, -0.80, -0.30],
+    dragon: [p.bodyY * 0.40, -1.15, 0],
+    bob: [p.bodyY * 0.50, 0, 0],
+  }[kind] ?? [p.bodyY * 0.45, -0.5, 0];
+  g.position.set(0, root[0], -(p.bodyR + thick * 0.5));
   // rotation.x が正だと前(+Z)へ倒れて体に刺さる。後ろへ倒すので負。
-  // ねこはほぼ立て、きつねは斜め、ドラゴンは水平に近く伸ばす。
-  g.rotation.x = kind === 'dragon' ? -1.05 : kind === 'fox' ? -0.8 : -0.5;
+  g.rotation.set(root[1], 0, root[2]);
   return g;
 }
 
-// くちばし(ペンギン)
+// くちばし(ペンギン)。
+// お腹と同じクリーム色にしていたら、紺の顔の上でほとんど見えなかった。
+// **顔に無い色**(橙)で、大きめに作る。
+const BEAK = 0xf6a13a;
 function makeBeak(mat, p) {
-  const m = new THREE.Mesh(new THREE.ConeGeometry(p.headR * 0.26, p.headR * 0.42, 8), mat);
+  const m = new THREE.Mesh(new THREE.ConeGeometry(p.headR * 0.30, p.headR * 0.52, 10), mat);
   m.rotation.x = Math.PI / 2;
-  m.position.set(0, -p.headR * 0.12, p.headR * 0.92);
+  m.position.set(0, -p.headR * 0.16, p.headR * 0.90);
   m.castShadow = true;
   return m;
 }
@@ -300,13 +433,17 @@ function makeFluff(mat, p) {
   const r = p.headR;
   // 位置は決め打ちの並び。乱数は使わない(対戦の乱数に触れないのはもちろん、
   // 見るたび形が変わると「同じ人」に見えなくなる)
+  // 前髪の2つ(z が正)が要る ── 後ろと横だけだと、正面から見たときに
+  // 黒い顔の球が裸で、もこもこが「耳あて」にしか見えなかった。
   const spots = [
-    [0, 0.72, -0.1], [-0.6, 0.5, -0.1], [0.6, 0.5, -0.1],
+    [0, 0.80, 0.12], [-0.62, 0.56, -0.05], [0.62, 0.56, -0.05],
+    [-0.34, 0.62, 0.42], [0.34, 0.62, 0.42],
+    [0, 0.66, -0.42], [-0.40, 0.58, -0.48], [0.40, 0.58, -0.48],
     [-0.45, 0.15, -0.6], [0.45, 0.15, -0.6], [0, 0.3, -0.8],
-    [-0.75, 0.0, 0.1], [0.75, 0.0, 0.1],
+    [-0.78, 0.0, 0.05], [0.78, 0.0, 0.05],
   ];
   for (const [x, y, z] of spots) {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(r * 0.42, 10, 8), mat);
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r * 0.40, 12, 10), mat);
     m.position.set(x * r, y * r, z * r);
     m.castShadow = true;
     g.add(m);
@@ -322,18 +459,18 @@ function makeHorns(mat, p) {
   for (const sx of [-1, 1]) {
     // 大きい角。根元から後ろ上へ伸ばし、途中で少し曲げる(2節に分ける)
     const horn = new THREE.Group();
-    const lower = new THREE.Mesh(new THREE.ConeGeometry(p.headR * 0.19, p.headR * 0.6, 6), mat);
+    const lower = new THREE.Mesh(new THREE.ConeGeometry(p.headR * 0.24, p.headR * 0.62, 8), mat);
     lower.position.y = p.headR * 0.3;
     const upper = new THREE.Group();
     upper.position.y = p.headR * 0.55;
     upper.rotation.x = -0.55;                 // 先を後ろへ反らせる
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(p.headR * 0.12, p.headR * 0.5, 6), mat);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(p.headR * 0.155, p.headR * 0.52, 8), mat);
     tip.position.y = p.headR * 0.25;
     upper.add(tip);
     horn.add(lower, upper);
-    horn.position.set(sx * p.headR * 0.5, p.headR * 0.66, -p.headR * 0.2);
+    horn.position.set(sx * p.headR * 0.52, p.headR * 0.64, -p.headR * 0.02);
     horn.rotation.z = sx * 0.34;
-    horn.rotation.x = -0.3;
+    horn.rotation.x = -0.12;
     g.add(horn);
 
     // 小さい角(頬の横)。2対にすると一気に「竜」らしくなる
@@ -361,15 +498,22 @@ function makeWings(furMat, accMat, p) {
     );
     bone.position.y = span * 0.42;
     wing.add(bone);
-    // 膜。平たい三角を3枚、扇のようにずらして重ねる
+    // 膜。円錐(=底が平らな三角)だと、平たく潰しても縁が直線のままで、
+    // 後ろから見ると段ボールの切れ端が並んでいるようにしか見えなかった。
+    // **潰した球**にすると縁が全部曲線になり、水かきのような膜になる。
     for (let i = 0; i < 3; i += 1) {
-      const k = 1 - i * 0.14;
-      const m = new THREE.Mesh(new THREE.ConeGeometry(span * 0.34 * k, span * 0.8 * k, 3), accMat);
-      m.position.set(sx * span * 0.17, span * 0.44 - i * span * 0.2, 0);
-      m.rotation.z = sx * (0.35 + i * 0.28);
-      m.scale.set(1, 1, 0.14);   // ぺたんこにして膜にする
+      const k = 1 - i * 0.15;
+      const m = new THREE.Mesh(new THREE.SphereGeometry(span * 0.34 * k, 14, 12), accMat);
+      m.scale.set(0.55, 1.05, 0.15);   // 縦長にして、ぺたんこの膜にする
+      m.position.set(sx * span * 0.20, span * 0.34 - i * span * 0.16, 0);
+      m.rotation.z = sx * (0.45 + i * 0.32);
       wing.add(m);
     }
+    // 翼の先の爪。1つ足すと「畳んだ翼」の形が読める
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(span * 0.06, span * 0.20, 6), furMat);
+    claw.position.y = span * 0.84;
+    claw.rotation.z = sx * 0.18;
+    wing.add(claw);
     // 背中の上のほう(肩甲骨のあたり)。低いと腰の飾りに見える
     // 膜は平たいので、面が後ろを向くように付ける。横へ捻ると、横から見た
     // ときだけ板が突き出て「旗」に見える(遊ぶカメラは背中側)。
@@ -396,11 +540,13 @@ function makeSpikes(mat, p) {
   return g;
 }
 
-// お腹(ペンギン・かえる)。胴の前に平たい球を貼る
-function makeBelly(mat, p) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(p.bodyR * 0.82, 12, 10), mat);
-  m.scale.set(1, 1.15, 0.5);
-  m.position.set(0, p.bodyY - p.bodyR * 0.08, p.bodyR * 0.62);
+// お腹。胴の前に平たい球を貼る。k は大きさ(ペンギン・かえるは大きく、
+// ほかの動物は控えめに「縫いぐるみの当て布」くらい)。
+function makeBelly(mat, p, k = 0.82) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(p.bodyR * k, 16, 14), mat);
+  // 縦長にすると「盾」の形になって当て布に見えない。ほぼ丸く、少し横広に。
+  m.scale.set(k < 0.7 ? 1.2 : 1, k < 0.7 ? 1.0 : 1.15, 0.5);
+  m.position.set(0, p.bodyY - p.bodyR * (k < 0.7 ? 0.22 : 0.08), p.bodyR * 0.62);
   return m;
 }
 
@@ -414,12 +560,22 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   const parts = sp.parts ?? {};
 
   const g = new THREE.Group();
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75, metalness: 0.02 });
+  // roughness を少し下げてある ── 0.75 だと光がまったく回らず、
+  // どの向きから見ても同じ明るさの「塗り面」になってしまう。
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.62, metalness: 0.02 });
   // 動物は顔も手足も体の色。ひとは肌色のまま
   const skin = mat(sp.fur ? color : SKIN);
   const cloth = mat(color);
-  const shoe = mat(sp.fur ? color : SHOE);
+  // 手足の先だけ色をずらす。全身を1色で塗ると、腕も脚も胴に溶けて
+  // 影絵のような塊になる ── 先端に差を付けると手足の形が読める。
+  const paw = mat(sp.fur ? tone(color, 0.10) : SKIN);
+  const shoe = mat(sp.fur ? tone(color, 0.15) : SHOE);
   const accent = mat(sp.accent ?? SKIN);
+  const shineMat = new THREE.MeshBasicMaterial({ color: SHINE });
+  const blushMat = mat(BLUSH);
+  // 顔が暗いすがただけ目に明るい縁を付ける(makeEye)
+  const faceColor = sp.face ?? (sp.fur ? color : SKIN);
+  const rimMat = lightness(faceColor) < 0.30 ? mat(0xf4f1ee) : null;
 
   // 腰。ここを動かすと全身が付いてくる
   const hips = new THREE.Group();
@@ -427,7 +583,7 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   g.add(hips);
 
   // 胴。下がすぼまった卵形にすると、ずんぐりして見える
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(p.bodyR, p.bodyLen, 5, 12), cloth);
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(p.bodyR, p.bodyLen, 8, 18), cloth);
   torso.position.y = p.bodyY;
   torso.scale.set(1, 1, 0.88);
   torso.castShadow = true;
@@ -440,7 +596,7 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
 
   // 顔だけ別の色にできる(ひつじの黒い顔など)。既定は体と同じ
   const faceMat = sp.face != null ? mat(sp.face) : skin;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(p.headR, 18, 14), faceMat);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(p.headR, 26, 20), faceMat);
   head.position.y = p.headY;
   head.scale.set(1, 0.96, 0.96);   // 顔の付け位置はこの潰しを割り戻す(下)
   head.castShadow = true;
@@ -453,31 +609,43 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   // 頭は少し潰してある(scale)。子はその潰しを受けるので、割り戻して
   // 付ける ── そうしないと顔の位置だけ前より内側へ寄る。
   const hs = { y: 0.96, z: 0.96 };
-  const eyeGeo = new THREE.SphereGeometry(p.eye.r, 8, 8);
   const eyeMat = new THREE.MeshBasicMaterial({ color: EYE });
+  // 顔の寸法は頭の半径に対する比で持っている(CUTE)。実寸に直す。
+  const R = p.headR;
+  const eye = { r: R * p.eye.r, x: R * p.eye.x, y: R * p.eye.y, z: R * p.eye.z };
   for (const sx of [-1, 1]) {
     if (parts.eyesOnTop) {
       // かえる。頭の上に大きな目を乗せる(白目ごと出っ張らせる)
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(p.headR * 0.34, 10, 8), skin);
-      ball.position.set(sx * p.headR * 0.44, p.headR * 0.72 / hs.y, p.headR * 0.12 / hs.z);
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(R * 0.34, 14, 12), skin);
+      ball.position.set(sx * R * 0.44, R * 0.72 / hs.y, R * 0.12 / hs.z);
       ball.castShadow = true;
-      const pupil = new THREE.Mesh(new THREE.SphereGeometry(p.eye.r * 1.15, 8, 8), eyeMat);
-      pupil.position.z = p.headR * 0.28;
-      ball.add(pupil);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(eye.r * 0.92, 14, 12), eyeMat);
+      pupil.position.z = R * 0.28;
+      pupil.scale.set(1, 1, 0.7);
+      const sh = new THREE.Mesh(new THREE.SphereGeometry(eye.r * 0.3, 8, 8), shineMat);
+      sh.position.set(sx * eye.r * 0.3, eye.r * 0.32, R * 0.28 + eye.r * 0.5);
+      ball.add(pupil, sh);
       head.add(ball);
       continue;
     }
-    const eye = new THREE.Mesh(eyeGeo, eyeMat);
-    eye.position.set(sx * p.eye.x, p.eye.y / hs.y, p.eye.z / hs.z);
-    eye.scale.set(0.85, 1 / hs.y, 0.7 / hs.z);
-    head.add(eye);
+    const g2 = makeEye(sx, eye, p.shine, shineMat, eyeMat, rimMat);
+    g2.position.set(sx * eye.x, eye.y / hs.y, eye.z / hs.z);
+    g2.scale.set(1, 1 / hs.y, 1 / hs.z);
+    head.add(g2);
   }
 
-  const mouth = makeMouth(eyeMat, { ...p.mouth, y: p.mouth.y / hs.y, z: p.mouth.z / hs.z });
+  // ほっぺ。目と口のあいだの何もない面に色を1つ置くだけで、
+  // のっぺりした球が「顔」になる
+  for (const sx of [-1, 1]) head.add(makeBlush(sx, p.blush, R, blushMat));
+
+  const mouth = makeMouth(eyeMat, {
+    r: R * p.mouth.r, tube: R * p.mouth.tube,
+    y: R * p.mouth.y / hs.y, z: R * p.mouth.z / hs.z,
+  });
   head.add(mouth.smile, mouth.open);
 
   const arms = [-1, 1].map((sx) => {
-    const limb = makeLimb(skin, p.upperArm, p.foreArm, p.armR, makeHand(skin, p.handR));
+    const limb = makeLimb(skin, p.upperArm, p.foreArm, p.armR, makeHand(paw, p.handR));
     limb.root.position.set(sx * p.shoulder.x, p.shoulder.y, 0);
     chest.add(limb.root);
     return limb;
@@ -507,7 +675,7 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   // 頭に付けたものは首の動きに付いてくる(胴に付けると顔だけ正面を向く)
   if (parts.ears) head.add(makeEars(skin, accent, parts.ears, p));
   if (parts.snout) head.add(makeSnout(skin, accent, mat(EYE), p));
-  if (parts.beak) head.add(makeBeak(accent, p));
+  if (parts.beak) head.add(makeBeak(mat(BEAK), p));
   if (parts.horns) head.add(makeHorns(accent, p));
   if (parts.fluff) head.add(makeFluff(skin, p));
   // 翼は胴(chest)に付ける。上体をひねると一緒に動く
@@ -515,7 +683,11 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   // 腰(体のひねりに付いてくる)
   if (parts.tail) hips.add(makeTail(skin, accent, parts.tail, p));
   if (parts.spikes) hips.add(makeSpikes(accent, p));
+  // お腹。ペンギン・かえるは指定の色、それ以外の動物は体の色をずらしたもの。
+  // 全員に付けるのは、胴が一色の面だと縫いぐるみに見えないから ──
+  // ひとだけは付けない(服に丸い当て布が付いているように見えてしまう)。
   if (parts.belly) hips.add(makeBelly(accent, p));
+  else if (sp.fur) hips.add(makeBelly(mat(tone(color, 0.10)), p, 0.58));
 
   // 縮尺は一番外側の入れ物に1回だけ掛ける(scale.js)。
   // 部位の寸法を1つずつ掛けると必ずどこかを取り残すし、名札や吹き出しも
