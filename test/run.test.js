@@ -9,7 +9,9 @@ import assert from 'node:assert/strict';
 import {
   WalkerMotion, WALK_SPEED, RUN_SPEED, RUN_GAIT, ACCEL,
 } from '../src/minigame/motion.js';
-import { strideOf, phasePerUnit, LEG_SWING, STEP_SLIP } from '../src/minigame/pose.js';
+import {
+  strideOf, phasePerUnit, restBlend, walkPose, LEG_SWING, STEP_SLIP,
+} from '../src/minigame/pose.js';
 import { ROLL_WALK, ROLL_ACCEL } from '../src/minigame/logroll.js';
 import { DRAGON_SPEED } from '../src/minigame/meet/dragon-hunt.js';
 
@@ -136,4 +138,69 @@ test('歩き出し: 最初の半秒で進む距離', () => {
   const d = log.reduce((s, r) => s + r.speed * DT, 0);
   assert.ok(d > WALK_SPEED * 0.5 * 0.75,
     `最初の半秒で ${(d / (WALK_SPEED * 0.5) * 100).toFixed(0)}% しか進めない`);
+});
+
+// ---- 止まったとき ----
+
+test('止まると足がそろう', () => {
+  // **歩きの位相は止まった形のまま残る。** そのままだと片足を前に出した
+  // 姿勢で固まる(実測で、左右の脚が 0.264 ラジアン開いたまま止まっていた)。
+  const b = restBlend();
+  // 脚が開いている位相(sin が大きいところ)から止める
+  const mid = walkPose(Math.PI / 2, 1, 0);
+  assert.ok(Math.abs(mid.legs[0].rootX) > 0.2, '前提: 開いた姿勢で試していない');
+  let out = null;
+  for (let i = 0; i < 60; i++) out = b.pose(mid, 0, false, DT);
+  for (let i = 0; i < 2; i++) {
+    assert.ok(Math.abs(out.legs[i].rootX) < 1e-9,
+      `足が前に出たまま(${out.legs[i].rootX.toFixed(3)})`);
+  }
+  assert.ok(Math.abs(out.lift) < 1e-9, '腰が沈んだまま');
+});
+
+test('止まると: そろうまでが段にならない', () => {
+  const b = restBlend();
+  const mid = walkPose(Math.PI / 2, 1, 0);
+  let prev = mid.legs[0].rootX;
+  let max = 0;
+  for (let i = 0; i < 60; i++) {
+    const p = b.pose(mid, 0, false, DT);
+    max = Math.max(max, Math.abs(p.legs[0].rootX - prev));
+    prev = p.legs[0].rootX;
+  }
+  // つながずに切り替えると、開いていたぶんを 1 コマで全部動く。
+  // その 1/5 以下に収まること
+  const span = Math.abs(mid.legs[0].rootX);
+  assert.ok(max < span / 5, `1コマで ${max.toFixed(3)} 動いた(全体で ${span.toFixed(3)})`);
+});
+
+test('止まると: 歩き出したら、入るより速く抜ける', () => {
+  // 押してから足が出るまでに間があると、操作が重く感じる
+  const b = restBlend();
+  const mid = walkPose(Math.PI / 2, 1, 0);
+  let inT = 0;
+  while (b.weight < 1 && inT < 2) { b.pose(mid, 0, false, DT); inT += DT; }
+  let outT = 0;
+  while (b.weight > 0 && outT < 2) { b.pose(mid, 0, true, DT); outT += DT; }
+  assert.ok(outT < inT, `抜けるほうが遅い(入り ${inT.toFixed(2)} / 抜け ${outT.toFixed(2)})`);
+  assert.ok(outT < 0.2, `歩き出しに ${outT.toFixed(2)}秒 かかる(重い)`);
+  assert.ok(inT > 0.15, `${inT.toFixed(2)}秒 で足がそろう(急に立つ)`);
+});
+
+test('止まると: 歩いているあいだは触らない', () => {
+  const b = restBlend();
+  const p = walkPose(1.2, 1, 0.4);
+  const out = b.pose(p, 0.4, true, DT);
+  assert.equal(out, p, '歩いているのに姿勢を作り替えている');
+  assert.equal(b.weight, 0);
+});
+
+test('止まると: reset で白紙に戻る', () => {
+  const b = restBlend();
+  const mid = walkPose(Math.PI / 2, 1, 0);
+  for (let i = 0; i < 60; i++) b.pose(mid, 0, false, DT);
+  assert.ok(b.weight > 0.9, '立ち姿になっていない');
+  b.reset();
+  assert.equal(b.weight, 0);
+  assert.equal(b.pose(mid, 0, true, DT), mid, 'reset のあとも混ざっている');
 });
