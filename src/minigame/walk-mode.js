@@ -19,7 +19,8 @@ import { Raid, ARCHERY_MODES, BOW_Y, reach as arrowReach } from './archery.js';
 import { ArcheryFx } from './archery-fx.js';
 import { makeBlocker, clearAround } from './obstacles.js';
 import {
-  MAX_DT, SINK_DEPTH, WATER_Y, ACCEL, RUN_SPEED, approachAngle, ease01,
+  MAX_DT, SINK_DEPTH, WATER_Y, ACCEL, RUN_SPEED, CAM_FOLLOW,
+  approachAngle, ease01, smooth, camFollow,
 } from './motion.js';
 import { Walker, WALK_SPEED } from './walker.js';
 import { WaterFx } from './water-fx.js';
@@ -44,12 +45,6 @@ function disposeTree(root) {
       (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose?.());
     }
   });
-}
-
-// フレームレートに依らない追従係数。
-// dt を直に掛けると、低フレームでは 1 を超えて「瞬間移動」になる。
-function smooth(rate, dt) {
-  return 1 - Math.exp(-rate * dt);
 }
 
 // 暗転は沈みきる手前から。早くから暗くすると、せっかくの水中が見えない。
@@ -152,6 +147,7 @@ const FISH_SETTLE = 0.22;
 // 釣りのカメラは本人より FISH_AIM だけ沖を見ているので、そのまま
 // 本人へ戻すと視線が1コマで 7.5° 回る(実測)。walker.js の ROD_OUT と揃える。
 const FISH_AIM_OUT = 0.45;
+
 
 // 散策部屋: 自分の位置を送る間隔(サーバーの配る間隔と揃える)
 const SEND_MS = 100;
@@ -907,16 +903,26 @@ export class WalkMode {
     this.onSink?.(r?.respawned ? 0 : sinkVeil(r?.depth ?? 0));
 
     // 動いている間は、カメラをゆっくり後ろへ回り込ませる。
+    //
+    // **前向きの成分ぶんだけ回り込ませる。** 行き先はカメラの向き(camYaw)を
+    // 基準に決めているので、カメラが本人の向きを追うと
+    // 「カメラが回る → 行き先も回る → もっと回る」と噛み合う。
+    // 倒しっぱなしにすると、その場で回り続けていた ── 実測で 2 秒のあいだに
+    // 斜め前で 142°・横で 85°・**真下で 570°**(1.6 周)。
+    // 真横から後ろは重み 0 にして輪を切る。下に倒したら、回らずに
+    // 手前(画面のほう)へまっすぐ歩く。
+    //
     // **丸太の上では回り込ませない。** 丸太の上で歩くのは主に太さ方向
     // (流れに逆らう向き)なので、後ろへ回り込ませると丸太を真横から見る
     // 絵になって、長さ方向のどこに切れ目が来ているかが映らなくなる。
     // 向きを固定しておくと、スティックの上下が長さ方向(切れ目をよける)、
     // 左右が太さ方向(流れに逆らう)に決まって操作も読みやすい。
     const speed = Math.hypot(this.walker.vel.x, this.walker.vel.z);
-    if (!this.roll && speed > WALK_SPEED * 0.35) {
+    const follow = camFollow(inp);
+    if (!this.roll && follow > 0 && speed > WALK_SPEED * 0.35) {
       const want = this.walker.facing;
       let d = ((want - this.camYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-      this.camYaw += d * smooth(1.6, dt);
+      this.camYaw += d * smooth(CAM_FOLLOW * follow, dt);
     }
     this._placeCamera(dt, false);
 

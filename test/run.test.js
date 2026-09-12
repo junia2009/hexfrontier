@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   WalkerMotion, WALK_SPEED, RUN_SPEED, RUN_GAIT, ACCEL,
+  CAM_FOLLOW, camFollow, smooth,
 } from '../src/minigame/motion.js';
 import {
   strideOf, phasePerUnit, restBlend, walkPose, LEG_SWING, STEP_SLIP,
@@ -203,4 +204,74 @@ test('止まると: reset で白紙に戻る', () => {
   b.reset();
   assert.equal(b.weight, 0);
   assert.equal(b.pose(mid, 0, true, DT), mid, 'reset のあとも混ざっている');
+});
+
+// ---- カメラの回り込み ----
+
+// walk-mode.js の _frame と同じ式で、カメラを回しながら歩かせる。
+// **輪ができるかどうかは、この閉じた輪を回さないと出ない** ──
+// 「行き先はカメラ基準 / カメラは本人の向きを追う」で噛み合うのが本体。
+function strollWithCamera(input, secs = 2) {
+  const m = flat();
+  m.setPosition(0, 0);
+  m.runSpeed = null;               // 駆け足は別の話なので混ぜない
+  let camYaw = 0;
+  const from = { x: m.pos.x, z: m.pos.z };
+  for (let i = 0; i < secs / DT; i++) {
+    m.update(DT, input, camYaw);
+    const speed = Math.hypot(m.vel.x, m.vel.z);
+    const follow = camFollow(input);
+    if (follow > 0 && speed > WALK_SPEED * 0.35) {
+      const d = ((m.facing - camYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2)
+        % (Math.PI * 2) - Math.PI;
+      camYaw += d * smooth(CAM_FOLLOW * follow, DT);
+    }
+  }
+  return {
+    turned: Math.abs(camYaw) * 180 / Math.PI,
+    dist: Math.hypot(m.pos.x - from.x, m.pos.z - from.z),
+    straight: WALK_SPEED * secs,
+  };
+}
+
+test('カメラ: 下に倒しても、その場で回らない', () => {
+  // **報告の本体。** 行き先はカメラの向きを基準に決めているので、
+  // カメラが本人の向きを追うと輪になる。実測で 2 秒に 570°(1.6 周)
+  // 回って、ほとんど進んでいなかった(1.45 進むはずが 0.5)。
+  const r = strollWithCamera({ x: 0, y: -1 });
+  assert.ok(r.turned < 5, `2秒で ${r.turned.toFixed(0)}° 回った`);
+  assert.ok(r.dist > r.straight * 0.8,
+    `まっすぐ歩けていない(${r.dist.toFixed(2)} / ${r.straight.toFixed(2)})`);
+});
+
+test('カメラ: 横に倒しても、その場で回らない', () => {
+  for (const x of [1, -1]) {
+    const r = strollWithCamera({ x, y: 0 });
+    assert.ok(r.turned < 5, `横 ${x} で 2秒に ${r.turned.toFixed(0)}° 回った`);
+    assert.ok(r.dist > r.straight * 0.8, `横 ${x} でまっすぐ歩けていない`);
+  }
+});
+
+test('カメラ: 斜めは少しだけ回り込む(輪にはならない)', () => {
+  // 斜めは重み 0 にできない(前向きの成分があるので)。速さのほうで抑える。
+  const r = strollWithCamera({ x: 0.7, y: 0.7 });
+  assert.ok(r.turned > 2, `斜めでまったく回り込まない(${r.turned.toFixed(0)}°)`);
+  assert.ok(r.turned < 45, `斜めで 2秒に ${r.turned.toFixed(0)}° も回る(輪になる)`);
+  assert.ok(r.dist > r.straight * 0.6, `斜めで進めていない(${r.dist.toFixed(2)})`);
+});
+
+test('カメラ: 真っ直ぐ奥へ歩くときは回さない', () => {
+  const r = strollWithCamera({ x: 0, y: 1 });
+  assert.ok(r.turned < 1, `真上で ${r.turned.toFixed(1)}° 回った`);
+  assert.ok(r.dist > r.straight * 0.9, 'まっすぐ歩けていない');
+});
+
+test('カメラ: 回り込む重みは「奥へ」の成分', () => {
+  assert.equal(camFollow({ x: 0, y: 1 }), 1);          // 真上
+  assert.equal(camFollow({ x: 1, y: 0 }), 0);          // 真横
+  assert.equal(camFollow({ x: 0, y: -1 }), 0);         // 真下
+  assert.equal(camFollow({ x: 0.6, y: -0.8 }), 0);     // 斜め手前
+  assert.equal(camFollow({ x: 0, y: 0 }), 0);          // 倒していない
+  const d = camFollow({ x: 0.6, y: 0.8 });
+  assert.ok(Math.abs(d - 0.8) < 1e-9, `斜め奥の重みが ${d}`);
 });
