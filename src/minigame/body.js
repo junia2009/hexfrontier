@@ -294,16 +294,23 @@ function makeEars(furMat, accMat, kind, p) {
       ear.position.set(sx * r * 0.72, r * 0.72, 0);
     } else {
       // 円錐。きつねは細長く、ひつじは横へ垂らす
-      const len = kind === 'fox' ? r * 0.95 : r * 0.62;
-      const wide = kind === 'droop' ? r * 0.30 : r * 0.26;
-      const outer = new THREE.Mesh(new THREE.ConeGeometry(wide, len, 7), furMat);
+      const droop = kind === 'droop';
+      // 垂れ耳(ひつじ)は**毛の外**から生やす。毛は頭から 1.22R まで
+      // 膨らんでいるので、ふつうの付け位置(0.55R)だと丸ごと埋まって、
+      // 耳が1つも見えないひつじになっていた。
+      const len = kind === 'fox' ? r * 0.95 : droop ? r * 0.80 : r * 0.62;
+      const wide = droop ? r * 0.28 : r * 0.26;
+      const outer = new THREE.Mesh(new THREE.ConeGeometry(wide, len, 9), furMat);
       outer.position.y = len / 2;
-      const inner = new THREE.Mesh(new THREE.ConeGeometry(wide * 0.55, len * 0.7, 7), accMat);
+      const inner = new THREE.Mesh(new THREE.ConeGeometry(wide * 0.55, len * 0.7, 9), accMat);
       inner.position.set(0, len * 0.42, wide * 0.35);
       ear.add(outer, inner);
-      ear.position.set(sx * r * 0.55, r * 0.62, 0);
-      ear.rotation.z = sx * (kind === 'droop' ? 1.25 : 0.28);
-      if (kind === 'droop') ear.position.y = r * 0.3;
+      ear.position.set(sx * r * (droop ? 0.96 : 0.55), r * (droop ? 0.18 : 0.62), r * (droop ? 0.18 : 0));
+      // Z 回りの正の回転は +Y を −X へ倒す。つまり **sx と同符号だと内側**へ
+      // 倒れる ── 垂れ耳をこれで回していたので、耳が頭の上で交差して
+      // 毛に埋まり、耳の無いひつじになっていた。外へ倒すので符号を反転する。
+      ear.rotation.z = -sx * (droop ? 1.95 : -0.28);
+      if (droop) ear.rotation.x = -0.25;   // 少し後ろへ
     }
     ear.traverse((o) => { o.castShadow = true; });
     g.add(ear);
@@ -317,7 +324,7 @@ function makeEars(furMat, accMat, kind, p) {
 // 細いカプセルを1本生やすと、背中に管が貼り付いているようにしか見えなかった
 // (背面のスクリーンショットでねこのしっぽが「ファスナー」に見えた)ので、
 // 太さと曲がりを付ける ── ねこは根元から先へ反らせ、きつねは玉を重ねて房にする。
-function makeTail(furMat, accMat, kind, p) {
+function makeTail(furMat, accMat, pawMat, kind, p) {
   const g = new THREE.Group();
   const len = kind === 'fox' ? 0.13 : kind === 'dragon' ? 0.14 : kind === 'cat' ? 0.135 : 0.105;
   const thick = kind === 'fox' ? 0.034 : kind === 'dragon' ? 0.026 : 0.021;
@@ -352,8 +359,10 @@ function makeTail(furMat, accMat, kind, p) {
       cur = j;
     }
   } else if (kind === 'bob') {
-    // まるいしっぽ(くま・ひつじ)。1つ付けるだけで背中が「後ろ姿」になる
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.026, 14, 12), accMat);
+    // まるいしっぽ(くま・ひつじ)。1つ付けるだけで背中が「後ろ姿」になる。
+    // 色は手足の先と同じずらし方にする ── 差し色(accent)を使うと、
+    // 差し色が暗いひつじで、白い毛に黒い穴が空いたように見えた。
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.026, 14, 12), pawMat);
     m.scale.set(1, 1, 0.8);
     m.castShadow = true;
     g.add(m);
@@ -427,27 +436,62 @@ function makeSnout(furMat, accMat, noseMat, p) {
   return g;
 }
 
-// もこもこ(ひつじ)。頭のまわりに球をいくつか散らす
-function makeFluff(mat, p) {
+// もこもこ(ひつじ)。球をぐるりと並べて覆う。
+//
+// 手で位置を並べていたら、隙間から黒い下地がのぞいて「耳あて」に見えた。
+// **緯度・経度で並べて、顔の穴だけ開ける**ようにすると、どこから見ても
+// 毛で埋まり、地が出るのは顔の正面だけになる。
+//
+// 並びは決め打ち。乱数は使わない(対戦の乱数に触れないのはもちろん、
+// 見るたび形が変わると「同じ人」に見えなくなる)。
+//
+// 穴は円ではなく**横長**にする ── 正円で開けると、目と口を出すのに
+// 十分な高さを取ったところで左右が開きすぎて、頬まで地が出てしまう。
+const FACE_H = 58;    // 正面からこの左右角までが顔(度)
+const FACE_UP = 40;   // 顔の穴の上端(度)
+const FACE_DOWN = -42;
+function shell(mat, rings, dist, size, faceHole) {
   const g = new THREE.Group();
-  const r = p.headR;
-  // 位置は決め打ちの並び。乱数は使わない(対戦の乱数に触れないのはもちろん、
-  // 見るたび形が変わると「同じ人」に見えなくなる)
-  // 前髪の2つ(z が正)が要る ── 後ろと横だけだと、正面から見たときに
-  // 黒い顔の球が裸で、もこもこが「耳あて」にしか見えなかった。
-  const spots = [
-    [0, 0.80, 0.12], [-0.62, 0.56, -0.05], [0.62, 0.56, -0.05],
-    [-0.34, 0.62, 0.42], [0.34, 0.62, 0.42],
-    [0, 0.66, -0.42], [-0.40, 0.58, -0.48], [0.40, 0.58, -0.48],
-    [-0.45, 0.15, -0.6], [0.45, 0.15, -0.6], [0, 0.3, -0.8],
-    [-0.78, 0.0, 0.05], [0.78, 0.0, 0.05],
-  ];
-  for (const [x, y, z] of spots) {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(r * 0.40, 12, 10), mat);
-    m.position.set(x * r, y * r, z * r);
-    m.castShadow = true;
-    g.add(m);
+  const geo = new THREE.SphereGeometry(size, 12, 10);   // 使い回す
+  for (const [lat, n] of rings) {
+    const la = (lat * Math.PI) / 180;
+    for (let i = 0; i < n; i += 1) {
+      const lo = (i / n) * Math.PI * 2;   // 0 が正面(+Z)
+      const dir = [Math.cos(la) * Math.sin(lo), Math.sin(la), Math.cos(la) * Math.cos(lo)];
+      if (faceHole) {
+        const h = Math.abs((Math.atan2(dir[0], dir[2]) * 180) / Math.PI);
+        if (h < FACE_H && lat < FACE_UP && lat > FACE_DOWN) continue;
+      }
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(dir[0] * dist, dir[1] * dist, dir[2] * dist);
+      m.castShadow = true;
+      g.add(m);
+    }
   }
+  return g;
+}
+
+function makeFluff(mat, p) {
+  const r = p.headR;
+  return shell(
+    mat,
+    [[90, 1], [58, 7], [20, 10], [-18, 10], [-54, 7]],
+    r * 0.80, r * 0.42, true,
+  );
+}
+
+// 胴のもこもこ(ひつじ)。頭だけ毛だと、毛糸の帽子をかぶった人に見える。
+// 顔の穴は要らないので、ぐるり全部を埋める。
+function makeWool(mat, p) {
+  const g = shell(
+    mat,
+    [[62, 6], [24, 9], [-16, 9], [-56, 6]],
+    p.bodyR * 0.76, p.bodyR * 0.44, false,
+  );
+  // 少し下げる。肩の高さまで毛を盛ると腕が丸ごと埋まって、
+  // 万歳も竿も見えないひつじになる。
+  g.position.y = p.bodyY - p.bodyR * 0.10;
+  g.scale.z = 0.92;   // 胴の潰しに合わせる
   return g;
 }
 
@@ -681,13 +725,15 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   // 翼は胴(chest)に付ける。上体をひねると一緒に動く
   if (parts.wings) chest.add(makeWings(skin, accent, p));
   // 腰(体のひねりに付いてくる)
-  if (parts.tail) hips.add(makeTail(skin, accent, parts.tail, p));
+  if (parts.wool) hips.add(makeWool(skin, p));
+  if (parts.tail) hips.add(makeTail(skin, accent, paw, parts.tail, p));
   if (parts.spikes) hips.add(makeSpikes(accent, p));
   // お腹。ペンギン・かえるは指定の色、それ以外の動物は体の色をずらしたもの。
   // 全員に付けるのは、胴が一色の面だと縫いぐるみに見えないから ──
   // ひとだけは付けない(服に丸い当て布が付いているように見えてしまう)。
+  // 毛に覆われる胴(ひつじ)には要らない ── 当て布ごと毛の下に埋まる。
   if (parts.belly) hips.add(makeBelly(accent, p));
-  else if (sp.fur) hips.add(makeBelly(mat(tone(color, 0.10)), p, 0.58));
+  else if (sp.fur && !parts.wool) hips.add(makeBelly(mat(tone(color, 0.10)), p, 0.58));
 
   // 縮尺は一番外側の入れ物に1回だけ掛ける(scale.js)。
   // 部位の寸法を1つずつ掛けると必ずどこかを取り残すし、名札や吹き出しも

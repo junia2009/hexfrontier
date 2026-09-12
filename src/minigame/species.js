@@ -58,8 +58,8 @@ export const SPECIES = [
     accent: 0x2f2f3a,
     face: 0x3a3a44,            // 顔だけ暗くする(もこもこはその人の色)
     props: { headR: 0.105, hipY: 0.106, thigh: 0.032, shin: 0.032 },
-    parts: { fluff: true, ears: 'droop', tail: 'bob' },
-    top: 0.03,                 // もこもこのぶん背が高くなる
+    parts: { fluff: true, wool: true, ears: 'droop', tail: 'bob' },
+    top: 0.01,                 // もこもこのぶん背が高くなる(実測 +0.006)
   },
   {
     id: 5,
