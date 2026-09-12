@@ -24,7 +24,7 @@ import { achievementById } from '../src/achievements.js';
 import {
   COURSE_L, COURSE_W, DRUM_AXIS, DRUM_BAND, DRUM_LEN, DRUM_R, DRUM_TOP, GRACE_MS,
   FREE_TURN, HOLE_ARC, angleAt, courseGround, findAnchor, holeOpen, makeCourse, rollTime, safeZ,
-  ROLL_MS, ROLL_WALK, slipRate, spinAt, startSpots, toLocal, toWorld, turnAt, turnOf,
+  ROLL_MS, ROLL_WALK, ROLL_ACCEL, slipRate, spinAt, startSpots, toLocal, toWorld, turnAt, turnOf,
   upstreamFace, withCourse,
 } from '../src/minigame/logroll.js';
 
@@ -53,6 +53,8 @@ function ride(fix, { input = { x: 0, y: 0 }, secs = 4, at = null, pin = true }) 
   // **丸太の上は島より速く歩く。** 本物(walk-mode.js)がそうしているので、
   // ここでも合わせる ── 島の速さで乗せると、押し返せずに理不尽な盤になる。
   m.speed = ROLL_WALK;
+  m.accel = ROLL_ACCEL;   // 舵の効きも丸太のもの(島の歩きより鈍い)
+  m.runSpeed = null;      // 丸太の上では駆け足にならない(本物もそうしている)
   const spot = at ?? startSpots(fix.course, fix.anchor, 1)[0];
   m.setPosition(spot.x, spot.z);
   if (pin) m.setRespawn(0, 0, { pin: true });   // 岸に固定(原点は主島の陸)
@@ -339,6 +341,8 @@ test('丸太: 落ちても丸太に戻らない(復帰先が固定されてい�
   // **丸太の上は島より速く歩く。** 本物(walk-mode.js)がそうしているので、
   // ここでも合わせる ── 島の速さで乗せると、押し返せずに理不尽な盤になる。
   m.speed = ROLL_WALK;
+  m.accel = ROLL_ACCEL;   // 舵の効きも丸太のもの(島の歩きより鈍い)
+  m.runSpeed = null;      // 丸太の上では駆け足にならない(本物もそうしている)
   const spot = startSpots(fix.course, fix.anchor, 1)[0];
   m.setPosition(spot.x, spot.z);
   m.setRespawn(shore.x, shore.z, { pin: true });

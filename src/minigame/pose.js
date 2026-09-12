@@ -11,7 +11,7 @@
 import { s as sc, HIP_Y, THIGH, SHIN, SOLE_DROP, SOLE_AHEAD } from './scale.js';
 // 「寄せる」曲線は motion.js と同じものを使う(両端で速度 0)。
 // motion.js は pose.js を読まないので、輪にはならない。
-import { ease01 } from './motion.js';
+import { ease01, RUN_GAIT } from './motion.js';
 
 const JOINT = (x = 0, y = 0, z = 0) => ({ x, y, z });
 // 体全体の上下(タイル単位)。下げる向きが負。
@@ -72,12 +72,43 @@ export const FOOT_TRAVEL = 2 * LEG_LEN * Math.sin(LEG_SWING);
 //
 // **ここは速さと脚の長さの釣り合いの話。** これ以上詰めると歩数が増え、
 // 歩数が増えると体の沈む回数も増えて、今度は画面が振動して見える
-// (秒 6.4 回で「ガクガクして疲れる」と言われた)。歩数のほうは
-// 歩く速さで抑えてある(motion.js の WALK_SPEED を 1.9 → 1.25)。
+// (秒 6.4 回で「ガクガクして疲れる」と言われた)。歩きの歩数は
+// 歩く速さで抑えてある(motion.js の WALK_SPEED。いま秒 4.9 歩)。
+// 駆け足のぶんは、速さではなく**歩幅**で抑える(すぐ下の RUN_SWING)。
 export const STEP_SLIP = 1.8;
 export const STEP_DIST = FOOT_TRAVEL * STEP_SLIP;
 
+// ---- 駆け足の歩幅 ----
+//
+// **走るときは歩幅が伸びる。** 伸ばさないと脚が回るだけになる ──
+// 脚が短いので、歩きの歩幅のまま 1.2 タイル/秒 で走ると秒 8 歩で、
+// 体も秒 8 回沈む(秒 6.4 で「画面が振動して見える」と言われた線を超える)。
+// 伸ばせば秒 5.6 歩に収まり、歩きの 4.9 歩とそれほど変わらない。
+//
+// **歩きの形はいっさい変えていない**(gait 1 までは LEG_SWING / STEP_SLIP のまま)。
+const RUN_SWING = 1.15;   // 全力での腰の振り(歩きは 0.78)
+const RUN_SLIP = 2.0;     // 全力での 1歩 ÷ 足の振れ幅(歩きは 1.8)
+
+// 駆け足の度合い。gait 1 で歩き、RUN_GAIT(motion.js)で全力。
+const runK = (gait) => Math.max(0, Math.min(1, (gait - 1) / (RUN_GAIT - 1)));
+
+// いまの脚の運び。歩きと駆け足のあいだを gait で混ぜる。
+export function strideOf(gait = 1) {
+  const k = runK(gait);
+  return {
+    swing: LEG_SWING + (RUN_SWING - LEG_SWING) * k,
+    slip: STEP_SLIP + (RUN_SLIP - STEP_SLIP) * k,
+  };
+}
+
 // 進んだ距離 → 歩行サイクルの位相。1歩(左右のどちらか)が π。
+// **歩幅が伸びれば、同じ距離で進む位相は減る**(だから歩数が増えない)。
+export function phasePerUnit(gait = 1) {
+  const st = strideOf(gait);
+  return Math.PI / (2 * LEG_LEN * Math.sin(st.swing) * st.slip);
+}
+
+// 歩きのぶん。定数として要るところ(テスト・remote-view)のために残す。
 export const PHASE_PER_UNIT = Math.PI / STEP_DIST;
 
 // 膝の曲げ。**曲げるのは「前へ振り出している最中」の脚だけ。**
@@ -115,7 +146,7 @@ export function walkPose(phase, gait, facing) {
   // **振り幅は速さで縮めない。** 縮めると、ゆっくり歩くほど歩幅だけが
   // 小さくなって滑りが増える ── 実測でも遅いほど悪く(93% → 98%)なっていた。
   // 速さは歩数(位相の進み)が受け持つので、1歩の形は変えない。
-  const swingAmp = LEG_SWING;
+  const swingAmp = strideOf(gait).swing;
   const angle = Math.sin(t) * swingAmp;
   return {
     group: JOINT(0, facing, 0),
