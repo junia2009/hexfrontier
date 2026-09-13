@@ -182,9 +182,11 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
        <p><small>記録はこの端末にだけ保存されます(サーバーには送りません)。
        オンライン対戦は数えていません。</small></p>`;
 
+  // 見出し・タブとボタンはパネルに直接置き、中身だけを .rules-body で流す。
+  // こうしておくと「どのタブにいるか」と「タイトルへ戻る」がいつでも見えている。
   return `<h3>${now ? `〈${now}〉` : '戦績と実績'}</h3>
     ${tabs}
-    ${body}
+    <div class="panel-scroll">${body}</div>
     ${confirmingClear
       ? `<p class="ach-head">⚠️ 戦績も実績も称号も全て消えます。元には戻せません。</p>
          <div class="row end rules-close">

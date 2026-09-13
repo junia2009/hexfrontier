@@ -304,5 +304,7 @@ export function rulesHtml(tab = 'basic', { demo = true } = {}) {
     : tab === 'meets' ? meetsGuideHtml()
     : tab === 'setup' ? setupHtml()
     : basicHtml(demo);
-  return `${tabs}<div class="rules-body">${body}</div>`;
+  // panel-scroll: パネルの中で開いたときに、ここだけが流れる
+  // (ダイアログの中で開いたときは .dialog .rules-body 側が効く)
+  return `${tabs}<div class="rules-body panel-scroll">${body}</div>`;
 }
