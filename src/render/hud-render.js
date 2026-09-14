@@ -211,7 +211,7 @@ const DEV_DESC = {
 };
 
 // 発展カードが「今」使えない理由(使えるなら null)
-function devPlayableWhy(state, card) {
+export function devPlayableWhy(state, card) {
   if (card.type === 'vp') return '勝利点カードは使いません(持っているだけで+1点)';
   if (state.phase !== 'main' || state.currentPlayer !== HUMAN || state.awaiting) {
     return '自分の手番に使えます';
@@ -223,7 +223,7 @@ function devPlayableWhy(state, card) {
 }
 
 // 進歩カードが「今」使えるか(手番・タイミング・獲得ターン)
-function progressPlayable(state, card) {
+export function progressPlayable(state, card) {
   const def = PROGRESS_CARDS[card.id];
   const isMyTurn =
     state.phase === 'main' && state.currentPlayer === HUMAN && !state.awaiting;
@@ -285,12 +285,15 @@ function renderHand(state, ui) {
     (extra ? `<div class="hrow extra">${extra}</div>` : '');
 }
 
-function renderControls(state, ui) {
+// 手番のボタン一式を組み立てる。**DOM には触らない**ので、node から
+// そのまま検証できる(押せる/押せないの判断がルールエンジンと食い違って
+// いないか、test/hud-render.test.js が突き合わせている)。
+// 画面の広さだけは外から渡す ── ここで document を見ると試験できなくなる。
+export function controlsHtml(state, mobile) {
   const p = state.players[HUMAN];
   const myTurn = state.phase === 'main' && state.currentPlayer === HUMAN && !state.awaiting;
   const rolled = state.turnFlags.rolled;
   const cak = state.mode === 'cak';
-  const mobile = document.body.classList.contains('mobile');
   const btn = (act, label, enabled, title = '', stock = null) => {
     const badge = stock == null
       ? ''
@@ -378,10 +381,14 @@ function renderControls(state, ui) {
     ];
   }
 
-  el('controls').innerHTML = list.join('');
+  return list.join('');
 }
 
-function statusText(state, ui) {
+function renderControls(state) {
+  el('controls').innerHTML = controlsHtml(state, document.body.classList.contains('mobile'));
+}
+
+export function statusText(state, ui) {
   if (state.phase === 'ended') {
     return `🏆 ${state.players[state.winner].name}の勝利!`;
   }
@@ -1190,7 +1197,7 @@ export function renderHUD(state, ui) {
   renderBarbarians(state);
   renderDice(state);
   renderHand(state, ui);
-  renderControls(state, ui);
+  renderControls(state);
   renderStatus(state, ui);
   renderLog(state);
   renderDialog(state, ui);
