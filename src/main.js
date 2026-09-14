@@ -63,6 +63,7 @@ import {
 } from './net/client.js';
 import { installCrashHandler } from './crash.js';
 import { syncUi as syncUiCore } from './ui-sync.js';
+import { actionForPending, cancelPending } from './ui-confirm.js';
 
 // 自分の席番号。ローカル戦は常に 0、オンライン対戦ではサーバーが割り当てた席になる。
 let HUMAN = 0;
@@ -2289,10 +2290,6 @@ function pickRoadBuildingEdge(pick) {
   ui.pendingPieces.push(state.mode === 'sea' ? ui.roadPiece : 'road');
 }
 
-function roadBuildingParams() {
-  return { edges: [...ui.pendingEdges], pieces: [...ui.pendingPieces] };
-}
-
 // ハイライト表示中はパルスアニメーションのため毎フレーム再描画する
 let animId = null;
 
@@ -2949,122 +2946,15 @@ function attach3dInput() {
 
 // ---- 確定/キャンセル ----
 
+// どのアクションになるかの判断は src/ui-confirm.js に置いてある
+// (DOM を触らないので試験できる)。ここは state と ui を渡すだけ。
 function confirmPending() {
-  const m = ui.mode;
-  if (m === 'setup-road' && ui.pendingVertex && ui.pending?.edgeId) {
-    doAction({
-      type: 'PLACE_INITIAL',
-      player: HUMAN,
-      vertexId: ui.pendingVertex,
-      edgeId: ui.pending.edgeId,
-      piece: ui.setupPiece,
-    });
-  } else if (m === 'build-road' && ui.pending?.edgeId) {
-    doAction({ type: 'BUILD_ROAD', player: HUMAN, edgeId: ui.pending.edgeId });
-  } else if (m === 'build-ship' && ui.pending?.edgeId) {
-    doAction({ type: 'BUILD_SHIP', player: HUMAN, edgeId: ui.pending.edgeId });
-  } else if (m === 'move-ship-to' && ui.shipFrom && ui.pending?.edgeId) {
-    doAction({ type: 'MOVE_SHIP', player: HUMAN, from: ui.shipFrom, to: ui.pending.edgeId });
-  } else if (m === 'fish-road' && ui.pending?.edgeId) {
-    doAction({
-      type: 'SPEND_FISH', player: HUMAN, use: 'road',
-      params: { edgeId: ui.pending.edgeId },
-    });
-  } else if (m === 'build-settlement' && ui.pending?.vertexId) {
-    doAction({ type: 'BUILD_SETTLEMENT', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'build-city' && ui.pending?.vertexId) {
-    doAction({ type: 'BUILD_CITY', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'knight-displace' && ui.pending?.vertexId) {
-    doAction({ type: 'PLACE_DISPLACED_KNIGHT', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'desert-pick' && ui.pending?.vertexId) {
-    doAction({ type: 'PICK_DESERTER', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'desert-place' && ui.pending?.vertexId) {
-    doAction({ type: 'PLACE_DESERTER', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'move-robber' && ui.pending?.hexId) {
-    doAction({ type: 'MOVE_ROBBER', player: HUMAN, hexId: ui.pending.hexId, targetPlayer: null });
-  } else if (m === 'play-road-building' && ui.pendingEdges.length === roadBuildingNeed()) {
-    doAction({
-      type: 'PLAY_DEV_CARD',
-      player: HUMAN,
-      card: 'roadBuilding',
-      params: roadBuildingParams(),
-    });
-  } else if (m === 'build-knight' && ui.pending?.vertexId) {
-    doAction({ type: 'BUILD_KNIGHT', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'build-wall' && ui.pending?.vertexId) {
-    doAction({ type: 'BUILD_WALL', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'build-tower' && ui.pending?.vertexId) {
-    doAction({ type: 'BUILD_TOWER', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'move-knight' && ui.knightFrom && ui.pending?.vertexId) {
-    doAction({
-      type: 'MOVE_KNIGHT', player: HUMAN,
-      fromVertexId: ui.knightFrom, toVertexId: ui.pending.vertexId,
-    });
-  } else if (m === 'raze-city' && ui.pending?.vertexId) {
-    doAction({ type: 'RAZE_CITY', player: HUMAN, vertexId: ui.pending.vertexId });
-  } else if (m === 'prog-hex' && ui.pending?.hexId && ui.progIndex != null) {
-    doAction({
-      type: 'PLAY_PROGRESS_CARD', player: HUMAN,
-      index: ui.progIndex, params: { hexId: ui.pending.hexId },
-    });
-  } else if (m === 'prog-vertex' && ui.pending?.vertexId && ui.progIndex != null) {
-    doAction({
-      type: 'PLAY_PROGRESS_CARD', player: HUMAN,
-      index: ui.progIndex, params: { vertexId: ui.pending.vertexId },
-    });
-  } else if (m === 'prog-edge' && ui.pending?.edgeId && ui.progIndex != null) {
-    doAction({
-      type: 'PLAY_PROGRESS_CARD', player: HUMAN,
-      index: ui.progIndex, params: { edgeId: ui.pending.edgeId },
-    });
-  } else if (m === 'prog-hex2' && ui.pendingHexes.length === 2 && ui.progIndex != null) {
-    doAction({
-      type: 'PLAY_PROGRESS_CARD', player: HUMAN,
-      index: ui.progIndex, params: { a: ui.pendingHexes[0], b: ui.pendingHexes[1] },
-    });
-  } else if (m === 'prog-moveroad' && ui.pendingEdges.length === 2 && ui.progIndex != null) {
-    doAction({
-      type: 'PLAY_PROGRESS_CARD', player: HUMAN,
-      index: ui.progIndex, params: { edgeId: ui.pendingEdges[0], to: ui.pendingEdges[1] },
-    });
-  } else if (m === 'prog-knights' && ui.pendingVertices.length >= 1 && ui.progIndex != null) {
-    doAction({
-      type: 'PLAY_PROGRESS_CARD', player: HUMAN,
-      index: ui.progIndex, params: { vertices: [...ui.pendingVertices] },
-    });
-  } else if (
-    m === 'prog-roads' && ui.pendingEdges.length === roadBuildingNeed() && ui.progIndex != null
-  ) {
-    doAction({
-      type: 'PLAY_PROGRESS_CARD', player: HUMAN,
-      index: ui.progIndex, params: roadBuildingParams(),
-    });
-  }
+  const action = actionForPending(state, ui, HUMAN);
+  if (action) doAction(action);
 }
 
 function cancelMode() {
-  if (ui.mode === 'setup-road') {
-    ui.mode = 'setup-settlement';
-    ui.pendingVertex = null;
-    ui.pending = null;
-    ui.setupPiece = 'road';
-  } else if ([
-    'build-road', 'fish-road', 'build-ship', 'move-ship', 'move-ship-to',
-    'build-settlement', 'build-city', 'play-road-building',
-    'build-knight', 'build-wall', 'build-tower', 'move-knight',
-    'prog-hex', 'prog-vertex', 'prog-edge', 'prog-hex2', 'prog-roads', 'prog-knights', 'prog-moveroad',
-  ].includes(ui.mode)) {
-    ui.mode = 'idle';
-    ui.pending = null;
-    ui.pendingEdges = [];
-    ui.pendingPieces = [];
-    ui.roadPiece = 'road';
-    ui.pendingHexes = [];
-    ui.pendingVertices = [];
-    ui.knightFrom = null;
-    ui.shipFrom = null;
-    ui.progIndex = null;
-  }
+  cancelPending(ui);
   refresh();
 }
 
