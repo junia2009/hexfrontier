@@ -1,7 +1,7 @@
 // HUD 描画(設計書 §8.2)
 // 手札・ボタン・ダイアログは DOM で作る。クリックは data-act 属性で main.js に委譲。
 
-import { RESOURCES, RES_JP, DEV_JP } from '../state.js';
+import { RESOURCES, RES_JP, DEV_JP, modeOptions } from '../state.js';
 import { COSTS, WALL_COST, canAfford, piecesLeft, totalCards, wallsLeft } from '../rules/build.js';
 import { computePoints, pointsToWin } from '../rules/victory.js';
 import { tradeRate } from '../rules/trade.js';
@@ -1062,7 +1062,7 @@ function dialogHtml(state, ui) {
         .join('')}</div>`;
     return `<h3>⚙️ 設定</h3>
       <div class="srow"><span>表示</span>${seg('set-view', [['3d', '3D'], ['2d', '2D']], s.view)}</div>
-      <div class="srow"><span>モード</span>${seg('set-mode', [['base', '基本'], ['cak', '都市と騎士'], ['dragon', '🐉ドラゴン'], ['fish', '🐟漁師'], ['sea', '⛵航海者']], s.mode)}</div>
+      <div class="srow"><span>モード</span>${seg('set-mode', modeOptions(), s.mode)}</div>
       <div class="srow"><span>CPU</span>${seg('set-cpu', [['2', '2体'], ['3', '3体']], String(s.cpuCount))}</div>
       <div class="srow"><span>BGM</span>${seg('set-bgm', [['on', '🔊 オン'], ['off', '🔇 オフ']], s.bgm ? 'on' : 'off')}</div>
       <div class="srow"><span>効果音</span>${seg('set-sfx', [['on', '🔔 オン'], ['off', '🔕 オフ']], s.sfx ? 'on' : 'off')}</div>

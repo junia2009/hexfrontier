@@ -7,7 +7,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   MODES, MODE_IDS, isMode, modeOptions, createGame,
@@ -15,7 +16,16 @@ import {
 import { dispatch } from '../src/actions.js';
 import { chooseAction } from '../src/ai/cpu-player.js';
 
-const read = (p) => readFileSync(fileURLToPath(new URL(`../${p}`, import.meta.url)), 'utf8');
+// 配られるコードを全部たどる(.js / .mjs だけ)
+function walk(dir) {
+  const out = [];
+  for (const name of readdirSync(dir).sort()) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...walk(full));
+    else if (/\.m?js$/.test(name)) out.push(full);
+  }
+  return out;
+}
 
 test('モード一覧: id が重複せず、ラベルが埋まっている', () => {
   assert.ok(MODES.length >= 5);
@@ -76,9 +86,22 @@ test('モード一覧: base 以外は base と違う盤・違う状態になる'
 
 test('モード一覧: 一覧を別に持ち直している場所がない', () => {
   // 同じ配列をそこら中に書き戻すと、また取り残しが起きる。
-  // 「id が3つ以上並んだ配列リテラル」を書いていたら落とす。
-  const pattern = /\[\s*'base'\s*,\s*'cak'|\['base',\s*'基本'\]/;
-  for (const f of ['src/main.js', 'server/room-core.js', 'scripts/selfplay.js']) {
-    assert.ok(!pattern.test(read(f)), `${f} がモード一覧を持ち直している。state.js の MODES を使う`);
+  //
+  // **見張る先を書き並べない。** 前はここに3ファイルだけ挙げていて、
+  // src/progress.js と src/render/hud-render.js の2つを取り逃がした
+  // (「6か所を1か所に」と言いながら、実は7か所目と8か所目が残っていた)。
+  // 配られるコードを丸ごと歩いて、書いた覚えのない場所も拾う。
+  const pattern = /\[\s*'base'\s*,\s*'cak'|\[\s*'base'\s*,\s*'基本'\s*\]/;
+  const offenders = [];
+  for (const dir of ['src', 'server', 'scripts']) {
+    for (const f of walk(fileURLToPath(new URL(`../${dir}`, import.meta.url)))) {
+      // state.js は出どころなので当然ここに一覧がある
+      if (f.endsWith(`src${sep}state.js`)) continue;
+      if (pattern.test(readFileSync(f, 'utf8'))) offenders.push(f);
+    }
   }
+  assert.deepEqual(
+    offenders, [],
+    `モード一覧を持ち直している場所がある。state.js の MODES / MODE_IDS / modeOptions() を使う`,
+  );
 });

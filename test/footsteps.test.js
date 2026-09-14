@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 import { stepSound, GROUND_KINDS, MOTION_KINDS } from '../src/audio/footsteps.js';
 import { LAYOUT, TERRAINS } from '../src/rules/board.js';
-import { createGame } from '../src/state.js';
+import { createGame, MODE_IDS } from '../src/state.js';
 import { makeGround } from '../src/minigame/ground.js';
 import { SFX_NAMES } from '../src/audio/sfx.js';
 
@@ -32,7 +32,7 @@ function hexCenterOf(state, hid) {
 test('足音: どのモードで出る地形も、既定に落ちない', () => {
   // 実際に盤を作って、そこに出る地形が表に載っているかを見る
   const seen = new Set();
-  for (const mode of ['base', 'cak', 'dragon', 'fish', 'sea']) {
+  for (const mode of MODE_IDS) {
     for (const seed of [1, 7, 42]) {
       const s = createGame({ seed, playerCount: 4, humanIndex: 0, mode });
       const ground = makeGround(s);

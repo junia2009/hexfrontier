@@ -5,6 +5,7 @@
 // (test/progress.test.js が localStorage なしで検証できるように)。
 
 import { lsGet, lsSet, lsRemove } from './storage.js';
+import { MODE_IDS } from './state.js';
 import { computePoints } from './rules/victory.js';
 import {
   ACHIEVEMENTS, fishCounts, marksOf, titleOf, unlockedBy, unlockedByFish, unlockedByMeet,
@@ -14,7 +15,10 @@ import {
 const KEY = 'progress';
 export const PROGRESS_VERSION = 1;
 
-export const MODES = ['base', 'cak', 'dragon', 'fish', 'sea'];
+// 遊べるルールの一覧は state.js の MODES が唯一の出どころ。ここは戦績を
+// 並べるのに使うだけなので、持ち直さずに借りる。名前は MODES のままにして
+// おく ── 読んでいる側(戦績の画面とテスト)がこの名前で参照している。
+export const MODES = MODE_IDS;
 export const DIFFICULTIES = ['easy', 'normal', 'hard'];
 
 export function emptyProgress() {

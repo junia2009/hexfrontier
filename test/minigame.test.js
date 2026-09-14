@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame } from '../src/state.js';
+import { createGame, MODE_IDS } from '../src/state.js';
 import { LAYOUT } from '../src/rules/board.js';
 import { isLandHex } from '../src/rules/sea.js';
 import { makeGround, spawnPoint } from '../src/minigame/ground.js';
@@ -24,7 +24,7 @@ import {
 } from '../src/minigame/pose.js';
 import { EMOTES, EMOTE_MAX, emoteById, emotesOk } from '../src/minigame/emote.js';
 
-const MODES = ['base', 'cak', 'dragon', 'fish', 'sea'];
+const MODES = MODE_IDS;
 
 function game(mode) {
   return createGame({ seed: 7, playerCount: 4, humanIndex: 0, mode });

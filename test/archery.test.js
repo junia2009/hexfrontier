@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame } from '../src/state.js';
+import { createGame, MODE_IDS } from '../src/state.js';
 import {
   makeGround, watchPost, spawnPoint, fishingSpots, POST_RADIUS, POST_OPEN_SEA, SPOT_RADIUS,
 } from '../src/minigame/ground.js';
@@ -202,7 +202,7 @@ test('弓: 別のシードなら別の攻め方', () => {
 const SEEDS = [7, 11, 42, 99, 512, 2026];
 
 test('弓: 櫓は陸の上で、正面が海', () => {
-  for (const mode of ['base', 'cak', 'dragon', 'fish', 'sea']) for (const seed of SEEDS) {
+  for (const mode of MODE_IDS) for (const seed of SEEDS) {
     const s = createGame({ seed, playerCount: 4, humanIndex: -1, mode });
     const p = watchPost(s);
     const tag = `${mode}/${seed}`;
@@ -222,7 +222,7 @@ test('弓: 櫓は陸の上で、正面が海', () => {
 // 🎣 と 🏹 が同じ場所で取り合わないこと。辺の名前ではなく**立つ範囲**で見る
 // ── 隣の辺に建てても、範囲が重なれば同じことになる。
 test('弓: 櫓は釣り場と取り合わない', () => {
-  for (const mode of ['base', 'cak', 'dragon', 'fish', 'sea']) {
+  for (const mode of MODE_IDS) {
     const s = createGame({ seed: 7, playerCount: 4, humanIndex: -1, mode });
     const p = watchPost(s);
     const ports = new Set((s.board.ports ?? []).map((q) => q.edgeId));

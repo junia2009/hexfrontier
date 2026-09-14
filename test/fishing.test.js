@@ -9,7 +9,7 @@ import {
   Fishing, CAST_TIME, WAIT_MAX, HOOK_WINDOW, MAX_DT, REEL_GAIN,
 } from '../src/minigame/fishing.js';
 import { emptyProgress, addCatch, fishbookCount, parseProgress } from '../src/progress.js';
-import { createGame } from '../src/state.js';
+import { createGame, MODE_IDS } from '../src/state.js';
 import {
   makeGround, spawnPoint, fishingSpots, spotNear, SPOT_RADIUS,
 } from '../src/minigame/ground.js';
@@ -374,7 +374,7 @@ test('図鑑: 釣り図鑑が無い古い保存でも読める', () => {
 // ---- 釣り場(港)----
 
 test('釣り場: どのモードでも、港の数だけ釣り場ができる', () => {
-  for (const mode of ['base', 'cak', 'dragon', 'fish', 'sea']) {
+  for (const mode of MODE_IDS) {
     const s = createGame({ seed: 7, playerCount: 4, humanIndex: 0, mode });
     const spots = fishingSpots(s);
     assert.equal(spots.length, s.board.ports.length, mode);
@@ -383,7 +383,7 @@ test('釣り場: どのモードでも、港の数だけ釣り場ができる', 
 });
 
 test('釣り場: 立つ場所は陸の上で、向いた先は海', () => {
-  for (const mode of ['base', 'cak', 'dragon', 'fish', 'sea']) {
+  for (const mode of MODE_IDS) {
     const s = createGame({ seed: 3, playerCount: 4, humanIndex: 0, mode });
     const ground = makeGround(s);
     for (const p of fishingSpots(s)) {

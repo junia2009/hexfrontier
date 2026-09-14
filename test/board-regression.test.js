@@ -8,12 +8,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { createGame, RESOURCES } from '../src/state.js';
+import { createGame, RESOURCES, MODE_IDS } from '../src/state.js';
 import { dispatch } from '../src/actions.js';
 import { chooseAction } from '../src/ai/cpu-player.js';
 import { computePoints } from '../src/rules/victory.js';
 
-const MODES = ['base', 'cak', 'dragon', 'fish', 'sea'];
+const MODES = MODE_IDS;
 const SEEDS = [1, 2, 3];
 
 function sha(obj) {
