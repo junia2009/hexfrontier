@@ -2023,10 +2023,36 @@ function updateWalkHud() {
 // 戦績画面の見た目の状態(state ではないので ui とは別に持つ)
 let recordsView = { tab: 'stats', selected: null, confirmingClear: false };
 
+// 前回どのタブを描いたか。タブが変わったときだけ巻き位置を頭に戻す。
+let recordsDrawnTab = null;
+
 function renderRecordsPanel() {
   const panel = document.getElementById('records-panel');
   if (!panel || screen !== 'records') return;
+
+  // innerHTML で丸ごと作り直すので、そのままだと中の巻き位置が失われる。
+  // 下のほうのバッジを押すたびに先頭へ戻ってしまい、押した本人が
+  // どこを見ていたか分からなくなる。同じタブに留まる間は持ち越す。
+  const before = panel.querySelector('.panel-scroll');
+  const keep = before && recordsDrawnTab === recordsView.tab ? before.scrollTop : 0;
+
   panel.innerHTML = recordsHtml(progress, recordsView);
+  recordsDrawnTab = recordsView.tab;
+
+  const after = panel.querySelector('.panel-scroll');
+  if (!after) return;
+  after.scrollTop = keep; // 行き過ぎはブラウザが丸めてくれる
+
+  // 巻き位置を戻すだけでは足りない。バッジを選ぶと詳細のぶんだけ
+  // 一覧の枠が縮むので、それまで下端に見えていたバッジが隠れる。
+  // **押したバッジが隠れたときだけ**、必要な分そっと動かす。
+  const sel = after.querySelector('.badge-a.sel');
+  if (!sel) return;
+  const box = after.getBoundingClientRect();
+  const b = sel.getBoundingClientRect();
+  const MARGIN = 6;
+  if (b.bottom > box.bottom) after.scrollTop += b.bottom - box.bottom + MARGIN;
+  else if (b.top < box.top) after.scrollTop -= box.top - b.top + MARGIN;
 }
 
 // モバイル判定: レイアウトを body.mobile で切り替える。
