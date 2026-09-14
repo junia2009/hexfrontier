@@ -637,6 +637,13 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* 選んだバッジの詳細の置き場所。バッジの一覧(流れる)とボタンの間に挟む。
+     一覧の中に置くと43個の後ろに付いてしまい、上のほうのバッジを押したとき
+     詳細が画面の外にいた。ここなら押した場所によらず、いつも同じ所に出る。 */
+  .ach-dock { flex: 0 0 auto; padding-top: 9px; }
+  /* 何も選んでいないときの1行は、区切り線まで引くと大げさなので控えめに */
+  .ach-dock .ach-hint { display: block; text-align: center; margin: 0; }
+
   /* 選んだバッジの詳細 */
   .ach-detail {
     border: 1px solid var(--tc, var(--line)); border-radius: 11px;

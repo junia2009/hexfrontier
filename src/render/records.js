@@ -175,18 +175,26 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
     ? fishbookHtml(progress)
     : tab === 'ach'
     ? `<div class="tiers">${tierSummary(progress)}</div>
-       ${badgeGrid(progress, stats, selected)}
-       ${badgeDetail(progress, stats, selected)}`
+       ${badgeGrid(progress, stats, selected)}`
     : `${empty ? '<p>まだ対戦の記録がありません。1戦遊ぶとここに残ります。</p>' : ''}
        ${statsTable(stats)}
        <p><small>記録はこの端末にだけ保存されます(サーバーには送りません)。
        オンライン対戦は数えていません。</small></p>`;
 
-  // 見出し・タブとボタンはパネルに直接置き、中身だけを .rules-body で流す。
+  // 選んだバッジの詳細は**流れる場所の外**に出す。
+  // 中に置くと43個のバッジの後ろに付くので、上のほうのバッジを押しても
+  // 詳細が画面の外にあって、送らないと読めなかった。
+  // ここならどのバッジを押しても、出る場所がいつも同じで、すぐ目に入る。
+  const dock = tab === 'ach'
+    ? `<div class="ach-dock">${badgeDetail(progress, stats, selected)}</div>`
+    : '';
+
+  // 見出し・タブとボタンはパネルに直接置き、中身だけを .panel-scroll で流す。
   // こうしておくと「どのタブにいるか」と「タイトルへ戻る」がいつでも見えている。
   return `<h3>${now ? `〈${now}〉` : '戦績と実績'}</h3>
     ${tabs}
     <div class="panel-scroll">${body}</div>
+    ${dock}
     ${confirmingClear
       ? `<p class="ach-head">⚠️ 戦績も実績も称号も全て消えます。元には戻せません。</p>
          <div class="row end rules-close">
