@@ -64,6 +64,7 @@ import {
 import { installCrashHandler } from './crash.js';
 import { syncUi as syncUiCore } from './ui-sync.js';
 import { actionForPending, cancelPending } from './ui-confirm.js';
+import { applyBoardClick } from './board-click.js';
 
 // 自分の席番号。ローカル戦は常に 0、オンライン対戦ではサーバーが割り当てた席になる。
 let HUMAN = 0;
@@ -2282,14 +2283,6 @@ function roadBuildingNeed() {
   return roadBuildingCount(state, HUMAN);
 }
 
-// 街道建設の辺を1つ選ぶ。必要数まで溜めてから確定する。
-function pickRoadBuildingEdge(pick) {
-  const eid = pick('edge', ui.highlights.edges ?? []);
-  if (!eid || ui.pendingEdges.length >= roadBuildingNeed()) return;
-  ui.pendingEdges.push(eid);
-  ui.pendingPieces.push(state.mode === 'sea' ? ui.roadPiece : 'road');
-}
-
 // ハイライト表示中はパルスアニメーションのため毎フレーム再描画する
 let animId = null;
 
@@ -2834,87 +2827,12 @@ function scheduleCpu() {
 
 // 盤面クリックの共通処理。pick(kind, candidates) → id | null
 // (2D は最近傍探索、3D はレイキャストで実装が差し替わる)
+//
+// 何を選びかけるかの判断は src/board-click.js に置いてある
+// (DOM を触らないので試験できる)。ここは state と ui を渡して描き直すだけ。
 function boardClick(pick) {
   if (!state) return;
-  const m = ui.mode;
-  ui.toast = null;
-
-  if (m === 'setup-settlement') {
-    const vid = pick('vertex', ui.highlights.vertices ?? []);
-    if (vid) {
-      ui.pendingVertex = vid;
-      ui.mode = 'setup-road';
-    }
-  } else if (m === 'setup-road' || m === 'build-road' || m === 'fish-road' || m === 'build-ship') {
-    const eid = pick('edge', ui.highlights.edges ?? []);
-    if (eid) ui.pending = { edgeId: eid };
-  } else if (m === 'move-ship') {
-    const eid = pick('edge', ui.highlights.edges ?? []);
-    if (eid) {
-      ui.shipFrom = eid;
-      ui.mode = 'move-ship-to';
-      ui.pending = null;
-    }
-  } else if (m === 'move-ship-to') {
-    const eid = pick('edge', ui.highlights.edges ?? []);
-    if (eid) ui.pending = { edgeId: eid };
-  } else if (m === 'build-settlement' || m === 'build-city') {
-    const vid = pick('vertex', ui.highlights.vertices ?? []);
-    if (vid) ui.pending = { vertexId: vid };
-  } else if (m === 'move-robber') {
-    const hid = pick('hex', ui.highlights.hexes ?? []);
-    if (hid) {
-      // 航海者たち: 海のヘックスなら海賊。奪える相手は「その海に船を出している人」
-      const targets = isSeaHex(state.board, hid)
-        ? pirateTargets(state, hid, HUMAN).filter((t) => totalCards(state.players[t]) > 0)
-        : stealableTargets(state, hid, HUMAN);
-      if (targets.length > 0) {
-        ui.pending = null;
-        ui.dialog = { type: 'steal', hexId: hid, targets, pirate: isSeaHex(state.board, hid) };
-      } else {
-        ui.pending = { hexId: hid };
-      }
-    }
-  } else if (m === 'play-road-building') {
-    pickRoadBuildingEdge(pick);
-  } else if ([
-    'build-knight', 'build-wall', 'build-tower', 'move-knight', 'raze-city',
-    'desert-pick', 'desert-place', 'knight-displace',
-  ].includes(m)) {
-    const vid = pick('vertex', ui.highlights.vertices ?? []);
-    if (vid) ui.pending = { vertexId: vid };
-  } else if (m === 'prog-hex') {
-    const hid = pick('hex', ui.highlights.hexes ?? []);
-    if (hid) ui.pending = { hexId: hid };
-  } else if (m === 'prog-vertex') {
-    const vid = pick('vertex', ui.highlights.vertices ?? []);
-    if (vid) ui.pending = { vertexId: vid };
-  } else if (m === 'prog-edge') {
-    const eid = pick('edge', ui.highlights.edges ?? []);
-    if (eid) ui.pending = { edgeId: eid };
-  } else if (m === 'prog-hex2') {
-    const hid = pick('hex', ui.highlights.hexes ?? []);
-    if (hid && ui.pendingHexes.length < 2 && !ui.pendingHexes.includes(hid)) {
-      ui.pendingHexes.push(hid);
-    }
-  } else if (m === 'prog-moveroad') {
-    const eid = pick('edge', ui.highlights.edges ?? []);
-    if (eid && ui.pendingEdges.length < 2) ui.pendingEdges.push(eid);
-  } else if (m === 'prog-knights') {
-    const vid = pick('vertex', ui.highlights.vertices ?? []);
-    if (vid && ui.pendingVertices.length < 2) ui.pendingVertices.push(vid);
-  } else if (m === 'prog-roads') {
-    pickRoadBuildingEdge(pick);
-  } else if (m === 'idle' && state.mode === 'cak') {
-    // 自分の騎士をクリック → 行動メニュー
-    const myKnights = Object.keys(state.knights).filter(
-      (v) => state.knights[v].player === HUMAN,
-    );
-    const vid = pick('vertex', myKnights);
-    if (vid && state.currentPlayer === HUMAN && !state.awaiting && state.turnFlags.rolled) {
-      ui.dialog = { type: 'knight', vertexId: vid };
-    }
-  }
+  applyBoardClick(state, ui, HUMAN, pick);
   refresh();
 }
 
