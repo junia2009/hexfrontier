@@ -23,7 +23,9 @@
 // 出力の一覧は、この仕分けを人がやるための材料。
 
 import { execSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync,
+} from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -116,21 +118,39 @@ function sites(src, files) {
 
 // --- 注入して1回テストする。**何があっても必ず書き戻す** ---
 // 途中で止めると壊れたファイルが残り、それを「自分の変更」と勘違いして
-// コミットしかねない(一度やりかけた)。割り込みでも復元する。
-let pending = null;
+// コミットしかねない(実際、停止フックが3回それを拾った)。
+//
+// **シグナルハンドラでは復元できない。** この工程は最初から最後まで同期で、
+// execSync の中で止まっている時間がほとんどなので、event loop が回らず
+// SIGINT / SIGTERM が配送されない(handler を書いても呼ばれないまま
+// 次の注入へ進む)。kill -9 なら猶予すら無い。
+//
+// なので、**壊す前に控えをディスクに書く**。次に起動したとき控えが
+// 残っていたら、何をする前にまずそれを書き戻す。これなら強制終了でも、
+// 電源が落ちても、次の1回で必ず元に戻る。
+const PENDING = fileURLToPath(new URL('../.mutate-pending.json', import.meta.url));
+
+function recover() {
+  if (!existsSync(PENDING)) return;
+  const { p, orig } = JSON.parse(readFileSync(PENDING, 'utf8'));
+  writeFileSync(p, orig);
+  rmSync(PENDING);
+  console.error(`前回の中断ぶんを書き戻した: ${rel(p)}`);
+}
+
 const restore = () => {
-  if (!pending) return;
-  writeFileSync(pending.p, pending.orig);
-  pending = null;
+  if (!existsSync(PENDING)) return;
+  const { p, orig } = JSON.parse(readFileSync(PENDING, 'utf8'));
+  writeFileSync(p, orig);
+  rmSync(PENDING);
 };
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { restore(); process.exit(130); });
-process.on('uncaughtException', (e) => { restore(); throw e; });
 
 function survives(m, cmd) {
   const orig = readFileSync(m.p, 'utf8');
   const lines = orig.split('\n');
   lines[m.i] = lines[m.i].replace(m.from, m.to);
-  pending = { p: m.p, orig };
+  // 壊す前に控えを置く。ここが先でないと、この直後に落ちたら戻せない
+  writeFileSync(PENDING, JSON.stringify({ p: m.p, orig }));
   try {
     writeFileSync(m.p, lines.join('\n'));
     try {
@@ -155,6 +175,7 @@ function control(src, unreached, cmd) {
 }
 
 function main() {
+  recover();
   const args = process.argv.slice(2);
   const n = Number(args.find((a) => /^\d+$/.test(a)) ?? 50);
   const seedArg = args.find((a) => a.startsWith('--seed='));
