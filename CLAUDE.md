@@ -11,6 +11,7 @@ npm test                      # node --test test/(単体+セルフプレイ。�
 npm run selfplay              # セルフプレイゲート(scripts/selfplay.js 100)
 node scripts/selfplay.js 1000 # ゲーム数を指定して回す(モード引数も可)
 node scripts/dice-audit.mjs   # 乱数の統計監査(χ²バッテリー)
+npm run mutate                # テストの強さを測る(故障注入。到達率とは別物)
 npm run server                # オンライン対戦サーバー(wrangler dev, :8787)
 npm run gen:precache          # sw.js のプリキャッシュ一覧を生成(ファイルを足したら実行)
 npm run deploy:server         # Cloudflare へ手動デプロイ(要ログイン。通常は不要 → デプロイの節)
@@ -33,9 +34,18 @@ npm run deploy:server         # Cloudflare へ手動デプロイ(要ログイン
    **盤面まわり(`rules/board.js`・合法手の列挙順)を触るときは**
    `test/board-regression.test.js` が既存モードの盤面と全展開をハッシュで押さえている。
    落ちたら既存モードを壊している。意図して変えたときだけ GOLDEN を更新する。
-2. **UI / 描画変更** → Playwright で E2E(下記レシピ)。スクリーンショットを目視。
-3. **見た目の変更**は必ずスクリーンショットをユーザーに見せて確認をとる。
-4. **HUD のボタン(`data-act`)やルールを変えたら** `npm test` の `test/demo.test.js` を確認。
+2. **テストを足したら `npm run mutate`** で効いているか確かめる。
+   **「テストを書いた」と「そこが守られている」は別。** 到達率(テストが何行を読むか)は
+   上限であって強さではない。読まれてはいるが何も確かめていない行は到達率では緑に見える。
+   実際 `board-click.js` は11本足した直後でも「2つまで」の上限を壊して誰も落ちなかった。
+   目で読んで見つかるものではないので、機械に壊させる。
+   見逃し(生存)は4つに仕分ける ── **守られていない隙間**(テストを足す)/
+   **演出・描画**(縛る価値が薄い)/ **CPU の重みづけ**(固定すると調整できなくなる)/
+   **等価変異**(振る舞いが変わらない。どんなテストでも捕まえられない)。
+   `npm test` をそのまま回さない理由はスクリプトの先頭に書いてある。
+3. **UI / 描画変更** → Playwright で E2E(下記レシピ)。スクリーンショットを目視。
+4. **見た目の変更**は必ずスクリーンショットをユーザーに見せて確認をとる。
+5. **HUD のボタン(`data-act`)やルールを変えたら** `npm test` の `test/demo.test.js` を確認。
    あそびかたデモ(`src/demo/`)の台本が実物の手を出しているので、ここが落ちたら
    デモも一緒に直す(`window.hexDebug.startDemo('setup'|'basic'|'cak')` で再生できる)。
 
