@@ -12,7 +12,10 @@ import { dispatch, validateAction } from '../src/actions.js';
 import { totalCards } from '../src/rules/build.js';
 import { COMMODITIES } from '../src/rules/cak/progress-cards.js';
 import { DEMO_CHAPTERS, findChapter } from '../src/demo/script.js';
-import { buildDemoState, DEMO_PLAYER } from '../src/demo/scenario.js';
+import {
+  bestRollFor, buildDemoState, DEMO_PLAYER, stackDevDeck,
+} from '../src/demo/scenario.js';
+import { LAYOUT } from '../src/rules/board.js';
 
 function conservation(s, where) {
   for (const r of RESOURCES) {
@@ -126,5 +129,56 @@ test('デモ 第3章: 都市改良 → 進歩カード → 騎士 → 蛮族襲�
   assert.ok(
     Object.values(state.knights).every((k) => !k.active),
     '襲来後に騎士が不活性へ戻っていない',
+  );
+});
+
+// ---- 台本が使う仕込みの部品 ----
+//
+// script.js から間接的にしか呼ばれていなかったので、境界がどこも押さえられて
+// いなかった。台本が静かに効かなくなっても、ビートは最後まで通ってしまう。
+
+test('仕込み: 山札の一番上に持ってくる(先頭にある1枚も拾える)', () => {
+  const s = buildDemoState('basic');
+  // 山札は pop() で引くので、**末尾が上**
+  s.bank.devDeck = ['monopoly', 'knight', 'knight'];
+  // 索引 0 は「見つからない」ではない。`i < 0` を `i <= 0` にすると
+  // ここだけ静かに失敗して、デモが狙ったカードを引けなくなる。
+  assert.equal(stackDevDeck(s, 'monopoly'), true, '先頭の1枚を見つけられていない');
+  assert.equal(s.bank.devDeck.at(-1), 'monopoly', '一番上に来ていない');
+  assert.equal(s.bank.devDeck.length, 3, '枚数が変わった(並べ替えるだけのはず)');
+
+  // 同じ種類が複数あるときは一番後ろのものを動かす
+  s.bank.devDeck = ['knight', 'vp', 'knight', 'vp'];
+  assert.equal(stackDevDeck(s, 'knight'), true);
+  assert.deepEqual(s.bank.devDeck, ['knight', 'vp', 'vp', 'knight']);
+
+  // 無い種類は false。山札は触らない
+  s.bank.devDeck = ['knight', 'vp'];
+  assert.equal(stackDevDeck(s, 'monopoly'), false, '無いカードを仕込めたことになっている');
+  assert.deepEqual(s.bank.devDeck, ['knight', 'vp'], '見つからないのに並べ替えた');
+});
+
+test('仕込み: 一番もらえる出目を探す(赤も白も6まで見る)', () => {
+  const s = buildDemoState('basic');
+  // 盤の産出をいったん全部消して、12 の山1つだけに建物を残す。
+  // 12 は (6,6) でしか出ないので、**6 まで見ていないと見つけられない**。
+  const twelve = s.board.hexIds.find(
+    (h) => s.board.hexes[h].token === 12 && s.board.hexes[h].terrain !== 'desert',
+  );
+  assert.ok(twelve, '前提: 12 の産出する山がある盤');
+  for (const v of Object.keys(s.buildings)) delete s.buildings[v];
+  s.board.robber = s.board.hexIds.find((h) => h !== twelve);
+  const vid = LAYOUT.hexVertices[twelve][0];
+  s.buildings[vid] = { player: DEMO_PLAYER, type: 'settlement' };
+
+  assert.deepEqual(
+    bestRollFor(s, DEMO_PLAYER), [6, 6],
+    '6 の目を探しそこねている(走査が 6 まで届いていない)',
+  );
+
+  // 赤を固定したときも、白は 6 まで見る
+  assert.deepEqual(
+    bestRollFor(s, DEMO_PLAYER, { redDie: 6 }), [6, 6],
+    '赤を固定すると白の 6 を見落とす',
   );
 });

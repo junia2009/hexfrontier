@@ -419,3 +419,16 @@ test('釣り場: 島の真ん中では釣れない', () => {
   const home = spawnPoint(s);
   assert.equal(spotNear(spots, home.x, home.y), null);
 });
+
+// 取り込みがちょうど 1 に届いた瞬間。実際の対戦では float が積み上がるので
+// ぴったり 1 になることはまずないが、境界が `>` だと「1 では上がらない」に
+// なる。どちらでも遊べてしまうぶん、壊れても誰も気づかない。
+test('釣り: 取り込みがちょうど 1 に届いたら上がる', () => {
+  const f = toFight(3);
+  f.tension = 0;   // 糸は切らせない(先に lost に落ちないように)
+  f.progress = 1;  // ぴったり
+  const ev = f.update(0);
+  assert.equal(f.phase, 'landed', 'ちょうど 1 で上がらない(境界が > になっている)');
+  assert.ok(ev.includes('landed'), 'landed の知らせが出ていない');
+  assert.equal(f.progress, 1, '1 を超えて記録された');
+});

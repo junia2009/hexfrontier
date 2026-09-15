@@ -787,3 +787,34 @@ test('陰謀: 追い出された騎士の移動先は持ち主が選ぶ(公式)'
     );
   }
 });
+
+// 追い出された騎士の行き先が「候補に載っていて、かつ空いている」ことを
+// 二重に確かめる門。候補(spots)は displaceSpots が建物と騎士を除いて
+// 作るので、**普通に遊んでいる限りここは素通りする**
+// (cak を400局まわして、この判定が走った217回すべてで候補は空だった)。
+// それでも門を残すのは、候補を作る側と使う側が別のファイルにあるからで、
+// 片方が変わったときに黙って通さないための保険。
+// 保険が効いているかは、こうして直に確かめるしかない。
+test('陰謀: 行き先が塞がっていれば、候補に載っていても置けない', () => {
+  const s = readyGame();
+  const free = Object.keys(LAYOUT.vertices).filter((v) => !s.buildings[v] && !s.knights[v]);
+  const [spotA, spotB] = free;
+  s.awaiting = {
+    type: 'knightDisplace',
+    players: [1],
+    context: { level: 1, spots: [spotA, spotB] },
+  };
+  const place = (vertexId) => validateAction(s, {
+    type: 'PLACE_DISPLACED_KNIGHT', player: 1, vertexId,
+  });
+
+  assert.equal(place(spotA), null, '前提: 空いている候補には置ける');
+
+  // 建物が建ってしまった候補
+  s.buildings[spotA] = { player: 0, type: 'settlement' };
+  assert.match(place(spotA), /空いていません/, '建物の上に騎士を置けた');
+
+  // 騎士がいる候補
+  s.knights[spotB] = { player: 0, level: 1, active: false, activatedTurn: -1 };
+  assert.match(place(spotB), /空いていません/, '騎士の上に騎士を置けた');
+});

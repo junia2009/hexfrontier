@@ -17,7 +17,7 @@ import { chooseAction } from '../src/ai/cpu-player.js';
 import { boardEdgeIds } from '../src/rules/board.js';
 import { PIECE_LIMITS } from '../src/rules/build.js';
 import {
-  controlsHtml, statusText, devPlayableWhy, setHumanSeat,
+  controlsHtml, dialogHtml, statusText, devPlayableWhy, setHumanSeat,
 } from '../src/render/hud-render.js';
 
 const HUMAN = 0;
@@ -232,5 +232,46 @@ test('発展カード: 使えないときは理由が出て、使えるときは
   assert.match(
     devPlayableWhy(other, { type: 'knight', boughtTurn: state.turn - 1 }),
     /自分の手番/, '他人の手番に使える扱いになっている',
+  );
+});
+
+// 魚トークンの使い道の出し分け。
+//
+// 「資源を1枚奪う」は**相手が手札を持っているとき**だけ押せる。
+// この判定は `o.id !== HUMAN && totalCards(o) > 0` の一行で、
+// `!==` を `===` にすると「自分が手札を持っているか」を見るようになる。
+// 自分も相手も持っている普通の場面では**どちらでも同じ答え**になるので、
+// 自分だけが持っている場面を作らないと違いが出ない。
+test('魚の使い道: 奪うのは相手が手札を持っているときだけ', () => {
+  const state = toHumanTurn('fish');
+  state.turnFlags.rolled = true;
+  // 自分に魚と資源を持たせ、相手は全員手ぶらにする
+  state.players[HUMAN].fish = [3, 4, 5];
+  give(state, { wood: 2 });
+  for (const o of state.players) {
+    if (o.id === HUMAN) continue;
+    for (const r of Object.keys(o.resources)) {
+      state.bank.resources[r] += o.resources[r]; // 保存則を壊さない
+      o.resources[r] = 0;
+    }
+    o.commodities = { cloth: 0, coin: 0, paper: 0 };
+  }
+
+  const html = dialogHtml(state, { dialog: { type: 'fish' } });
+  const b = buttons(html);
+  assert.ok(b.has('fish-use:steal'), '奪う選択肢が出ていない');
+  assert.equal(
+    b.get('fish-use:steal').enabled, false,
+    '相手が手ぶらなのに奪えることになっている(自分の手札を見ている)',
+  );
+  assert.match(html, /手札を持っている相手がいません/, '理由が出ていない');
+
+  // 相手に1枚持たせると押せるようになる
+  state.players[1].resources.wood += 1;
+  state.bank.resources.wood -= 1;
+  assert.equal(
+    buttons(dialogHtml(state, { dialog: { type: 'fish' } })).get('fish-use:steal').enabled,
+    true,
+    '相手が持っているのに奪えない',
   );
 });

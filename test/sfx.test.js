@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createGame } from '../src/state.js';
 import { dispatch } from '../src/actions.js';
 import { chooseAction } from '../src/ai/cpu-player.js';
-import { SFX_NAMES, sfxForAction, sfxForEnd } from '../src/audio/sfx.js';
+import { Sfx, SFX_NAMES, sfxForAction, sfxForEnd } from '../src/audio/sfx.js';
 
 const names = (action, prev, next, me = 0) =>
   sfxForAction(action, prev, next, me).map((x) => x.name);
@@ -173,4 +173,48 @@ test('効果音: 状態が欠けていても落ちない', () => {
   assert.deepEqual(sfxForAction({ type: 'BUILD_ROAD' }, null, {}, 0), []);
   // 知らないアクションは黙る
   assert.deepEqual(names({ type: 'UNKNOWN_THING', player: 0 }, {}, {}), []);
+});
+
+// ---- 波形を作るところ(飛沫の泡)----
+//
+// 合成そのものは Web Audio だが、`bubbles` が ctx に求めるものは少ないので
+// 偽の ctx で波形だけ取り出せる。見たいのは**高さを揃える割り算の手前の門**。
+// 泡が1つも置かれないと基準値が 0 になり、門を外すと gain/0 = Infinity から
+// 波形が丸ごと NaN になる。NaN の波形は鳴らないので、耳では気づけない。
+
+function fakeCtx(sampleRate = 8000) {
+  const made = [];
+  return {
+    made,
+    sampleRate,
+    createBuffer(_ch, len) {
+      const data = new Float32Array(len);
+      made.push(data);
+      return { length: len, getChannelData: () => data };
+    },
+    createBufferSource: () => ({ buffer: null, connect() {}, start() {} }),
+  };
+}
+
+const bubbleWave = (opts) => {
+  const ctx = fakeCtx();
+  Sfx.prototype.bubbles.call({ ctx, bus: {} }, 0, opts);
+  return ctx.made[0];
+};
+
+test('効果音: 泡が1つも無くても、NaN の波形を作らない', () => {
+  const d = bubbleWave({ n: 0, dur: 0.05 });
+  assert.ok(d.length > 0, '波形が作られていない');
+  assert.ok([...d].every(Number.isFinite), 'NaN か Infinity が混ざっている');
+  assert.ok([...d].every((x) => x === 0), '泡が無いのに音が入っている');
+});
+
+test('効果音: 泡があるときは高さを揃えて、上限内に収める', () => {
+  const gain = 0.15;
+  const d = bubbleWave({ n: 120, dur: 0.05, gain });
+  assert.ok([...d].every(Number.isFinite), 'NaN か Infinity が混ざっている');
+  const peak = Math.max(...[...d].map(Math.abs));
+  assert.ok(peak > 0, '音が入っていない');
+  // 角で切らずに丸めるので、上限(gain*1.6)を超えない
+  assert.ok(peak <= gain * 1.6 + 1e-6, `上限を超えた: ${peak}`);
 });

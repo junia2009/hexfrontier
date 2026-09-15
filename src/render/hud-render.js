@@ -561,7 +561,7 @@ function renderLog(state) {
 
 // ---- ダイアログ ----
 
-function dialogHtml(state, ui) {
+export function dialogHtml(state, ui) {
   const d = ui.dialog;
   if (!d) return '';
   const p = state.players[HUMAN];

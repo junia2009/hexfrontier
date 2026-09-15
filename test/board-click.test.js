@@ -59,7 +59,9 @@ function spy(answer = true) {
 }
 
 // 3種類ぶんの光っている場所(どれを渡しても中身が違うので取り違えが分かる)
-const HL = { vertices: ['V1', 'V2', 'V3'], edges: ['E1', 'E2', 'E3'], hexes: ['H1', 'H2'] };
+// ヘックスは3つ要る。2つしか無いと「3つ目を弾く」上限を試しようがなく、
+// 上限を壊しても重複チェックのほうが先に効いてテストが通ってしまう(実際そうなっていた)。
+const HL = { vertices: ['V1', 'V2', 'V3'], edges: ['E1', 'E2', 'E3'], hexes: ['H1', 'H2', 'H3'] };
 const LIST_FOR = { vertex: 'vertices', edge: 'edges', hex: 'hexes' };
 
 // 盤面をタップして何かを選ぶモード(タップで何もしないものは除く)
@@ -157,15 +159,24 @@ test('2つ溜めるもの: 上限を超えない・同じところを二度数�
   assert.deepEqual(ui.pendingHexes, ['H1'], '同じところを二度数えた');
   applyBoardClick(state, ui, HUMAN, (k, c) => c[1] ?? null);
   assert.deepEqual(ui.pendingHexes, ['H1', 'H2']);
-  applyBoardClick(state, ui, HUMAN, (k, c) => c[1] ?? null);
-  assert.equal(ui.pendingHexes.length, 2, '3つ目が入った');
+  // **3つ目は別のヘックスでなければ上限を試したことにならない。**
+  // ここで H2 をもう一度押すと、上限ではなく重複チェックで弾かれる。
+  applyBoardClick(state, ui, HUMAN, (k, c) => c[2] ?? null);
+  assert.deepEqual(ui.pendingHexes, ['H1', 'H2'], '3つ目が入った');
 
   // 騎士の昇格は2体まで
   const k = freshUi({ mode: 'prog-knights', progIndex: 0, highlights: { ...HL } });
   for (let i = 0; i < 5; i += 1) {
     applyBoardClick(state, k, HUMAN, (kind, c) => c[i % c.length] ?? null);
   }
-  assert.equal(k.pendingVertices.length, 2, '騎士が2体を超えた');
+  assert.deepEqual(k.pendingVertices, ['V1', 'V2'], '騎士が2体を超えた');
+
+  // 道の移設も2本まで(ここだけ溜め先が pendingEdges)
+  const r = freshUi({ mode: 'prog-moveroad', progIndex: 0, highlights: { ...HL } });
+  for (let i = 0; i < 4; i += 1) {
+    applyBoardClick(state, r, HUMAN, (kind, c) => c[i % c.length] ?? null);
+  }
+  assert.deepEqual(r.pendingEdges, ['E1', 'E2'], '道が2本を超えた');
 });
 
 test('街道建設: 置ける本数を超えて溜めない', () => {
