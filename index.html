@@ -146,6 +146,42 @@
   .ddeck { color: var(--dim); font-size: 12px; opacity: 0.85; }
   .dstats { padding: 4px 7px; font-size: 13px; line-height: 1; }
 
+  /* ---------- タップ目標を 44px 以上にする ---------- */
+  /* 指の接触面より小さいボタンは押し間違いを生む(Apple・Android とも
+     推奨は 44px 前後)。実測ではスマホ幅の対戦画面で14個が下回っていて、
+     いちばん小さい「出目の記録」は 32×23 ── 推奨面積の3分の1以下だった。
+     外したときに**何も起きない**のではなく**隣が開く**のが実害なので、
+     近接して並んでいるものほど効く。
+
+     **見た目は変えない。当たり判定だけ広げる。** ::after の透明な矩形を
+     中央に重ねるので、寸法も余白も並びもそのまま。
+     max() を使うので、足りているものは 100% のまま(広げすぎない)。
+
+     隣と判定が重なると取り合いになるが、ここで広げるのはどれも
+     **足りない向き(縦)だけ**で、横に並ぶ隣とは重ならない。
+     .dstats だけは横も足りないが、隣は文字(.ddeck)でボタンではない。 */
+  .iconbtn, .dstats, .player { position: relative; }
+  .iconbtn::after, .dstats::after, .player::after {
+    content: '';
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+  }
+
+  /* 下部の主要ボタンは 41px で3px足りないだけなので、重ねずに実寸で揃える
+     (3px なら並びへの影響が無視できる。実寸のほうが後々壊れにくい) */
+  body.mobile #controls button { min-height: 44px; }
+
+  /* キーボードやスイッチで操作したときに、いまどこにいるかを見せる。
+     いままで :focus の指定が1つも無く、指とマウスだけを前提にしていた。
+     :focus-visible なのでタップやクリックでは出ない。 */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
   /* ---------- 出目の記録(棒グラフ) ---------- */
   .dchart {
     display: flex; align-items: flex-end; gap: 4px;
