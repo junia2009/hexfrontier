@@ -988,7 +988,7 @@ function startArchery() {
   jumpEl()?.style.setProperty('display', 'none');
   setWalkExitLabel(false);
   const el = document.querySelector('[data-act="walk-exit"]');
-  if (el) el.textContent = '✕ 弓をおろす';
+  if (el) el.textContent = '✕ おろす';   // 帯に収める(長い札は切れる)
   document.getElementById('walk-hud')?.classList.add('fishing');
   renderAimBar();
   showRaidFx('1波 が来る', '沖から蛮族船が寄せてくる');
@@ -1124,15 +1124,17 @@ function onFishSpot(spot) {
 // 上のボタンは、釣っている間は「釣りをやめる」になる。
 // 押すと竿をしまうだけで島には残るので、「もどる」のままだと
 // 島から出てしまうように見えて押せない。
+// **短く。** 上の帯はボタン6つで幅いっぱいなので、ここが長いと
+// 画面の外へはみ出す(実機の iPhone で「× 釣りをや…」と切れていた)。
 function setWalkExitLabel(fishing) {
   const el = document.querySelector('[data-act="walk-exit"]');
-  if (el) el.textContent = fishing ? '✕ 釣りをやめる' : '✕ もどる';
+  if (el) el.textContent = fishing ? '✕ やめる' : '✕ もどる';
 }
 
 // 円卓に着いている間は「席を立つ」。押すと卓から抜ける(島には残る)
 function setTableExitLabel(seated) {
   const el = document.querySelector('[data-act="walk-exit"]');
-  if (el && seated) el.textContent = '✕ 席を立つ';
+  if (el && seated) el.textContent = '✕ 席を立つ';   // これも短いまま保つこと
 }
 
 function setFishButton(kind) {
@@ -2167,12 +2169,21 @@ function setDiveVeil(v) {
 // 足音の記録(E2E 用)。ふだんは null で、何も溜めない
 let stepLog = null;
 let walkNoteTimer = null;
+// 操作の説明を出す帯。**場所名とは別の枠**(#walk-note)。
+//
+// もとは場所名(#walk-where)に上書きしていたが、あそこは
+//   - 狭い画面ではボタンに押されて幅が 0 になる(「…」しか見えない)
+//   - 400ms ごとに updateWalkHud が場所名で上書きする
+// ので、書いた説明はほとんど誰にも読まれていなかった。
+// 読む時間(2.8秒)は、ひと呼吸おいて目を上げても間に合う長さ。
+const NOTE_MS = 2800;
 function walkNote(text) {
-  const el = document.getElementById('walk-where');
+  const el = document.getElementById('walk-note');
   if (!el) return;
   el.textContent = text;
+  el.classList.add('on');
   clearTimeout(walkNoteTimer);
-  walkNoteTimer = setTimeout(updateWalkHud, 1600);
+  walkNoteTimer = setTimeout(() => el.classList.remove('on'), NOTE_MS);
 }
 
 const TERRAIN_JP = {

@@ -720,18 +720,56 @@
   /* ---------- 島を歩く(ミニゲーム)---------- */
   #walk-hud { position: fixed; inset: 0; z-index: 15; pointer-events: none; display: none; }
   body[data-screen="walk"] #walk-hud { display: block; }
+  /* **1行に必ず収める。** ボタンが6つ+場所名で、iPhone の幅(375〜393)を
+     はみ出して「× 釣りをやめる」が画面の外へ切れていた。
+     隙間と内側の余白を詰め、アイコンのボタンは 44px 角に固定する
+     (親指で押せる下限。ここは縮めない)。文字のボタンだけが詰まる。 */
   .walk-top {
     position: absolute; top: 0; left: 0; right: 0;
-    display: flex; align-items: center; gap: 10px;
-    padding: calc(8px + env(safe-area-inset-top)) 14px 8px;
+    display: flex; align-items: center; gap: 5px;
+    padding: calc(8px + env(safe-area-inset-top))
+             calc(10px + env(safe-area-inset-right)) 8px
+             calc(10px + env(safe-area-inset-left));
     background: linear-gradient(180deg, rgba(8,22,38,0.75), transparent);
   }
-  .walk-top button { pointer-events: auto; flex: none; }
-  /* 場所名は詰められるようにする。ボタンが増えても押し出さない */
+  /* アイコンだけのボタン(すがた・エモート・持ち物・図鑑・?)は正方形で固定 */
+  .walk-top button {
+    pointer-events: auto; flex: none;
+    min-width: 44px; height: 44px; padding: 0 8px; font-size: 17px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  /* 文字のボタン(もどる/やめる)だけは文字の幅ぶん。ここも 44px は下回らない */
+  /* 文字の札(もどる/やめる/席を立つ/おろす)。**内側の余白も詰める** ──
+     いちばん長い「✕ 席を立つ」で iPhone SE(375px)の幅を超えていた */
+  .walk-top button.wide { font-size: 13px; padding: 0 10px; }
+  /* 場所名は詰められるようにする。ボタンが増えても押し出さない。
+     **狭い画面では出さない** ── ボタン6つで幅が尽きていて、
+     出しても「…」しか見えない(実機の iPhone がそうだった)。 */
   #walk-where {
     flex: 1; min-width: 0; font-size: 13px; color: var(--accent2); font-weight: 700;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  @media (max-width: 430px) { #walk-where { display: none; } }
+
+  /* **お知らせ。** 「🏪 店に入れる」「🌊 沖へ遠投する」など、操作の説明が
+     ここに出る。**もとは場所名と同じ枠に書いていた** ── 幅が 0 に潰れる
+     うえに、場所名を 400ms ごとに書き直しているので、説明はほとんど
+     誰の目にも入っていなかった。独立した帯にして、読める間だけ出す。 */
+  #walk-note {
+    position: absolute; z-index: 3; pointer-events: none;
+    top: calc(56px + env(safe-area-inset-top));
+    left: 50%; transform: translateX(-50%) translateY(-6px);
+    max-width: min(92vw, 420px);
+    padding: 8px 14px; border-radius: 12px;
+    background: rgba(8, 22, 38, 0.86); border: 1px solid rgba(255, 217, 125, 0.4);
+    color: #fff; font-size: 13px; font-weight: 700; line-height: 1.5;
+    text-align: center; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+    opacity: 0; transition: opacity 200ms ease-out, transform 200ms ease-out;
+  }
+  #walk-note.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  /* 大会の帯(#walk-meet)が出ている間は、その下へ。重ねると両方読めない */
+  #walk-meet.on ~ #walk-note { top: calc(88px + env(safe-area-inset-top)); }
 
   /* エモート。上のバーのボタンから、その下に並べて出す。
      右下(ジャンプ・つる)には置かない ── あそこは2つ縦に並んでいて、
@@ -1975,13 +2013,15 @@
       <button id="walk-bag-btn" data-act="walk-bag" aria-label="持ち物">🎒</button>
       <button data-act="walk-book" aria-label="釣り図鑑">📖</button>
       <button data-act="walk-guide" aria-label="あそびかた">❓</button>
-      <button data-act="walk-exit">✕ もどる</button>
+      <button class="wide" data-act="walk-exit">✕ もどる</button>
     </div>
     <div id="walk-emotes"></div>
     <div id="walk-looks"></div>
     <!-- 釣り大会。受付のそばで開く小さなパネルと、大会中の細いバー -->
     <div id="walk-contest"></div>
     <div id="walk-meet"></div>
+    <!-- 操作のお知らせ。大会の帯が出ている間は、その下へずれる(CSS) -->
+    <div id="walk-note"></div>
     <div id="walk-dive"></div>
     <div id="walk-stick"><i></i></div>
     <button id="walk-jump" type="button" aria-label="ジャンプ">⤒<span>ジャンプ</span></button>
