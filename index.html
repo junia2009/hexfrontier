@@ -751,6 +751,17 @@
   }
   @media (max-width: 430px) { #walk-where { display: none; } }
 
+  /* 島の地図。左上、帯のすぐ下。**指は触れない**(pointer-events: none)ので、
+     左半分のなぞり=移動の邪魔をしない。 */
+  #walk-map {
+    position: absolute; z-index: 2; pointer-events: none; display: none;
+    top: calc(56px + env(safe-area-inset-top));
+    left: calc(10px + env(safe-area-inset-left));
+    width: 92px; height: 92px;
+    filter: drop-shadow(0 3px 8px rgba(0,0,0,0.45));
+  }
+  #walk-map.on { display: block; }
+
   /* **お知らせ。** 「🏪 店に入れる」「🌊 沖へ遠投する」など、操作の説明が
      ここに出る。**もとは場所名と同じ枠に書いていた** ── 幅が 0 に潰れる
      うえに、場所名を 400ms ごとに書き直しているので、説明はほとんど
@@ -770,6 +781,8 @@
   #walk-note.on { opacity: 1; transform: translateX(-50%) translateY(0); }
   /* 大会の帯(#walk-meet)が出ている間は、その下へ。重ねると両方読めない */
   #walk-meet.on ~ #walk-note { top: calc(88px + env(safe-area-inset-top)); }
+  /* 地図が出ている間も同じ理由で下げる(地図は左上の 92px) */
+  #walk-map.on ~ #walk-note { top: calc(156px + env(safe-area-inset-top)); }
 
   /* エモート。上のバーのボタンから、その下に並べて出す。
      右下(ジャンプ・つる)には置かない ── あそこは2つ縦に並んでいて、
@@ -1337,22 +1350,6 @@
   .bag-times { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .bag-times button { flex: 1 1 auto; min-width: 72px; min-height: 44px; font-size: 13px; }
   .bag-times button.sel { background: rgba(255, 217, 125, 0.28); border-color: rgba(255,217,125,0.6); }
-  /* 島の見取り図。方角と距離は右に寄せて、数字の列をそろえる */
-  .imap { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
-  .imap-row {
-    display: flex; align-items: center; gap: 8px;
-    padding: 7px 8px; border-radius: 9px;
-    background: rgba(255,255,255,0.045);
-  }
-  .imap-icon { font-size: 19px; width: 24px; text-align: center; }
-  .imap-what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-  .imap-what b { font-size: 13.5px; }
-  .imap-what small, .imap-dir small { color: var(--dim); font-size: 11.5px; }
-  .imap-dir {
-    flex: none; text-align: right; display: flex; flex-direction: column;
-    font-size: 13px; color: var(--accent2); font-weight: 700;
-  }
-
   /* 財布。戦績の見出しの右端に置く */
   .purse {
     float: right; display: inline-flex; align-items: baseline; gap: 5px;
@@ -2015,6 +2012,8 @@
       <button data-act="walk-guide" aria-label="あそびかた">❓</button>
       <button class="wide" data-act="walk-exit">✕ もどる</button>
     </div>
+    <!-- 島の地図(「島の見取り図」を買った人だけ)。歩きながら見える -->
+    <canvas id="walk-map"></canvas>
     <div id="walk-emotes"></div>
     <div id="walk-looks"></div>
     <!-- 釣り大会。受付のそばで開く小さなパネルと、大会中の細いバー -->

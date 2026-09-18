@@ -1,8 +1,8 @@
-// 島の時刻(daynight.js)と、島の見取り図(island-guide.js)。
+// 島の時刻(daynight.js)と、島の地図(island-map.js / render/minimap.js)。
 //
 // どちらも店の品(夜釣りのランタン・島の見取り図・島の砂時計)が乗っている
-// 土台なので、ここが狂うと「空は夜なのに夜の魚が来ない」「地図の方角が逆」
-// という、遊んでいて気づきにくい壊れかたをする。
+// 土台なので、ここが狂うと「空は夜なのに夜の魚が来ない」「地図の印が
+// 島からはみ出す」という、遊んでいて気づきにくい壊れかたをする。
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +11,10 @@ import {
   NIGHT_KEYS, NIGHT_MIN, SKY_CYCLE_SEC, SKY_TIMES,
   isNight, isNightAt, nightAt, skyPhase, skyTimeOf,
 } from '../src/minigame/daynight.js';
-import { DIRS, dirIndex, islandGuide, walkSeconds } from '../src/minigame/island-guide.js';
+import {
+  islandBounds, islandHexes, islandMapData, islandMarks, mapTransform, toMap,
+} from '../src/minigame/island-map.js';
+import { drawMinimap } from '../src/render/minimap.js';
 import { createGame, MODE_IDS } from '../src/state.js';
 import {
   POST_CLEAR, SHOP_CLEAR, SHOP_REACH, SPAWN_RING, TABLE_CLEAR,
@@ -75,144 +78,149 @@ test('砂時計: 選べる時刻がそろっていて、知らない id は島�
   }
 });
 
-// ---- 見取り図 ----
 
-const island = (mode = 'cak') => createGame({ mode, players: 2, seed: 4242 });
-
-test('見取り図: 向いているほうが「まっすぐ前」、画面の右が「右」', () => {
-  // facing は atan2(x, z)。+z を向いているとき、**画面の右は -x 側**
-  // (カメラは背中から見ている。実機のカメラの右ベクトルで確かめた)
-  assert.equal(DIRS[dirIndex(0, 0, 1)], 'まっすぐ前');
-  assert.equal(DIRS[dirIndex(0, -1, 0)], '右');
-  assert.equal(DIRS[dirIndex(0, 1, 0)], '左');
-  assert.equal(DIRS[dirIndex(0, 0, -1)], '真うしろ');
-  assert.equal(DIRS[dirIndex(0, -1, 1)], '右前');
-  assert.equal(DIRS[dirIndex(0, 1, -1)], '左うしろ');
-  // 向きを変えると、同じ場所の呼び方も回る
-  assert.equal(DIRS[dirIndex(Math.PI / 2, 1, 0)], 'まっすぐ前');
-  assert.equal(DIRS[dirIndex(Math.PI, 0, -1)], 'まっすぐ前');
-  // 1周しても同じ(角度を畳んでいる)
-  assert.equal(dirIndex(Math.PI * 2, 0, 1), dirIndex(0, 0, 1));
-  for (const bad of [null, NaN, 'あ']) {
-    assert.equal(DIRS[dirIndex(bad, 0, 1)], 'まっすぐ前', `${String(bad)} で崩れた`);
-  }
-});
-
-test('見取り図: 歩く時間は距離に比例して、0にはならない', () => {
-  assert.ok(walkSeconds(10) > walkSeconds(1));
-  assert.equal(walkSeconds(0), 1, '目の前が 0 秒になっている');
-  for (const bad of [null, NaN, -3, 'あ']) assert.equal(walkSeconds(bad), 1);
-});
-
-test('見取り図: 島にあるものが全部並ぶ(港・受付・櫓・巣)', () => {
-  const s = island('cak');   // 蛮族を射る(櫓が建つ)島
-  const rows = islandGuide(s, { x: 0, z: 0, facing: 0 });
-  const ids = rows.map((r) => r.id);
-  assert.ok(ids.includes('meet'), '受付が出ていない');
-  assert.ok(ids.includes('post'), '櫓が出ていない');
-  const ports = fishingSpots(s);
-  assert.equal(ids.filter((i) => i.startsWith('port:')).length, ports.length, '桟橋の数が合わない');
-  // 竜の島には巣が出て、そうでない島には出ない
-  const dragon = island('dragon');
-  assert.ok(nestPoint(dragon), '前提: 竜の島に巣がある');
-  assert.ok(islandGuide(dragon).some((r) => r.id === 'nest'), '巣が出ていない');
-  assert.equal(rows.some((r) => r.id === 'nest'), !!nestPoint(s));
-});
-
-test('見取り図: 近い順に並び、距離と方角がその場所と合っている', () => {
-  const s = island('fish');
-  const from = { x: 1.2, z: -0.4, facing: 0.7 };
-  const rows = islandGuide(s, from);
-  assert.ok(rows.length > 1);
-  for (let i = 1; i < rows.length; i += 1) {
-    assert.ok(rows[i].dist >= rows[i - 1].dist, `${i}番目が近い順になっていない`);
-  }
-  // 受付の行を、ground.js の座標から自分で出し直して突き合わせる
-  const home = spawnPoint(s);
-  const meet = rows.find((r) => r.id === 'meet');
-  const want = Math.hypot(home.x - from.x, home.y - from.z);
-  assert.ok(Math.abs(meet.dist - want) < 1e-9, `受付までの距離がずれている: ${meet.dist} / ${want}`);
-  assert.equal(meet.dir, DIRS[dirIndex(from.facing, home.x - from.x, home.y - from.z)]);
-  assert.equal(meet.sec, walkSeconds(want));
-});
-
-// ---- 島の店(屋台の建つ場所)----
+// ---- 島の地図 ----
 //
-// **画面のボタンではなく島の上にある**ので、建つ場所が壊れると
-// 「店が無い島」「受付にめり込んだ店」「海の上の店」が黙って出来上がる。
+// 文字で「右前・歩いて約5秒」と並べていたころは、読んでも頭の中で方角に
+// 直す必要があり、パネルを開くと時間が止まっていた ── 使い道がないと
+// 言われて、**歩きながら見える絵**に作り直した。
+// ここで押さえるのは「島の形に収まっているか」と「目印が実物と同じ場所か」。
 
-test('店: どの島にも1軒建ち、陸の上で、毎回同じ場所', () => {
-  for (const mode of MODE_IDS) {
-    const s = createGame({ mode, players: 3, seed: 31 });
-    const p = shopPoint(s);
-    assert.ok(p, `${mode}: 店が建たない`);
-    assert.equal(makeGround(s)(p.x, p.z).ok, true, `${mode}: 海の上に建っている`);
-    assert.deepEqual(shopPoint(createGame({ mode, players: 3, seed: 31 })), p,
-      `${mode}: 同じ島なのに場所が変わる`);
-  }
-});
+const island = (mode = 'cak', seed = 4242) => createGame({ mode, players: 2, seed });
 
-test('店: 受付の広場とも櫓とも重ならない', () => {
+test('地図: 島の形は陸のヘックスだけ。海の上に地面を描かない', () => {
   for (const mode of MODE_IDS) {
-    const s = createGame({ mode, players: 4, seed: 88 });
-    const p = shopPoint(s);
-    const home = spawnPoint(s);
-    const d = Math.hypot(p.x - home.x, p.z - home.y);
-    assert.ok(d >= TABLE_CLEAR + SHOP_CLEAR, `${mode}: 受付に近すぎる(${d.toFixed(2)})`);
-    // 降り立つ輪の上に建つと、島に降りた瞬間から店に入っていることになる
-    assert.ok(d > SPAWN_RING + SHOP_REACH, `${mode}: 降り立つ輪と重なっている`);
-    const post = watchPost(s);
-    if (post) {
-      const dp = Math.hypot(p.x - post.x, p.z - post.z);
-      assert.ok(dp >= POST_CLEAR + SHOP_CLEAR, `${mode}: 櫓に近すぎる(${dp.toFixed(2)})`);
+    const s = island(mode, 9);
+    const hexes = islandHexes(s);
+    assert.ok(hexes.length > 0, `${mode}: 島が空`);
+    for (const poly of hexes) assert.equal(poly.length, 6, `${mode}: 六角形でない`);
+    if (mode === 'sea') {
+      // 航海者たちは主島+小島だけ。盤のヘックス全部を描くと海まで陸になる
+      assert.ok(hexes.length < s.board.hexIds.length, '海のヘックスまで陸にしている');
     }
   }
 });
 
-test('店: 竜の山には建てない(近づくと竜が起きる場所に客を呼ばない)', () => {
-  const s = createGame({ mode: 'dragon', players: 3, seed: 5 });
-  const nest = nestPoint(s);
-  const p = shopPoint(s);
-  assert.ok(nest && p);
-  assert.ok(Math.hypot(p.x - nest.x, p.z - nest.y) > 0.5, '巣のヘックスに建っている');
-});
-
-test('店: 入口は広場のほうを向く(歩いてきた人の正面に店番が立つ)', () => {
-  const s = createGame({ mode: 'fish', players: 2, seed: 12 });
-  const p = shopPoint(s);
-  const home = spawnPoint(s);
-  assert.equal(p.facing, Math.atan2(home.x - p.x, home.y - p.z));
-  // 盤が無ければ建てない(落ちない)
-  assert.equal(shopPoint(null), null);
-  assert.equal(shopPoint({}), null);
-});
-
-test('見取り図: 店も目印として並ぶ(画面にボタンが無いので、ここが道しるべ)', () => {
-  const s = createGame({ mode: 'base', players: 2, seed: 3 });
-  const row = islandGuide(s, { x: 0, z: 0, facing: 0 }).find((r) => r.id === 'shop');
-  assert.ok(row, '見取り図に店が出ていない');
-  const p = shopPoint(s);
-  assert.ok(Math.abs(row.dist - Math.hypot(p.x, p.z)) < 1e-9, '店までの距離がずれている');
-});
-
-test('見取り図: 桟橋には港の種類が出る', () => {
-  const s = island('base');
-  const rows = islandGuide(s).filter((r) => r.id.startsWith('port:'));
-  assert.ok(rows.length > 0);
-  for (const r of rows) {
-    assert.ok(/の港$/.test(r.sub), `港の説明が変: ${r.sub}`);
-  }
-});
-
-test('見取り図: どの島でも落ちない。盤が無ければ空', () => {
+test('地図: 島も目印も丸い窓の内側に収まり、形は歪まない', () => {
+  const size = 92;
+  const pad = 8;
+  const R = size / 2 - pad;
   for (const mode of MODE_IDS) {
-    const s = createGame({ mode, players: 3, seed: 7 });
-    const rows = islandGuide(s, { x: 0, z: 0, facing: 1 });
-    assert.ok(rows.length > 0, `${mode}: 何も出ない`);
-    // 櫓が建たない島に櫓の行を出さない(ground.js の watchPost と揃っていること)
-    const hasPost = rows.some((r) => r.id === 'post');
-    assert.equal(hasPost, mode === 'cak' && !!watchPost(s), `${mode}: 櫓の有無が食い違う`);
+    const s = island(mode, 3);
+    const d = islandMapData(s, size, pad);
+    // **丸く切り抜いてある**ので、四角ではなく円の内側で見る
+    // (四角に合わせていたころ、角の桟橋が切れていた)
+    const inside = (p, why) => {
+      const r = Math.hypot(p.x - size / 2, p.y - size / 2);
+      assert.ok(r <= R + 1e-6, `${mode}: ${why} が丸窓からはみ出す(r=${r.toFixed(1)} > ${R})`);
+    };
+    for (const poly of d.hexes) for (const p of poly) inside(p, '陸');
+    for (const m of d.marks) inside(m, `目印 ${m.id}`);
   }
-  assert.deepEqual(islandGuide(null), []);
-  assert.deepEqual(islandGuide({}), []);
+  // 縦横に同じ率が掛かっている(掛け分けると島が楕円に潰れる)
+  const s = island('base');
+  const b = islandBounds(s);
+  const t = islandMapData(s, size, pad).t;
+  const a = toMap(t, b.minX, b.minY);
+  const c = toMap(t, b.maxX, b.maxY);
+  const kx = (c.x - a.x) / (b.maxX - b.minX);
+  const ky = (c.y - a.y) / (b.maxY - b.minY);
+  assert.ok(Math.abs(kx - ky) < 1e-9, `縦横で率が違う: ${kx} / ${ky}`);
+  // 島の中心が枠の中心
+  assert.ok(Math.abs((a.x + c.x) / 2 - size / 2) < 1e-6, '横に寄っている');
+  assert.ok(Math.abs((a.y + c.y) / 2 - size / 2) < 1e-6, '縦に寄っている');
+  // 点を渡さない呼び方でも落ちない(四角の角までを半径にする)
+  assert.ok(mapTransform(b, size, pad).scale > 0);
+  assert.ok(mapTransform(null, size, pad).scale === 1);
+});
+
+test('地図: 目印は ground.js の実物と同じ場所(地図のために座標を建て直さない)', () => {
+  const s = island('cak');
+  const marks = islandMarks(s);
+  const at = (id) => marks.find((m) => m.id === id);
+  const home = spawnPoint(s);
+  assert.deepEqual([at('meet').x, at('meet').z], [home.x, home.y], '受付がずれている');
+  const shop = shopPoint(s);
+  assert.deepEqual([at('shop').x, at('shop').z], [shop.x, shop.z], '店がずれている');
+  const post = watchPost(s);
+  assert.deepEqual([at('post').x, at('post').z], [post.x, post.z], '櫓がずれている');
+  const ports = fishingSpots(s);
+  assert.equal(marks.filter((m) => m.id.startsWith('port:')).length, ports.length, '桟橋の数が違う');
+  for (const p of ports) {
+    const m = at(`port:${p.edgeId}`);
+    assert.deepEqual([m.x, m.z], [p.x, p.z], `${p.edgeId}: 桟橋がずれている`);
+  }
+  // **動くものは出さない。** 竜そのものや他の人を出すと、大会で有利になる
+  assert.equal(marks.some((m) => m.id === 'dragon' || m.id.startsWith('player')), false,
+    '動くものが地図に出ている');
+});
+
+test('地図: 竜の島には巣、そうでない島には出ない。盤が無ければ空', () => {
+  const dragon = island('dragon');
+  assert.ok(nestPoint(dragon), '前提: 竜の島に巣がある');
+  assert.ok(islandMarks(dragon).some((m) => m.id === 'nest'), '巣が出ていない');
+  assert.equal(islandMarks(island('fish')).some((m) => m.id === 'nest'), false,
+    '巣の無い島に巣が出ている');
+  assert.deepEqual(islandMarks(null), []);
+  assert.deepEqual(islandHexes({}), []);
+  assert.equal(islandBounds({}), null);
+});
+
+// 記録用の偽 ctx。描いたものを全部ためる(THREE も canvas も要らない)
+function fakeCtx() {
+  const calls = [];
+  const rec = (name) => (...args) => calls.push([name, ...args]);
+  return {
+    calls,
+    canvas: { width: 0, height: 0 },
+    save: rec('save'), restore: rec('restore'), scale: rec('scale'),
+    clearRect: rec('clearRect'), beginPath: rec('beginPath'), closePath: rec('closePath'),
+    moveTo: rec('moveTo'), lineTo: rec('lineTo'), arc: rec('arc'), clip: rec('clip'),
+    fill: rec('fill'), stroke: rec('stroke'), fillText: rec('fillText'),
+    set fillStyle(v) { calls.push(['fillStyle', v]); },
+    set strokeStyle(v) { calls.push(['strokeStyle', v]); },
+    set lineWidth(v) { calls.push(['lineWidth', v]); },
+    set font(v) { calls.push(['font', v]); },
+    set textAlign(v) { calls.push(['textAlign', v]); },
+    set textBaseline(v) { calls.push(['textBaseline', v]); },
+  };
+}
+
+test('地図を描く: 島と目印と自分が、この順で出る', () => {
+  const s = island('cak');
+  const ctx = fakeCtx();
+  const size = 92;
+  const ok = drawMinimap(ctx, s, { size, at: { x: 0, z: 0, facing: 0 } });
+  assert.equal(ok, true);
+  // 陸のヘックスぶんの塗り(海の丸と自分の三角のぶんを除く)
+  const fills = ctx.calls.filter((c) => c[0] === 'fill').length;
+  assert.ok(fills >= islandHexes(s).length, `陸が描かれていない(${fills})`);
+  // 目印は絵文字で出す
+  const texts = ctx.calls.filter((c) => c[0] === 'fillText').map((c) => c[1]);
+  assert.deepEqual([...new Set(texts)].sort(), ['⚓', '📋', '🏪', '🏹'].sort(),
+    `目印が足りない/多い: ${texts.join('')}`);
+  // 自分は目印より**あと**に描く(重なったとき下に隠れない)
+  const lastText = ctx.calls.map((c) => c[0]).lastIndexOf('fillText');
+  const lastTri = ctx.calls.map((c) => c[0]).lastIndexOf('lineTo');
+  assert.ok(lastTri > lastText, '自分の印が目印の下に隠れている');
+});
+
+test('地図を描く: 自分の印は向いているほうへ尖る', () => {
+  const s = island('base');
+  const tip = (facing) => {
+    const ctx = fakeCtx();
+    drawMinimap(ctx, s, { size: 92, at: { x: 0, z: 0, facing } });
+    // 三角は moveTo(先端) → lineTo → lineTo。最後の moveTo が先端
+    const i = ctx.calls.map((c) => c[0]).lastIndexOf('moveTo');
+    return { x: ctx.calls[i][1], y: ctx.calls[i][2] };
+  };
+  const c = tip(0);         // +z(地図では下)を向いている
+  const back = tip(Math.PI);
+  const right = tip(Math.PI / 2);   // +x(地図では右)
+  assert.ok(c.y > back.y, '前を向いても先端が下へ出ない');
+  assert.ok(right.x > c.x, '右を向いても先端が右へ出ない');
+  // 向きが分からなくても落ちない
+  assert.doesNotThrow(() => drawMinimap(fakeCtx(), s, { at: { x: 0, z: 0 } }));
+  assert.equal(drawMinimap(null, s, {}), false);
+  assert.equal(drawMinimap(fakeCtx(), null, {}), false);
 });

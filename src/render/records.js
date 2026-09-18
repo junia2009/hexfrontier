@@ -289,11 +289,11 @@ export function storeHtml(progress) {
 }
 
 // 持ち物。使い道のある品は、ここで使う
-export function bagHtml(progress, { mapRows = [], skyTime = 'live' } = {}) {
+export function bagHtml(progress, { mapOn = true, skyTime = 'live' } = {}) {
   const mine = ITEMS.filter((i) => owns(progress, i.id));
   if (!mine.length) return '<p>まだ何も持っていません。</p>';
   const rows = mine.map((item) => {
-    const body = item.id === 'islandMap' ? islandMapHtml(mapRows)
+    const body = item.id === 'islandMap' ? mapSwitchHtml(mapOn)
       : item.id === 'skyGlass' ? skyTimesHtml(skyTime)
       : `<p><small>${item.note ?? ''}</small></p>`;
     return `<div class="bag-row">
@@ -312,19 +312,12 @@ export function skyTimesHtml(skyTime = 'live') {
     <p><small>大会の間は島の時刻に戻ります。</small></p>`;
 }
 
-// ---- 島の見取り図 ----
+// ---- 島の見取り図(画面に出す地図の入り切り)----
 //
-// 行を作るのは minigame/island-guide.js(純粋な計算)。ここは並べるだけ。
-export function islandMapHtml(rows) {
-  if (!rows?.length) {
-    return '<p>この島には、目印になるものがありません。</p>';
-  }
-  const list = rows.map((r) => `<div class="imap-row">
-    <span class="imap-icon">${r.icon}</span>
-    <span class="imap-what"><b>${r.label}</b><small>${r.sub}</small></span>
-    <span class="imap-dir">${r.dir}<small>歩いて約${r.sec}秒</small></span>
-  </div>`).join('');
-  return `<div class="imap">${list}</div>
-    <p><small>向きは「いま向いているほう」を前として出しています。
-    人や竜の居場所は出ません。</small></p>`;
+// 地図そのものは canvas に描く(render/minimap.js)。ここはその栓だけ。
+export function mapSwitchHtml(on) {
+  return `<p><small>画面の左上に、島の形と目印(🏪 店・📋 受付・⚓ 桟橋・
+    🏹 櫓・🐉 巣)と、いまいる場所が出ます。</small></p>
+    <div class="row end"><button class="${on ? '' : 'primary'}"
+      data-act="walk-map-toggle">${on ? '🗺 地図をしまう' : '🗺 地図を出す'}</button></div>`;
 }

@@ -17,7 +17,7 @@ import {
   FISH, FISH_BY_ID, PORT_TYPES, contestCm, fishGates, isGated, pickFish, tableFor,
 } from '../src/minigame/fish.js';
 import {
-  bagHtml, fishbookHtml, islandMapHtml, shopHtml, skyTimesHtml, storeHtml,
+  bagHtml, fishbookHtml, mapSwitchHtml, shopHtml, skyTimesHtml, storeHtml,
 } from '../src/render/records.js';
 import { fishCounts } from '../src/achievements.js';
 import { coinsForCatch } from '../src/rewards.js';
@@ -338,15 +338,15 @@ test('持ち物: 買った品だけが並ぶ', () => {
   assert.equal(bagHtml(emptyProgress()).includes('まだ何も持っていません'), true);
 });
 
-test('持ち物: 見取り図を持っていれば一覧が、砂時計を持っていれば時刻が出る', () => {
-  const rows = [{ id: 'meet', icon: '📋', label: '大富豪', sub: '受付', dist: 1, sec: 2, dir: '右前' }];
+test('持ち物: 見取り図は地図の入り切り、砂時計は時刻を選ぶ口が出る', () => {
   const p = { ...rich(), owned: { islandMap: true, skyGlass: true } };
-  const html = bagHtml(p, { mapRows: rows, skyTime: 'night' });
-  assert.match(html, /imap-row/, '見取り図の行が出ていない');
-  assert.match(html, /右前/, '方角が出ていない');
+  const html = bagHtml(p, { mapOn: true, skyTime: 'night' });
+  assert.match(html, /walk-map-toggle/, '地図の栓が無い');
+  assert.match(html, /しまう/, '出ているのに「しまう」にならない');
+  assert.match(bagHtml(p, { mapOn: false }), /地図を出す/, 'しまってあるのに「出す」にならない');
   assert.match(html, /walk-sky-set:noon/, '時刻を選ぶ口が無い');
   // いま選んでいる時刻が光る
   assert.match(skyTimesHtml('night'), /class="sel" data-act="walk-sky-set:night"/,
     '選んでいる時刻に印が付いていない');
-  assert.equal(islandMapHtml([]).includes('目印になるもの'), true, '空の島で行が出ている');
+  assert.match(mapSwitchHtml(true), /🏪/, '地図に何が出るのか書いていない');
 });

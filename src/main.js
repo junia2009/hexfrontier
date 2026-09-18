@@ -17,7 +17,7 @@ import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
 import { buyItem, ITEMS, ITEM_BY_ID, owns } from './shop.js';
 import { bagHtml, fishbookHtml, storeHtml, recordsHtml } from './render/records.js';
-import { islandGuide } from './minigame/island-guide.js';
+import { drawMinimap } from './render/minimap.js';
 import { contestCm } from './minigame/fish.js';
 import { skyTimeOf } from './minigame/daynight.js';
 import {
@@ -810,6 +810,7 @@ async function startWalk() {
   syncMusic();
   applyViewMode();
   updateWalkHud();
+  syncWalkMap();   // **画面を切り替えたあとで**。切り替え前は「島にいない」扱い
 }
 
 function exitWalk() {
@@ -1285,6 +1286,7 @@ function applyOwned() {
   applySkyTime();
   updateCastButton();
   syncBagButton();
+  syncWalkMap();
 }
 
 // ---- 島の砂時計(空の時刻を選ぶ)----
@@ -1329,6 +1331,66 @@ function updateCastButton() {
     : '<b>⚓ 港ぎわへ</b><span>タップで沖へ</span>';
 }
 
+// ---- 島の地図(店の「島の見取り図」)----
+//
+// **歩きながら見える絵**にしてある。文字で「右前・歩いて約5秒」と並べて
+// いたころは、読んでも頭の中で方角に直す必要があり、しかもパネルを開くと
+// 時間が止まっていた ── それでは使い道がない、というのが作り直した理由。
+//
+// 出すかどうかはこの端末に覚える(邪魔なときはしまえる)。
+let mapOn = lsGet('walkMap') !== 'off';
+let mapRaf = null;
+const MAP_SIZE = 92;
+
+function mapVisible() {
+  return screen === 'walk' && !!walk && mapOn && owns(progress, 'islandMap');
+}
+
+function syncWalkMap() {
+  const el = document.getElementById('walk-map');
+  if (!el) return;
+  const on = mapVisible();
+  el.classList.toggle('on', on);
+  if (on) {
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    if (el.width !== MAP_SIZE * dpr) {
+      el.width = MAP_SIZE * dpr;
+      el.height = MAP_SIZE * dpr;
+    }
+    if (!mapRaf) mapRaf = requestAnimationFrame(drawWalkMap);
+  } else if (mapRaf) {
+    cancelAnimationFrame(mapRaf);
+    mapRaf = null;
+  }
+}
+
+// 地図を描き直す。**動くのは自分の印だけ**なので 15コマ/秒で足りる
+// (島の形も目印も変わらない)。
+let mapLast = 0;
+function drawWalkMap(now = 0) {
+  mapRaf = mapVisible() ? requestAnimationFrame(drawWalkMap) : null;
+  if (!mapRaf || now - mapLast < 66) return;
+  mapLast = now;
+  const el = document.getElementById('walk-map');
+  const ctx = el?.getContext('2d');
+  const w = walk?.walker;
+  if (!ctx || !w) return;
+  drawMinimap(ctx, state, {
+    size: MAP_SIZE,
+    dpr: Math.min(3, window.devicePixelRatio || 1),
+    at: { x: w.pos.x, z: w.pos.z, facing: w.facing },
+  });
+}
+
+function toggleWalkMap() {
+  mapOn = !mapOn;
+  lsSet('walkMap', mapOn ? 'on' : 'off');
+  syncWalkMap();
+  renderBag();
+  sfx.play('ui');
+  walkNote(mapOn ? '🗺 地図を出した' : '🗺 地図をしまった');
+}
+
 // 店の中。屋台の前でだけ開く(店番のひとこと + 売り物)
 function renderShop() {
   const el = document.getElementById('walk-shop-body');
@@ -1339,7 +1401,7 @@ function renderShop() {
 // 使えないのでは意味がない。何も持っていない人にはボタンごと出さない。
 function renderBag() {
   const el = document.getElementById('walk-bag-body');
-  if (el) el.innerHTML = bagHtml(progress, { mapRows: mapRows(), skyTime });
+  if (el) el.innerHTML = bagHtml(progress, { mapOn, skyTime });
 }
 
 function syncBagButton() {
@@ -1350,13 +1412,6 @@ function syncBagButton() {
 // 店のボタン。屋台のそばに立っている間だけ出す(釣る・射ると同じ場所)
 function updateStoreButton() {
   document.getElementById('walk-store')?.classList.toggle('on', !!walk?.atShop && !walk?.isFishing);
-}
-
-// 見取り図の行。持っていなければ空(描く側に判定を持たせない)
-function mapRows() {
-  if (!walk || !owns(progress, 'islandMap')) return [];
-  const w = walk.walker?.pos;
-  return islandGuide(state, { x: w?.x ?? 0, z: w?.z ?? 0, facing: walk.walker?.facing ?? 0 });
 }
 
 let shopHintShown = false;   // 店の場所を教えるのは、ひと遊びにつき1回だけ
@@ -3349,6 +3404,7 @@ document.addEventListener('click', (e) => {
       return;
     }
     case 'walk-sky-set': setSkyTime(arg); return;
+    case 'walk-map-toggle': toggleWalkMap(); return;
     case 'walk-cast': {
       if (!walk?.canCastDeep) return;
       const deep = walk.toggleCastDeep();
