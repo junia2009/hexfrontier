@@ -14,6 +14,7 @@ import {
   noteSeen, resultOf, saveProgress, setTitle,
 } from './progress.js';
 import { achievementById } from './achievements.js';
+import { COIN_ICON } from './rewards.js';
 import { fishbookHtml, recordsHtml } from './render/records.js';
 import {
   legalCityVertices,
@@ -905,10 +906,15 @@ function noteRaidRun(r) {
   });
   progress = res.progress;
   saveProgress(progress);
-  if (!res.unlocked.length) return;
-  sfx.play('win');
-  const a = achievementById(res.unlocked[0]);
-  walkNote(`🎉 実績を解除: ${a?.icon ?? ''} ${a?.name ?? ''}`);
+  // 実績が付かない回でも稼ぎは伝える。**ここで早く return すると、
+  // 銀貨が黙って増えるだけになって、何で稼げたのか分からない**
+  if (res.unlocked.length) {
+    sfx.play('win');
+    const a = achievementById(res.unlocked[0]);
+    walkNote(`🎉 実績を解除: ${a?.icon ?? ''} ${a?.name ?? ''}`);
+    return;
+  }
+  if (res.coins) walkNote(`${COIN_ICON} +${res.coins} 島の銀貨`);
 }
 
 // 大会中の点をサーバーへ。合計を送るので、1通落ちても次で追いつく。
@@ -1164,10 +1170,13 @@ function showCatch() {
   saveProgress(progress);
   const tag = r.isNew ? '<span class="fr-tag new">はじめて!</span>'
     : r.isRecord ? '<span class="fr-tag best">自己最高!</span>' : '';
+  // 売った値は釣果の札に一緒に出す。あとから帯で出すと、
+  // 何に対して付いたのか分からなくなる
+  const sold = r.coins ? `<div class="fr-coin">${COIN_ICON} +${r.coins}</div>` : '';
   showFishResult(`
     <div class="fr-icon">${f.fish.icon}</div>
     <div class="fr-name">${f.fish.name}</div>
-    <div class="fr-size">${f.cm} cm</div>${tag}`, false);
+    <div class="fr-size">${f.cm} cm</div>${sold}${tag}`, false);
   // 図鑑がのびて実績が付いたら伝える。**釣果の表示に重ねない** ──
   // 1匹ぶんの札が出ている最中なので、少し待ってから帯で出す。
   if (r.unlocked.length) {
@@ -1390,6 +1399,7 @@ let localTimer = null;
 let atDesk = false;     // 受付のそばに立っているか
 let meetRound = null;   // 実績を数え終わった回(結果は毎秒届くので1回だけ見る)
 let meetUnlocked = [];  // その回で解除した実績(結果のパネルに出す)
+let meetCoins = 0;      // その回で稼いだ銀貨(同上)
 
 // 自分の席。オンラインはサーバーが割り当てたもの、ひとりで歩くときは席0
 // (local.js の SOLO_SEAT)。**片方だけの道を作らない** ── 順位表も円卓の
@@ -1444,6 +1454,7 @@ function noteContestResult(c) {
   if (c.round === meetRound) return;
   meetRound = c.round;
   meetUnlocked = [];
+  meetCoins = 0;
   const { entered, won, score } = contestOutcome(c, mySeat());
   if (!entered) return; // 見ていただけ
   const r = addContestResult(progress, {
@@ -1453,6 +1464,7 @@ function noteContestResult(c) {
   progress = r.progress;
   saveProgress(progress);
   meetUnlocked = r.unlocked;
+  meetCoins = r.coins;
   if (r.unlocked.length) sfx.play('win');
 }
 
@@ -1470,6 +1482,8 @@ function noteNestVisit() {
     sfx.play('win');
     const a = achievementById(r.unlocked[0]);
     walkNote(`🎉 実績を解除: ${a?.icon ?? ''} ${a?.name ?? ''}`);
+  } else if (r.coins) {
+    walkNote(`🐉 竜は眠っている ${COIN_ICON} +${r.coins}`);
   } else {
     walkNote('🐉 竜は眠っている');
   }
@@ -1619,13 +1633,16 @@ function renderContestPanel() {
     const got = meetUnlocked.map(achievementById).filter(Boolean)
       .map((a) => `<div class="meet-ach">🎉 実績を解除しました
         <b>${a.icon} ${a.name}</b><small>称号「${a.title}」</small></div>`).join('');
+    // 稼ぎ。実績と違って毎回出るので、控えめな1行にする
+    const paid = meetCoins
+      ? `<div class="meet-coin">${COIN_ICON} <b>+${meetCoins}</b> 島の銀貨</div>` : '';
     // **その場でもう一度エントリーできるようにする。** 結果を見せている
     // 25秒を待たないと次が始められないと、続けて遊ぶのが妙に重い
     // (器の enter は結果の最中でも次の回の受付を開いてくれる)。
     const again = atDesk
       ? '<div class="row"><button class="primary" data-act="meet-enter">もう一度エントリーする</button></div>'
       : '<div class="note">受付でもう一度エントリーできます</div>';
-    setHTML(el, `<h4>🏆 結果</h4><div class="meet-rank">${rows}</div>${got}${again}`);
+    setHTML(el, `<h4>🏆 結果</h4><div class="meet-rank">${rows}</div>${paid}${got}${again}`);
     return;
   }
   if (c.phase === 'running') {

@@ -1,0 +1,210 @@
+// 島の銀貨の配分(src/rewards.js)と、progress への積み上げ。
+//
+// 通貨は「遊ぶ動機」そのものなので、壊れかたが体験に直結する:
+//   - どこかの遊びだけ実入りが良いと、ほかを誰も触らなくなる
+//   - 二重に数えると、再読み込みするだけで増える
+//   - さかのぼりの換算が二度走ると、使い切った人にまた配ってしまう
+// どれも「落ちない」たぐいの壊れかたなので、ここで押さえる。
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  COIN_ICON, ENTRY_COIN, RATE, SOLO_RAID_RATE, TIER_COIN, WIN_COIN,
+  coinsForCatch, coinsForContest, coinsForFound, coinsForPastCatches, coinsForRaidRun,
+} from '../src/rewards.js';
+import { FISH, FISH_BY_ID } from '../src/minigame/fish.js';
+import {
+  addCatch, addCoins, addContestResult, addRaidRun, emptyProgress, noteSeen, parseProgress,
+} from '../src/progress.js';
+
+// ---- 1匹の値 ----
+
+test('銀貨: 等級が上がるほど高い', () => {
+  const pick = (tier) => FISH.find((f) => f.tier === tier);
+  const at = (tier, ratio) => {
+    const f = pick(tier);
+    return coinsForCatch(f.id, f.cm[0] + (f.cm[1] - f.cm[0]) * ratio);
+  };
+  const tiers = ['junk', 'common', 'rare', 'legend', 'myth'];
+  const mids = tiers.map((t) => at(t, 0.5));
+  for (let i = 1; i < mids.length; i += 1) {
+    assert.ok(mids[i] > mids[i - 1], `${tiers[i]} が ${tiers[i - 1]} より安い: ${mids}`);
+  }
+});
+
+test('銀貨: 同じ種でも大きいほど高く、最大でちょうど2倍', () => {
+  for (const f of FISH) {
+    const lo = coinsForCatch(f.id, f.cm[0]);
+    const hi = coinsForCatch(f.id, f.cm[1]);
+    assert.ok(hi > lo, `${f.id}: 大物にしても増えない(${lo} → ${hi})`);
+    assert.equal(hi, Math.round(TIER_COIN[f.tier] * 2), `${f.id}: 最大が2倍になっていない`);
+    assert.equal(lo, TIER_COIN[f.tier], `${f.id}: 最小が等級の値と違う`);
+  }
+});
+
+test('銀貨: ガラクタでも必ず1枚は出る', () => {
+  for (const f of FISH.filter((x) => x.tier === 'junk')) {
+    assert.ok(coinsForCatch(f.id, f.cm[0]) >= 1, `${f.id}: 0 枚になっている`);
+  }
+});
+
+test('銀貨: 知らない魚や壊れた大きさでも落ちない', () => {
+  assert.equal(coinsForCatch('no-such-fish', 100), 0);
+  assert.equal(coinsForCatch(null, 100), 0);
+  const f = FISH[0];
+  for (const bad of [undefined, null, NaN, -5, 'あ', {}]) {
+    const v = coinsForCatch(f.id, bad);
+    assert.ok(Number.isFinite(v) && v >= 1, `${String(bad)}: ${v}`);
+  }
+});
+
+// ---- 大会 ----
+
+test('銀貨: 出れば参加賞、勝てば上乗せ', () => {
+  const base = coinsForContest({ kind: 'fishing', entered: true, won: false, score: 0 });
+  assert.equal(base, ENTRY_COIN, '点0でも参加賞が出ていない');
+  const win = coinsForContest({ kind: 'fishing', entered: true, won: true, score: 0 });
+  assert.equal(win, ENTRY_COIN + WIN_COIN, '優勝の上乗せが違う');
+  const big = coinsForContest({ kind: 'fishing', entered: true, won: false, score: 100 });
+  assert.equal(big, ENTRY_COIN + Math.round(RATE.fishing * 100), '出来高が違う');
+});
+
+test('銀貨: 見ていただけの回と、知らない遊びには払わない', () => {
+  assert.equal(coinsForContest({ kind: 'fishing', entered: false, won: true, score: 500 }), 0);
+  assert.equal(coinsForContest({ kind: 'no-such-meet', entered: true, score: 100 }), 0);
+  assert.equal(coinsForContest({}), 0);
+});
+
+// これは配分の設計そのもの。どれかの係数をいじって釣り合いが崩れたら落ちる。
+// 「1回の上出来な回」がどれも同じくらいになるように天井から逆算してある。
+test('銀貨: どの遊びも、上出来な1回の実入りが同じ帯に収まる', () => {
+  const good = {
+    fishing: 150,     // 150cm(良い型)
+    dragonhunt: 90,   // 逃げきり
+    logroll: 90,      // 完走
+    raid: 200,        // 良い回
+    daifugo: 5,       // 5人卓で1番
+  };
+  const got = {};
+  for (const [kind, score] of Object.entries(good)) {
+    got[kind] = coinsForContest({ kind, entered: true, won: true, score });
+  }
+  const vals = Object.values(got);
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  assert.ok(lo >= 40 && hi <= 70, `帯から外れた: ${JSON.stringify(got)}`);
+  assert.ok(hi / lo <= 1.5, `遊びごとの差が大きすぎる(${lo}〜${hi}): ${JSON.stringify(got)}`);
+});
+
+// ---- ひとりで櫓・見つけたもの ----
+
+test('銀貨: 1本も射たずにおろした回は払わない', () => {
+  assert.equal(coinsForRaidRun({ score: 500, shots: 0 }), 0, '射ずに稼げる');
+  assert.equal(coinsForRaidRun({ score: 100, shots: 10 }), Math.round(SOLO_RAID_RATE * 100));
+});
+
+test('銀貨: ひとりの櫓は大会より1点あたりが安い', () => {
+  assert.ok(SOLO_RAID_RATE < RATE.raid, 'ひとりのほうが割が良くなっている');
+});
+
+test('銀貨: 見つけたものは決まった額。知らないものは0', () => {
+  assert.ok(coinsForFound('nest') > 0);
+  assert.equal(coinsForFound('no-such-place'), 0);
+});
+
+// ---- さかのぼりの換算 ----
+
+test('銀貨: 過去の釣果は「自己最高1匹 + 残りはまん中」で数える', () => {
+  const f = FISH_BY_ID.maguro;
+  const mid = (f.cm[0] + f.cm[1]) / 2;
+  const got = coinsForPastCatches({ maguro: { n: 3, best: f.cm[1] } });
+  const want = coinsForCatch('maguro', f.cm[1]) + 2 * coinsForCatch('maguro', mid);
+  assert.equal(got, want);
+});
+
+test('銀貨: 換算は 0匹・知らない魚・壊れた値でも落ちない', () => {
+  assert.equal(coinsForPastCatches(null), 0);
+  assert.equal(coinsForPastCatches({}), 0);
+  assert.equal(coinsForPastCatches({ maguro: { n: 0, best: 100 } }), 0, '0匹に払っている');
+  assert.equal(coinsForPastCatches({ 'no-such': { n: 5, best: 10 } }), 0);
+  assert.ok(Number.isFinite(coinsForPastCatches({ maguro: { n: NaN, best: NaN } })));
+});
+
+// ---- progress への積み上げ ----
+
+test('銀貨: 足すと手持ちと通算の両方が増える。減らす方向には動かない', () => {
+  let p = emptyProgress();
+  assert.equal(p.coins, 0);
+  p = addCoins(p, 30);
+  assert.deepEqual([p.coins, p.coinsEarned], [30, 30]);
+  for (const bad of [-10, 0, NaN, null, undefined, 'あ']) {
+    const q = addCoins(p, bad);
+    assert.deepEqual([q.coins, q.coinsEarned], [30, 30], `${String(bad)} で動いた`);
+  }
+});
+
+test('銀貨: 釣ると増える。額は coinsForCatch と一致する', () => {
+  const r = addCatch(emptyProgress(), 'maguro', 150);
+  assert.equal(r.coins, coinsForCatch('maguro', 150), '返す額が違う');
+  assert.equal(r.progress.coins, r.coins, '手持ちに入っていない');
+});
+
+test('銀貨: 大会の二重申告では増えない', () => {
+  const one = addContestResult(emptyProgress(), {
+    kind: 'fishing', won: true, score: 120, key: 'room#1',
+  });
+  assert.ok(one.coins > 0, '1回目で増えていない');
+  const two = addContestResult(one.progress, {
+    kind: 'fishing', won: true, score: 120, key: 'room#1',
+  });
+  assert.equal(two.coins, 0, '同じ回で二度払っている');
+  assert.equal(two.progress.coins, one.progress.coins, '手持ちが増えている');
+});
+
+test('銀貨: 櫓と、見つけたもの', () => {
+  const r = addRaidRun(emptyProgress(), { score: 150, wave: 3, shots: 40, hits: 30 });
+  assert.equal(r.coins, coinsForRaidRun({ score: 150, shots: 40 }));
+  assert.equal(r.progress.coins, r.coins);
+
+  const first = noteSeen(emptyProgress(), 'nest');
+  assert.ok(first.coins > 0, '初めて行ったのに払われない');
+  const second = noteSeen(first.progress, 'nest');
+  assert.equal(second.coins, 0, '二度目に払っている');
+});
+
+// ---- 保存と移行 ----
+
+test('銀貨: 古い保存を読むと過去の釣果ぶんを一度だけ配る', () => {
+  const v1 = {
+    v: 1, games: [], achievements: {}, title: null,
+    fish: { maguro: { n: 3, best: 150 }, iwashi: { n: 10, best: 18 } },
+    meets: {}, seen: {}, raid: {},
+  };
+  const want = coinsForPastCatches(v1.fish);
+  const migrated = parseProgress(JSON.stringify(v1));
+  assert.equal(migrated.coins, want, '換算額が違う');
+  assert.equal(migrated.coinsEarned, want);
+
+  // 二度目(v2 として保存済み)は配らない
+  const again = parseProgress(JSON.stringify(migrated));
+  assert.equal(again.coins, want, '読み直すたびに増えている');
+
+  // 使い切った人に配り直さない ── ここが v を見ずに
+  // 「coins が無ければ配る」だと、0 の人へ何度でも配ってしまう
+  const spent = parseProgress(JSON.stringify({ ...migrated, coins: 0 }));
+  assert.equal(spent.coins, 0, '使い切った人に配り直している');
+  assert.equal(spent.coinsEarned, want, '通算獲得まで消えている');
+});
+
+test('銀貨: 壊れた保存でも 0 から始まる', () => {
+  for (const bad of ['{', 'null', '[]', '{"v":2,"coins":"あ"}', '{"v":2,"coins":-5}']) {
+    const p = parseProgress(bad);
+    assert.ok(Number.isFinite(p.coins) && p.coins >= 0, `${bad}: ${p.coins}`);
+    assert.ok(Number.isFinite(p.coinsEarned) && p.coinsEarned >= 0);
+  }
+});
+
+test('銀貨: 記号がある(画面で使う)', () => {
+  assert.ok(COIN_ICON.length > 0);
+});

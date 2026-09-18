@@ -11,9 +11,12 @@ import {
   ACHIEVEMENTS, fishCounts, marksOf, titleOf, unlockedBy, unlockedByFish, unlockedByMeet,
   unlockedByRaid, unlockedBySeen,
 } from './achievements.js';
+import {
+  coinsForCatch, coinsForContest, coinsForFound, coinsForPastCatches, coinsForRaidRun,
+} from './rewards.js';
 
 const KEY = 'progress';
-export const PROGRESS_VERSION = 1;
+export const PROGRESS_VERSION = 2;
 
 // 遊べるルールの一覧は state.js の MODES が唯一の出どころ。ここは戦績を
 // 並べるのに使うだけなので、持ち直さずに借りる。名前は MODES のままにして
@@ -31,6 +34,24 @@ export function emptyProgress() {
     meets: {},
     seen: {},
     raid: emptyRaid(),
+    // 島の銀貨。coins は手持ち、earned は通算獲得(使っても減らない)。
+    // 使い道を作ったとき「これまでいくら稼いだか」を実績側から見たいので
+    // 2つに分けてある。
+    coins: 0,
+    coinsEarned: 0,
+  };
+}
+
+// 銀貨を足す。手持ちと通算の両方が動く。**減らすのはここを通さない** ──
+// 使う側(まだ無い)は別の口を作る。ここを負の数で呼べるようにすると、
+// 通算獲得が目減りして「これまでいくら稼いだか」が意味を失う。
+export function addCoins(progress, n) {
+  const add = typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  if (!add) return progress;
+  return {
+    ...progress,
+    coins: (progress.coins ?? 0) + add,
+    coinsEarned: (progress.coinsEarned ?? 0) + add,
   };
 }
 
@@ -161,7 +182,8 @@ export function addCatch(progress, fishId, cm, now = Date.now()) {
       at: isRecord ? now : prev.at,
     },
   };
-  const next = { ...progress, fish, achievements: { ...progress.achievements } };
+  const coins = coinsForCatch(fishId, cm);
+  const next = { ...addCoins(progress, coins), fish, achievements: { ...progress.achievements } };
   const unlocked = [];
   for (const id of unlockedByFish({ fish })) {
     if (next.achievements[id]) continue;   // すでに持っている
@@ -170,7 +192,7 @@ export function addCatch(progress, fishId, cm, now = Date.now()) {
   }
   // ほかの入口と同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
-  return { progress: next, isNew, isRecord, unlocked };
+  return { progress: next, isNew, isRecord, unlocked, coins };
 }
 
 // ---- 釣り大会 ----
@@ -184,7 +206,8 @@ export function addContestResult(
   progress, { kind = 'fishing', won, score = 0, key = null, at = Date.now() },
 ) {
   const prev = progress.meets?.[kind] ?? emptyMeet();
-  if (key != null && prev.last === key) return { progress, unlocked: [] };
+  // 同じ回を二重に数えない。銀貨も同じ ── ここで払うと再読み込みで増える
+  if (key != null && prev.last === key) return { progress, unlocked: [], coins: 0 };
   const meet = {
     played: prev.played + 1,
     won: prev.won + (won ? 1 : 0),
@@ -192,7 +215,8 @@ export function addContestResult(
     last: key,
   };
   const meets = { ...(progress.meets ?? {}), [kind]: meet };
-  const next = { ...progress, meets, achievements: { ...progress.achievements } };
+  const coins = coinsForContest({ kind, entered: true, won, score });
+  const next = { ...addCoins(progress, coins), meets, achievements: { ...progress.achievements } };
   const unlocked = [];
   for (const id of unlockedByMeet({ kind, meet, meets })) {
     if (next.achievements[id]) continue; // すでに持っている
@@ -201,7 +225,7 @@ export function addContestResult(
   }
   // 対戦のほうと同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
-  return { progress: next, unlocked };
+  return { progress: next, unlocked, coins };
 }
 
 // ---- 蛮族を射る(ひとりの記録)----
@@ -231,7 +255,8 @@ export function addRaidRun(progress, { score = 0, wave = 1, shots = 0, hits = 0 
     shots: prev.shots + s,
     hits: prev.hits + h,
   };
-  const next = { ...progress, raid, achievements: { ...progress.achievements } };
+  const coins = coinsForRaidRun({ score: n(score), shots: s });
+  const next = { ...addCoins(progress, coins), raid, achievements: { ...progress.achievements } };
   const unlocked = [];
   for (const id of unlockedByRaid({ raid })) {
     if (next.achievements[id]) continue; // すでに持っている
@@ -240,7 +265,7 @@ export function addRaidRun(progress, { score = 0, wave = 1, shots = 0, hits = 0 
   }
   // 対戦・大会と同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
-  return { progress: next, unlocked };
+  return { progress: next, unlocked, coins };
 }
 
 // ---- 島で見つけたもの ----
@@ -248,9 +273,10 @@ export function addRaidRun(progress, { score = 0, wave = 1, shots = 0, hits = 0 
 // 勝ち負けではなく「そこへ行った」で付くもの(いまは竜の巣だけ)。
 // 大会の通算とは別枠 ── あちらは回ごとに数えるが、こちらは一度きり。
 export function noteSeen(progress, id, at = Date.now()) {
-  if (progress.seen?.[id]) return { progress, unlocked: [] };  // もう行っている
+  if (progress.seen?.[id]) return { progress, unlocked: [], coins: 0 };  // もう行っている
   const seen = { ...(progress.seen ?? {}), [id]: at };
-  const next = { ...progress, seen, achievements: { ...progress.achievements } };
+  const coins = coinsForFound(id);
+  const next = { ...addCoins(progress, coins), seen, achievements: { ...progress.achievements } };
   const unlocked = [];
   for (const a of unlockedBySeen({ seen })) {
     if (next.achievements[a]) continue;
@@ -259,7 +285,7 @@ export function noteSeen(progress, id, at = Date.now()) {
   }
   // 対戦・大会と同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
-  return { progress: next, unlocked };
+  return { progress: next, unlocked, coins };
 }
 
 // 図鑑の埋まり具合。total は魚の総数(呼ぶ側が fish.js から渡す)。
@@ -309,10 +335,29 @@ export function parseProgress(raw) {
       seen: sanitizeSeen(p?.seen),
       // 蛮族を射るの記録。これもあとから足した
       raid: sanitizeRaid(p?.raid),
+      ...coinsOf(p),
     };
   } catch {
     return emptyProgress();
   }
+}
+
+// 島の銀貨。**v2 で足したので、それ以前の保存には入っていない。**
+//
+// 「これまでの釣果はさかのぼって換算する」と決めたので、初回の読み込みで
+// 一度だけ払う。二度払わないように、v2 以降は保存された値をそのまま使う
+// (v を見ずに「coins が無ければ払う」にすると、使い切って 0 になった人に
+// もう一度払ってしまう)。
+//
+// 大会の成績は換算しない。保存にあるのは played / won / best の合計だけで、
+// 1回ずつの成績が残っていないため、払うべき額を作れない
+// (best から逆算すると、上手い1回を何十回ぶんにも数えることになる)。
+function coinsOf(p) {
+  const n = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+  const v = n(p?.v);
+  if (v >= 2) return { coins: n(p.coins), coinsEarned: n(p.coinsEarned) };
+  const back = coinsForPastCatches(p?.fish);
+  return { coins: back, coinsEarned: back };
 }
 
 // 行った場所。値は「いつ行ったか」なので、数でないものは落とす
@@ -407,14 +452,29 @@ export function reconcileAchievements(progress, at = Date.now()) {
 
 export function loadProgress() {
   try {
-    const parsed = parseProgress(lsGet(KEY));
+    const raw = lsGet(KEY);
+    const parsed = parseProgress(raw);
     // 後から足した実績のぶんを埋める。埋めたら保存しておく
     // (毎回埋め直すと、取った日付が読み込むたびに変わってしまう)。
     const { progress, unlocked } = reconcileAchievements(parsed);
-    if (unlocked.length) saveProgress(progress);
+    // **版が上がったら、埋めるものが無くてもその場で保存する。**
+    // 保存しないと古い版のまま残り、「さかのぼりの換算は一度だけ」が
+    // 次の保存が起きるまで宙に浮く(読むたびに計算し直すことになる)。
+    if (unlocked.length || versionOf(raw) < PROGRESS_VERSION) saveProgress(progress);
     return progress;
   } catch {
     return emptyProgress(); // localStorage が使えない環境(プライベートモード等)
+  }
+}
+
+// 保存されている版。読めなければ 0(=いちばん古い扱い)
+function versionOf(raw) {
+  if (!raw) return PROGRESS_VERSION;   // まっさら。移行するものが無い
+  try {
+    const v = JSON.parse(raw)?.v;
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  } catch {
+    return PROGRESS_VERSION;           // 壊れている。空から始まるので移行不要
   }
 }
 

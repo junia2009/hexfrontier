@@ -15,7 +15,7 @@
 // (登録側は updateViaCache: 'none' で HTTP キャッシュを介さず sw.js を確認する)
 
 // >>> precache:generated (scripts/gen-precache.mjs で生成。手で編集しない)
-const PRECACHE_VERSION = 'aa630bfe0483';
+const PRECACHE_VERSION = 'd22cb412ca01';
 const PRECACHE = [
   './',
   './icons/apple-touch-icon.png',
@@ -90,6 +90,7 @@ const PRECACHE = [
   './src/render/records.js',
   './src/render/rules-content.js',
   './src/render3d/board3d.js',
+  './src/rewards.js',
   './src/rng.js',
   './src/rules/board.js',
   './src/rules/build.js',

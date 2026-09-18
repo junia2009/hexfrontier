@@ -188,3 +188,25 @@ test('戦績画面: 全部消すときは確認を挟む', () => {
   const confirming = recordsHtml(p, { tab: 'stats', confirmingClear: true });
   assert.ok(confirming.includes('元には戻せません'), '警告が出ていない');
 });
+
+test('戦績画面: 財布はいつでも見える。通算は増えたときだけ添える', () => {
+  const p = played();
+  p.coins = 0; p.coinsEarned = 0;
+  const zero = recordsHtml(p, { tab: 'stats' });
+  assert.match(zero, /class="purse"/, '0枚のときに財布が消えている');
+  assert.doesNotMatch(zero, /通算/, '稼ぐ前から通算が出ている');
+
+  p.coins = 120; p.coinsEarned = 120;
+  assert.doesNotMatch(recordsHtml(p, { tab: 'stats' }), /通算/,
+    '使っていないのに通算が出ている(手持ちと同じ値の二重表示)');
+
+  p.coins = 40; p.coinsEarned = 120;  // 80 使った
+  const spent = recordsHtml(p, { tab: 'stats' });
+  assert.match(spent, /通算 120/, '使ったあとに通算が出ていない');
+  assert.match(spent, />40</, '手持ちが出ていない');
+
+  // どのタブでも見える(財布はタブの外)
+  for (const tab of ['stats', 'ach', 'fish']) {
+    assert.match(recordsHtml(p, { tab }), /class="purse"/, `${tab}: 財布が無い`);
+  }
+});

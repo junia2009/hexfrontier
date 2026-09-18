@@ -11,6 +11,7 @@ import {
 } from '../achievements.js';
 import { MODES, achievementCount, fishbookCount, summarize, winRate } from '../progress.js';
 import { FISH } from '../minigame/fish.js';
+import { COIN_ICON, COIN_JP } from '../rewards.js';
 
 const MODE_ICON = {
   base: '⬡', cak: '🏰', dragon: '🐉', fish: '🐟', sea: '⛵',
@@ -191,7 +192,15 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
 
   // 見出し・タブとボタンはパネルに直接置き、中身だけを .panel-scroll で流す。
   // こうしておくと「どのタブにいるか」と「タイトルへ戻る」がいつでも見えている。
-  return `<h3>${now ? `〈${now}〉` : '戦績と実績'}</h3>
+  // 財布。見出しの隣に常に出す ── 稼いだ実感は「いま何枚あるか」が
+  // いつでも見えて初めて続く。通算は括弧で添える(使っても減らない値)。
+  const coins = progress.coins ?? 0;
+  const earned = progress.coinsEarned ?? 0;
+  const purse = `<div class="purse" title="${COIN_JP}">
+    <span class="pc-icon">${COIN_ICON}</span><b>${coins}</b>
+    ${earned > coins ? `<small>通算 ${earned}</small>` : ''}</div>`;
+
+  return `<h3>${now ? `〈${now}〉` : '戦績と実績'}${purse}</h3>
     ${tabs}
     <div class="panel-scroll">${body}</div>
     ${dock}

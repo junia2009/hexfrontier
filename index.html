@@ -1220,6 +1220,25 @@
   #fish-result .fr-icon { font-size: 44px; line-height: 1; }
   #fish-result .fr-name { font-size: 19px; font-weight: 800; margin-top: 4px; }
   #fish-result .fr-size { font-size: 14px; color: var(--dim); margin-top: 2px; }
+  /* 売った値。金額なので等幅で揃える(桁が動くと目がちらつく) */
+  /* 財布。戦績の見出しの右端に置く */
+  .purse {
+    float: right; display: inline-flex; align-items: baseline; gap: 5px;
+    font-size: 14px; color: #ffd45e; font-variant-numeric: tabular-nums;
+  }
+  .purse .pc-icon { font-size: 15px; }
+  .purse small { color: var(--dim); font-size: 11px; }
+
+  /* 大会の結果に出す稼ぎ */
+  .meet-coin {
+    margin: 8px 0 0; padding: 6px 10px; border-radius: 8px;
+    background: rgba(255, 212, 94, 0.12); border: 1px solid rgba(255, 212, 94, 0.35);
+    color: #ffd45e; font-size: 13px; font-variant-numeric: tabular-nums;
+  }
+  #fish-result .fr-coin {
+    font-size: 15px; font-weight: 700; margin-top: 4px;
+    color: #ffd45e; font-variant-numeric: tabular-nums;
+  }
   #fish-result .fr-tag {
     display: inline-block; margin-top: 8px; padding: 3px 10px; border-radius: 999px;
     font-size: 11.5px; font-weight: 800;
