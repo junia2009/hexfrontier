@@ -129,8 +129,15 @@ test('地図: 島も目印も丸い窓の内側に収まり、形は歪まない
   // 島の中心が枠の中心
   assert.ok(Math.abs((a.x + c.x) / 2 - size / 2) < 1e-6, '横に寄っている');
   assert.ok(Math.abs((a.y + c.y) / 2 - size / 2) < 1e-6, '縦に寄っている');
-  // 点を渡さない呼び方でも落ちない(四角の角までを半径にする)
-  assert.ok(mapTransform(b, size, pad).scale > 0);
+  // **点を渡さない呼び方**でも、四角の角が丸窓の内側に入ること。
+  // 「scale > 0」だけを見ていたら、半径が 1e-6 に落ちて島が何百倍にも
+  // 拡大される壊しかたを素通ししていた(故障注入で見つかった穴)。
+  const t2 = mapTransform(b, size, pad);
+  const corner = toMap(t2, b.maxX, b.maxY);
+  assert.ok(Math.hypot(corner.x - size / 2, corner.y - size / 2) <= size / 2 - pad + 1e-6,
+    '点を渡さないと島が丸窓からはみ出す');
+  // 島がつぶれている(点1つ)ときも数が壊れない
+  assert.ok(Number.isFinite(mapTransform({ minX: 0, maxX: 0, minY: 0, maxY: 0 }, size, pad).scale));
   assert.ok(mapTransform(null, size, pad).scale === 1);
 });
 
