@@ -44,11 +44,13 @@ const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 export class Fishing {
   // seed: 釣り専用の乱数。portType: 立っている港の種類('3:1' や 'wood')
-  // deep: 沖へ投げたか(深場の竿を持っているときだけ真になる)
-  constructor(seed, portType = '3:1', deep = false) {
+  // gates: いま開いている場所と時刻 { deep: 沖へ投げた, night: 夜 }。
+  //   店の品を持っているかは呼ぶ側(walk-mode.js)が fishGates で解いてから渡す
+  //   ── 進行のここでは「開いているか」だけを見る。
+  constructor(seed, portType = '3:1', gates = {}) {
     this.rng = seed >>> 0 || 1;
     this.portType = portType;
-    this.deep = !!deep;
+    this.gates = { deep: !!gates.deep, night: !!gates.night };
     this.phase = 'idle';   // idle / cast / wait / bite / fight / landed / lost
     this.t = 0;            // いまの段階に入ってからの秒数
     this.waitFor = 0;      // アタリまでの待ち時間
@@ -87,7 +89,7 @@ export class Fishing {
   // 「あわせる」。アタリの間だけ成功。早すぎると魚が逃げる。
   hook() {
     if (this.phase === 'bite') {
-      [this.rng, this.fish] = pickFish(this.rng, this.portType, this.deep);
+      [this.rng, this.fish] = pickFish(this.rng, this.portType, this.gates);
       [this.rng, this.cm] = rollSize(this.rng, this.fish);
       this.phase = 'fight';
       this.t = 0;

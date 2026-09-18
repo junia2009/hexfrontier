@@ -13,8 +13,12 @@ import {
   ITEMS, ITEM_BY_ID, buyItem, owns, priceOf, whyCannotBuy,
 } from '../src/shop.js';
 import { emptyProgress, parseProgress } from '../src/progress.js';
-import { FISH, PORT_TYPES, pickFish, tableFor } from '../src/minigame/fish.js';
-import { fishbookHtml, shopHtml } from '../src/render/records.js';
+import {
+  FISH, FISH_BY_ID, PORT_TYPES, contestCm, fishGates, isGated, pickFish, tableFor,
+} from '../src/minigame/fish.js';
+import {
+  bagHtml, fishbookHtml, islandMapHtml, shopHtml, shopPanelHtml, skyTimesHtml,
+} from '../src/render/records.js';
 import { fishCounts } from '../src/achievements.js';
 import { coinsForCatch } from '../src/rewards.js';
 
@@ -78,17 +82,21 @@ test('店: 持ち物は保存を経ても残る。壊れた値は「持ってい
   assert.deepEqual(junk.owned, {}, 'true 以外を持ち物として拾っている');
 });
 
-// ---- 深場の竿が開くもの ----
+// ---- 店の品が開く釣り場と時刻 ----
 
-test('深場: 港の表に深場の魚は出ない(買っても既存の釣りは変わらない)', () => {
+const DAY_PORT = {};
+const idsOf = (t) => new Set(t.map((f) => f.id));
+
+test('昼の港: 店の品で開く魚は1匹も出ない(買っても既存の釣りは変わらない)', () => {
   for (const type of PORT_TYPES) {
     const at = tableFor(type);
-    assert.equal(at.some((f) => f.deep), false, `${type}: 深場の魚が港に漏れている`);
+    assert.equal(at.some((f) => isGated(f)), false, `${type}: 沖か夜の魚が昼の港に漏れている`);
+    DAY_PORT[type] = idsOf(at);
   }
 });
 
-test('深場: 沖の表に港の魚は出ない(ガラクタだけ共通)', () => {
-  const deep = tableFor('3:1', true);
+test('沖: 港の魚は出ない(ガラクタだけ共通)', () => {
+  const deep = tableFor('3:1', { deep: true });
   assert.ok(deep.length > 0, '沖で何も釣れない');
   for (const f of deep) {
     assert.ok(f.deep || f.tier === 'junk', `${f.id}: 沖に港の魚が混ざっている`);
@@ -96,35 +104,105 @@ test('深場: 沖の表に港の魚は出ない(ガラクタだけ共通)', () =
   assert.ok(deep.some((f) => f.deep), '沖なのに深場の魚がいない');
 });
 
-test('深場: 港と沖で、実際に引ける魚が入れ替わる', () => {
-  const draw = (deep) => {
+test('沖: 港と沖で、実際に引ける魚が入れ替わる', () => {
+  const draw = (gates) => {
     const got = new Set();
     let rng = 12345;
     for (let i = 0; i < 400; i += 1) {
       let f;
-      [rng, f] = pickFish(rng, '3:1', deep);
+      [rng, f] = pickFish(rng, '3:1', gates);
       got.add(f.id);
     }
     return got;
   };
-  const shore = draw(false);
-  const off = draw(true);
-  assert.equal([...shore].some((id) => off.has(id) && id !== 'boot' && id !== 'weed' && id !== 'bottle'),
+  const shore = draw({});
+  const off = draw({ deep: true });
+  assert.equal([...shore].some((id) => off.has(id) && FISH_BY_ID[id].tier !== 'junk'),
     false, 'ガラクタ以外が港と沖の両方で釣れている');
   assert.ok([...off].some((id) => !shore.has(id)), '沖でしか釣れないものが引けていない');
 });
 
-test('深場: 港のぬしは沖に出ない(港をめぐる動機を壊さない)', () => {
-  const deep = tableFor('3:1', true);
+test('沖: 港のぬしは沖に出ない(港をめぐる動機を壊さない)', () => {
+  const deep = tableFor('3:1', { deep: true });
   for (const f of FISH.filter((x) => x.at)) {
     assert.equal(deep.some((d) => d.id === f.id), false, `${f.id}: ぬしが沖に出ている`);
   }
 });
 
-test('深場の魚にも値が付いている', () => {
-  for (const f of FISH.filter((x) => x.deep)) {
+// **夜はいちばん壊しやすいところ。** 昼の表に足してしまうと、ランタンを
+// 買った人の昼の釣りが変わる(= 既存の遊びを触る)。
+test('夜: 夜の港は「昼の表 + 夜の魚」。昼の魚が消えない', () => {
+  for (const type of PORT_TYPES) {
+    const night = idsOf(tableFor(type, { night: true }));
+    for (const id of tableFor(type).map((f) => f.id)) {
+      assert.ok(night.has(id), `${type}: 夜になったら ${id} が釣れなくなった`);
+    }
+    const added = [...night].filter((id) => !DAY_PORT[type].has(id));
+    assert.ok(added.length > 0, `${type}: 夜なのに増えていない`);
+    for (const id of added) assert.ok(FISH_BY_ID[id].night, `${id}: 夜の魚ではない`);
+  }
+});
+
+test('夜: 夜の魚は昼に出ない', () => {
+  for (const type of PORT_TYPES) {
+    const day = idsOf(tableFor(type));
+    for (const f of FISH.filter((x) => x.night)) {
+      assert.equal(day.has(f.id), false, `${type}: ${f.id} が昼に出ている`);
+    }
+  }
+});
+
+test('夜の沖: 竿とランタンの両方がそろって初めて出る', () => {
+  const both = FISH.filter((f) => f.deep && f.night);
+  assert.ok(both.length > 0, '前提: 夜の沖の魚がある');
+  for (const f of both) {
+    for (const [gates, why] of [
+      [{}, '昼の港'], [{ deep: true }, '昼の沖'], [{ night: true }, '夜の港'],
+    ]) {
+      assert.equal(tableFor('3:1', gates).some((x) => x.id === f.id), false,
+        `${f.id}: ${why} で出ている`);
+    }
+    assert.ok(tableFor('3:1', { deep: true, night: true }).some((x) => x.id === f.id),
+      `${f.id}: 夜の沖でも出ない`);
+  }
+});
+
+test('店の品で開く魚にも値が付いている', () => {
+  for (const f of FISH.filter((x) => isGated(x))) {
     assert.ok(coinsForCatch(f.id, f.cm[0]) > 0, `${f.id}: 売れない`);
   }
+});
+
+// ---- 何が開いているかの判定(fishGates)----
+
+test('gates: 持っていなければ開かない。持っていても選ばなければ開かない', () => {
+  assert.deepEqual(fishGates(), { deep: false, night: false });
+  assert.deepEqual(fishGates({ castDeep: true, night: true }), { deep: false, night: false },
+    '買っていないのに開いた');
+  assert.deepEqual(fishGates({ deepRod: true }), { deep: false, night: false },
+    '竿を持っているだけで沖になった(港を選べない)');
+  assert.deepEqual(fishGates({ deepRod: true, castDeep: true }), { deep: true, night: false });
+  assert.deepEqual(fishGates({ lantern: true, night: true }), { deep: false, night: true });
+  assert.deepEqual(fishGates({ lantern: true }), { deep: false, night: false }, '昼なのに夜になった');
+});
+
+test('gates: 大会のあいだは、持っていても全部閉じる', () => {
+  const all = { deepRod: true, lantern: true, castDeep: true, night: true };
+  assert.deepEqual(fishGates({ ...all, contest: true }), { deep: false, night: false });
+  assert.deepEqual(fishGates(all), { deep: true, night: true }, '前提: 大会でなければ開く');
+});
+
+test('大会への申告: ガラクタと店の品の魚は 0cm', () => {
+  assert.equal(contestCm(FISH_BY_ID.aji, 30.4), 30);
+  assert.equal(contestCm(FISH_BY_ID.manbou, 280), 280);
+  assert.equal(contestCm(FISH_BY_ID.boot, 28), 0, 'ガラクタが得点になっている');
+  for (const f of FISH.filter((x) => isGated(x))) {
+    assert.equal(contestCm(f, f.cm[1]), 0, `${f.id}: 大会で得点になっている`);
+  }
+  for (const bad of [null, undefined, NaN, -5, 'あ']) {
+    assert.equal(contestCm(FISH_BY_ID.aji, bad), 0, `${String(bad)} で数が出た`);
+  }
+  assert.equal(contestCm(null, 100), 0);
 });
 
 // ---- 店の画面 ----
@@ -165,43 +243,102 @@ test('店: 売り物の定義がそろっている', () => {
   }
 });
 
-// ---- 深場を足しても、竿を買わない人の道をふさがない ----
+// ---- 売り物を足しても、買わない人の道をふさがない ----
 //
-// ここが今回いちばん危ないところだった。深場の魚を FISH に足しただけで、
+// ここが毎回いちばん危ないところ。深場の魚を FISH に足しただけで、
 // 実績3つが壊れていた(テストが捕まえた):
 //   - 「港でぬしを釣る」が、港に行かず深場で取れてしまう
 //   - 「ダイオウイカを釣り上げる」が、シーラカンスで解除される
 //   - 「図鑑を全種類うめる」が、竿を買わないと達成不能になる
-// 買わないと進めない形にはしない、というのが店の決めごと。
+// 買わないと進めない形にはしない、というのが店の決めごと。夜の魚も同じ扱い。
 
-test('深場: 港の魚を全部釣れば、竿を買わなくても図鑑は埋まる', () => {
-  const shore = FISH.filter((f) => !f.deep);
+test('買わない人: 港の魚を全部釣れば、何も買わなくても図鑑は埋まる', () => {
+  const shore = FISH.filter((f) => !isGated(f));
   const book = Object.fromEntries(shore.map((f) => [f.id, { n: 1, best: f.cm[1] }]));
   const c = fishCounts(book);
   assert.equal(c.species, c.total, `図鑑が埋まらない(${c.species}/${c.total})`);
   assert.ok(c.total > 0);
 });
 
-test('深場: 深場の魚では、港の実績を横取りできない', () => {
-  const deep = FISH.filter((f) => f.deep);
-  assert.ok(deep.length > 0, '前提: 深場の魚がある');
-  const book = Object.fromEntries(deep.map((f) => [f.id, { n: 1, best: f.cm[1] }]));
+test('買わない人: 店の品で開く魚では、港の実績を横取りできない', () => {
+  const gated = FISH.filter((f) => isGated(f));
+  assert.ok(gated.length > 0, '前提: 店の品で開く魚がある');
+  const book = Object.fromEntries(gated.map((f) => [f.id, { n: 1, best: f.cm[1] }]));
   const c = fishCounts(book);
   assert.equal(c.lords, 0, '港に行かず「ぬし」の実績が取れる');
-  assert.equal(c.myth, false, 'シーラカンスで「ダイオウイカ」の実績が取れる');
-  assert.equal(c.species, 0, '深場の魚が図鑑の進捗に数えられている');
+  assert.equal(c.myth, false, 'シーラカンス/ホウズキイカで「ダイオウイカ」の実績が取れる');
+  assert.equal(c.species, 0, '沖や夜の魚が図鑑の進捗に数えられている');
 });
 
-test('深場: 図鑑は、竿を持っていない人に埋められない欄を見せない', () => {
+test('図鑑: 持っていない人に、埋められない欄を見せない', () => {
   const base = emptyProgress();
   const count = (h) => (h.match(/fbook-a/g) ?? []).length;
-  const shoreN = FISH.filter((f) => !f.deep).length;
-  assert.equal(count(fishbookHtml(base)), shoreN, '竿なしに深場の欄が見えている');
-  assert.equal(count(fishbookHtml({ ...base, owned: { deepRod: true } })), FISH.length,
-    '竿を買っても深場の欄が出ない');
-  // 竿を手放しても(別端末など)、釣った実績は残して見せる
+  const shoreN = FISH.filter((f) => !isGated(f)).length;
+  const deepN = FISH.filter((f) => f.deep && !f.night).length;
+  const nightN = FISH.filter((f) => f.night && !f.deep).length;
+  assert.equal(count(fishbookHtml(base)), shoreN, '何も買っていないのに沖や夜の欄が見えている');
+  assert.equal(count(fishbookHtml({ ...base, owned: { deepRod: true } })), shoreN + deepN,
+    '竿を買っても沖の欄が出ない(あるいは夜の欄まで出ている)');
+  assert.equal(count(fishbookHtml({ ...base, owned: { lantern: true } })), shoreN + nightN,
+    'ランタンを買っても夜の欄が出ない(あるいは沖の欄まで出ている)');
+  assert.equal(count(fishbookHtml({ ...base, owned: { deepRod: true, lantern: true } })),
+    FISH.length, '両方買っても夜の沖の欄が出ない');
+  // 品を手放しても(別端末など)、釣った実績は残して見せる
   assert.equal(
     count(fishbookHtml({ ...base, fish: { ryuuguu: { n: 1, best: 400 } } })), shoreN + 1,
-    '釣った深場の魚が図鑑から消えている',
+    '釣った沖の魚が図鑑から消えている',
   );
+});
+
+// ---- 漁師の手帳 ----
+
+test('手帳: 持っていなければ目安は出ない。持っていれば出る', () => {
+  const base = emptyProgress();
+  const plain = fishbookHtml(base);
+  assert.doesNotMatch(plain, /〜/, '手帳なしで大きさの目安が出ている');
+  const noted = fishbookHtml({ ...base, owned: { fishNote: true } });
+  // マンボウは 3:1 の港のぬし。港の名前と大きさの範囲が出る
+  assert.match(noted, /3:1の港/, 'ぬしの港が出ていない');
+  assert.match(noted, /120〜280cm/, '大きさの目安が出ていない');
+  // 釣った欄は「自己最高と匹数」のまま(手帳で上書きしない)
+  const got = fishbookHtml({ ...base, owned: { fishNote: true }, fish: { aji: { n: 2, best: 25 } } });
+  assert.match(got, /25 cm ・ 2匹/, '釣った欄が目安で潰れている');
+});
+
+test('手帳: 伏せた欄の説明が、その魚のいる場所と食い違わない', () => {
+  const noted = fishbookHtml({ ...emptyProgress(), owned: { fishNote: true, deepRod: true, lantern: true } });
+  assert.match(noted, /夜の沖 ・ 300〜1000cm/, '夜の沖の目安が出ていない');
+  // 手帳が無いときは、等級のかわりに場所が出る(legend を「港のぬし」と出さない)
+  const plain = fishbookHtml({ ...emptyProgress(), owned: { deepRod: true } });
+  assert.match(plain, /沖・ぬし/, '沖のぬしが「港のぬし」と出ている');
+});
+
+// ---- 持ち物(店のパネルの中)----
+
+test('持ち物: 何も持っていなければタブも出さない', () => {
+  const html = shopPanelHtml(emptyProgress(), { tab: 'bag' });
+  assert.doesNotMatch(html, /shop-tab/, '持ち物が空なのにタブが出ている');
+  assert.match(html, /shop-buy/, '売り物が出ていない');
+});
+
+test('持ち物: 買った品だけが並ぶ', () => {
+  const p = buyItem(rich(), 'deepRod').progress;
+  const html = shopPanelHtml(p, { tab: 'bag' });
+  assert.match(html, /shop-tab:bag/, 'タブが出ていない');
+  assert.ok(html.includes('深場の竿'), '買った品が持ち物に無い');
+  assert.equal(html.includes('夜釣りのランタン'), false, '買っていない品が持ち物にある');
+  assert.equal(bagHtml(emptyProgress()).includes('まだ何も持っていません'), true);
+});
+
+test('持ち物: 見取り図を持っていれば一覧が、砂時計を持っていれば時刻が出る', () => {
+  const rows = [{ id: 'meet', icon: '📋', label: '大富豪', sub: '受付', dist: 1, sec: 2, dir: '右前' }];
+  const p = { ...rich(), owned: { islandMap: true, skyGlass: true } };
+  const html = shopPanelHtml(p, { tab: 'bag', mapRows: rows, skyTime: 'night' });
+  assert.match(html, /imap-row/, '見取り図の行が出ていない');
+  assert.match(html, /右前/, '方角が出ていない');
+  assert.match(html, /walk-sky-set:noon/, '時刻を選ぶ口が無い');
+  // いま選んでいる時刻が光る
+  assert.match(skyTimesHtml('night'), /class="sel" data-act="walk-sky-set:night"/,
+    '選んでいる時刻に印が付いていない');
+  assert.equal(islandMapHtml([]).includes('目印になるもの'), true, '空の島で行が出ている');
 });

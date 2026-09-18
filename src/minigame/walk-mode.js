@@ -25,6 +25,8 @@ import {
 import { Walker, WALK_SPEED } from './walker.js';
 import { WaterFx } from './water-fx.js';
 import { Fishing, CAST_TIME } from './fishing.js';
+import { fishGates } from './fish.js';
+import { isNight } from './daynight.js';
 import { FishingFx } from './fishing-fx.js';
 import { RemoteWalkers } from './remote.js';
 import { RemoteView, WALK_COLORS, NAME_SCALE_TABLE } from './remote-view.js';
@@ -368,11 +370,13 @@ export class WalkMode {
     this.fishCam = null;     // 釣りのカメラの極座標(_placeFishCamera)
     this.aimOut = null;      // 釣りをやめた直後、見る先を戻している間だけ入る
     this.fishSeed = fishSeed;
-    // 沖へ投げるか。深場の竿を持っているときだけ main.js が真にする。
-    // **持っていなければ触られない** ── ここを勝手に真にしても、
-    // 表(fish.js の tableFor)が深場の魚を返すだけで、竿の所持は
-    // main.js 側で見る(進行の判定を描画側に持たせない)。
-    this.deepCast = false;
+    // 店で買ったもの。main.js が applyOwned で流し込む(shop.js が持ち主)
+    this.owned = { deepRod: false, lantern: false };
+    // 投げ先。**竿を持っていても「港」を選べる** ── 買ったせいで港の魚が
+    // 釣れなくなる形にはしない(shop.js の4つめの決めごと)。
+    this.castDeep = false;
+    // 釣り大会のあいだは、店の品で開くものを全部閉じる(fish.js の fishGates)
+    this.contestFishing = false;
     this.fishT = 0;
     this.ffx = new FishingFx(board3d.scene, SEA_Y);
     this.onSpot = null;      // 釣り場に入った/出た
@@ -645,9 +649,45 @@ export class WalkMode {
 
   // すがたを選び直す(歩いている最中でも)。散策部屋では、みんなに知らせるのは
   // main.js の仕事 ── ここは自分の見た目だけを替える。
-  // 沖へ投げる設定。次に投げるぶんから効く(投げている最中は変えない)
-  setDeepCast(on) {
-    this.deepCast = !!on;
+  // 店で買ったもの。次に投げるぶんから効く(投げている最中は変えない)。
+  // 竿を手放した(別端末で進めた)場合は、投げ先も港へ戻す。
+  setOwned(owned = {}) {
+    this.owned = { deepRod: !!owned.deepRod, lantern: !!owned.lantern };
+    if (!this.owned.deepRod) this.castDeep = false;
+  }
+
+  // 釣り大会の最中か。開いている場所と時刻を閉じる口(fishGates)
+  setContestFishing(on) {
+    this.contestFishing = !!on;
+    if (this.contestFishing) this.castDeep = false;
+  }
+
+  // 投げ先を切り替える。竿が無ければ何も起きない(戻り値は切り替え後)
+  toggleCastDeep() {
+    if (!this.owned.deepRod || this.contestFishing) return false;
+    this.castDeep = !this.castDeep;
+    return this.castDeep;
+  }
+
+  // 沖へ投げられるか(HUD の切り替えボタンを出すかどうか)
+  get canCastDeep() {
+    return this.owned.deepRod && !this.contestFishing;
+  }
+
+  // いま夜か。空を止めているならその時刻で見る(board3d.nightNow)
+  get night() {
+    return isNight(this.b?.nightNow?.() ?? 0);
+  }
+
+  // いま何が開いているか。**投げるたびにここを通す**
+  gates() {
+    return fishGates({
+      deepRod: this.owned.deepRod,
+      lantern: this.owned.lantern,
+      castDeep: this.castDeep,
+      night: this.night,
+      contest: this.contestFishing,
+    });
   }
 
   setLook(id) {
@@ -739,7 +779,7 @@ export class WalkMode {
     this.walker.setRod(true);
     // 投げるたびに乱数を進める(同じ港で同じ魚が続かないように)
     this.fishSeed = (this.fishSeed * 1103515245 + 12345) >>> 0;
-    this.fishing = new Fishing(this.fishSeed, s.type, this.deepCast);
+    this.fishing = new Fishing(this.fishSeed, s.type, this.gates());
     this.fishT = 0;
     this.fishing.cast();
     this.ffx.cast(s.x, s.z, s.outX, s.outZ);
@@ -797,7 +837,7 @@ export class WalkMode {
   recast() {
     if (!this.fishing || this.fishing.active || !this.spot) return false;
     this.fishSeed = (this.fishSeed * 1103515245 + 12345) >>> 0;
-    this.fishing = new Fishing(this.fishSeed, this.spot.type, this.deepCast);
+    this.fishing = new Fishing(this.fishSeed, this.spot.type, this.gates());
     this.fishT = 0;
     this.fishing.cast();
     this.ffx.cast(this.spot.x, this.spot.z, this.spot.outX, this.spot.outZ);

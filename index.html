@@ -948,6 +948,27 @@
   }
   @keyframes fishHit { 50% { transform: scale(1.1); } }
   @media (prefers-reduced-motion: reduce) { #walk-fish.hit { animation: none; } }
+  /* 投げ先の切り替え(深場の竿を持っている人だけ出る)。
+     釣るボタンの真上。指が届く場所で、かつ釣るボタンと取り合わない。 */
+  #walk-cast {
+    position: absolute; pointer-events: auto; display: none;
+    right: calc(22px + env(safe-area-inset-right));
+    bottom: calc(206px + env(safe-area-inset-bottom));
+    width: 74px; min-height: 44px; border-radius: 22px;
+    flex-direction: row; align-items: center; justify-content: center; gap: 4px;
+    padding: 0;
+    border: 1px solid rgba(255,255,255,0.28);
+    background: rgba(8, 22, 38, 0.62);
+    color: #fff; font-size: 17px; line-height: 1;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 90ms ease, background 90ms ease;
+  }
+  #walk-cast.on { display: flex; }
+  #walk-cast span { font-size: 12px; font-weight: 700; }
+  #walk-cast:active { transform: scale(0.94); background: rgba(255, 217, 125, 0.34); }
+  /* 沖を選んでいる間は光らせる(どちらへ投げるか、押す前に分かるように) */
+  #walk-cast.deep { border-color: rgba(125, 200, 255, 0.7); background: rgba(24, 68, 110, 0.78); }
 
   /* ---------- 蛮族を射る ---------- */
   /* 弓のボタンは釣ると同じ場所。同じ島に港と櫓が両方あっても、
@@ -1234,6 +1255,31 @@
   .shop-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .shop-icon { font-size: 22px; }
   .shop-has { color: #4fd18b; font-size: 13px; }
+  /* 売り物 / 持ち物 の切り替え。戦績のタブ(.rec-tabs)と同じ見た目を借りる */
+  .shop-tabs { display: flex; gap: 6px; margin: 2px 0 8px; }
+  .shop-tabs button { flex: 1; min-height: 44px; font-size: 13px; }
+  .shop-tabs button.sel { background: rgba(255, 217, 125, 0.28); border-color: rgba(255,217,125,0.6); }
+  /* 持ち物。使える品は中に操作を置く(見取り図の一覧・時刻の選択) */
+  .bag-row { border-top: 1px solid var(--line); padding: 9px 2px; }
+  .bag-row:first-child { border-top: 0; }
+  .bag-times { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .bag-times button { flex: 1 1 auto; min-width: 72px; min-height: 44px; font-size: 13px; }
+  .bag-times button.sel { background: rgba(255, 217, 125, 0.28); border-color: rgba(255,217,125,0.6); }
+  /* 島の見取り図。方角と距離は右に寄せて、数字の列をそろえる */
+  .imap { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
+  .imap-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 8px; border-radius: 9px;
+    background: rgba(255,255,255,0.045);
+  }
+  .imap-icon { font-size: 19px; width: 24px; text-align: center; }
+  .imap-what { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .imap-what b { font-size: 13.5px; }
+  .imap-what small, .imap-dir small { color: var(--dim); font-size: 11.5px; }
+  .imap-dir {
+    flex: none; text-align: right; display: flex; flex-direction: column;
+    font-size: 13px; color: var(--accent2); font-weight: 700;
+  }
 
   /* 財布。戦績の見出しの右端に置く */
   .purse {
@@ -1907,6 +1953,8 @@
     <button id="walk-jump" type="button" aria-label="ジャンプ">⤒<span>ジャンプ</span></button>
     <!-- 釣り。港のそばに立つと出る。押しかたが段階で変わる(main.js) -->
     <button id="walk-fish" type="button">🎣<span>つる</span></button>
+    <!-- 投げ先(港/沖)。深場の竿を持っていて、大会中でないときだけ出る -->
+    <button id="walk-cast" type="button" data-act="walk-cast">⚓<span>港</span></button>
     <div id="fish-bars">
       <div class="fbar tension" aria-label="糸の張り"><i></i><b></b></div>
       <div class="fbar reel" aria-label="取り込み"><i></i></div>

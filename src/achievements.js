@@ -18,7 +18,7 @@
 
 import { longestRoadLength } from './rules/victory.js';
 import { hasOldShoe } from './rules/fish.js';
-import { FISH } from './minigame/fish.js';
+import { SHORE_FISH } from './minigame/fish.js';
 
 export const MODE_JP = {
   base: '基本',
@@ -403,7 +403,7 @@ export const ACHIEVEMENTS = [
     desc: '図鑑を全種類うめる',
     title: '博物学者',
     icon: '📖', tier: 'gold', scope: '港',
-    mark: 'fishSpecies', goal: FISH.filter((f) => !f.deep).length,
+    mark: 'fishSpecies', goal: SHORE_FISH.length,
     checkFish: ({ fish }) => {
       const c = fishCounts(fish);
       return c.species >= c.total;
@@ -536,19 +536,19 @@ export function unlockedByFish(ctx) {
 }
 
 // 図鑑の数えかた。実績の判定と戦績の進捗で同じ式を通す。
-// **深場の魚はここに数えない。**
+// **店の品で開く魚(深場・夜)はここに数えない。**
 //
-// 深場は店で竿を買うと開く追加の場所。数に入れると、実績の意味と
+// 深場も夜も、店で買って開く追加の場所と時刻。数に入れると、実績の意味と
 // 到達可能性が変わってしまう:
 //   - 「どこかの港でぬしを釣る」が、港に行かず深場で取れてしまう
 //   - 「ダイオウイカを釣り上げる」が、シーラカンス(深場の myth)で解除される
-//   - 「図鑑を全種類うめる」が、竿を買わない人には永久に達成不能になる
+//   - 「図鑑を全種類うめる」が、買わない人には永久に達成不能になる
 // 買わないと進めない形にはしない、というのが店の決めごと(shop.js を参照)。
 //
-// 深場の魚は図鑑には載る(釣れば欄が埋まる)。載らないのは実績の勘定だけ。
+// 買って釣った魚も図鑑には載る(釣れば欄が埋まる)。載らないのは実績の勘定だけ。
 export function fishCounts(book) {
   const got = Object.keys(book ?? {});
-  const shore = FISH.filter((f) => !f.deep);
+  const shore = SHORE_FISH;
   const byId = (id) => shore.find((f) => f.id === id) ?? null;
   const gotShore = got.filter((id) => byId(id));
   return {

@@ -11,6 +11,7 @@ import {
   LAYOUT, PIPS, LAKE_NUMBERS, boardVertexIds, boardEdgeIds,
 } from '../rules/board.js';
 import { RES_JP_SHORT } from '../state.js';
+import { nightAt, skyPhase } from '../minigame/daynight.js';
 import { BARBARIAN_TRACK_LENGTH as BARB_TRACK } from '../rules/cak/barbarians.js';
 // 地面の高さは terrain.js に集めてある。**描くほうも歩くほうも同じ1本を使う**
 // ── 別々に持つと、描いてある地表と足の高さが食い違って足が埋まる。
@@ -1072,7 +1073,9 @@ function makeMerchant(colorHex) {
 // ---- 空(スカイドーム + 時間サイクル)----
 // 昼 → 夕暮れ → 星夜 → 昼 をゆっくり巡る。太陽の光暈と夜の星は
 // シェーダーで手続き生成。ライト・霧・海の縁の色も同じパレットに連動する。
-const SKY_CYCLE_SEC = 300; // 1周の長さ
+// 周期と「夜の濃さ」は minigame/daynight.js が持つ ── 夜は遊びの判定
+// (夜釣り)にも使うので、THREE を読まないところに置いてある。
+// ここは色のパレットだけを持ち、t はあちらの NIGHT_KEYS と揃えること。
 // 真夜中に苔の粒がどれだけ光るか(粒そのものの emissive)。
 // **強すぎると色が飛んで白い染みになる** ── 1.15 で試したら、緑ではなく
 // 白い斑点が地面に散っているように見えた。色が残るところまで落とす。
@@ -1091,14 +1094,15 @@ const MOSS_GLOW = 0.6;
 const MOSS_HALO = 1.0;
 const SKY_PHASES = [
   // t: サイクル内の位置, zenith: 天頂, horizon: 地平線,
-  // sun: 太陽光の色, sunI: 強さ, hemi: 半球光の強さ, night: 星の濃さ
+  // sun: 太陽光の色, sunI: 強さ, hemi: 半球光の強さ
+  // (星の濃さ = 夜の濃さは daynight.js の NIGHT_KEYS。t はそちらと揃える)
   // hemiC: 半球光の空側の色, hemiG: 地面側の色
   //
   // **hemiG は「下からの照り返し」**。空を向いていない面 ── 崖の側面、
   // 木の下、物のかげ ── はここでしか照らされない。ずっと 0x46617a 固定で、
   // 夜になると真っ先に潰れていたのがここ。
-  { hemiG: 0x46617a, t: 0.0, zenith: 0x2a5d94, horizon: 0x9cc4d8, sun: 0xfff2dd, sunI: 2.4, hemi: 1.05, hemiC: 0xcfe3ff, night: 0 },
-  { hemiG: 0x5a5f78, t: 0.35, zenith: 0x1c4173, horizon: 0xe8a35e, sun: 0xffc27a, sunI: 1.9, hemi: 0.85, hemiC: 0xe8d2b8, night: 0 },
+  { hemiG: 0x46617a, t: 0.0, zenith: 0x2a5d94, horizon: 0x9cc4d8, sun: 0xfff2dd, sunI: 2.4, hemi: 1.05, hemiC: 0xcfe3ff },
+  { hemiG: 0x5a5f78, t: 0.35, zenith: 0x1c4173, horizon: 0xe8a35e, sun: 0xffc27a, sunI: 1.9, hemi: 0.85, hemiC: 0xe8d2b8 },
   // **夜。** 遊べる明るさまで月明かりを上げてある ──「暗すぎてほぼ見えない
   // ところがある」と報告された。足元の地面の明るさ(中央値)は真昼の 18% で、
   // いまは 45%。青い月明かりの色は残るので、明るくしても夜には見える。
@@ -1109,9 +1113,9 @@ const SKY_PHASES = [
   //
   // **上げすぎない。** 一度 65% まで上げたら夕方にしか見えなくなった。
   // 夜は夜に見えること(実際の絵を並べて 45% に決めた)。
-  { hemiG: 0x94b0c8, t: 0.5, zenith: 0x0a1d3a, horizon: 0x35507a, sun: 0x9fb8ff, sunI: 0.6, hemi: 1.1, hemiC: 0xa6c4ea, night: 1 },
-  { hemiG: 0x566079, t: 0.65, zenith: 0x14355f, horizon: 0xd88a6a, sun: 0xffcf95, sunI: 1.7, hemi: 0.8, hemiC: 0xe0cdb8, night: 0.15 },
-  { hemiG: 0x46617a, t: 1.0, zenith: 0x2a5d94, horizon: 0x9cc4d8, sun: 0xfff2dd, sunI: 2.4, hemi: 1.05, hemiC: 0xcfe3ff, night: 0 },
+  { hemiG: 0x94b0c8, t: 0.5, zenith: 0x0a1d3a, horizon: 0x35507a, sun: 0x9fb8ff, sunI: 0.6, hemi: 1.1, hemiC: 0xa6c4ea },
+  { hemiG: 0x566079, t: 0.65, zenith: 0x14355f, horizon: 0xd88a6a, sun: 0xffcf95, sunI: 1.7, hemi: 0.8, hemiC: 0xe0cdb8 },
+  { hemiG: 0x46617a, t: 1.0, zenith: 0x2a5d94, horizon: 0x9cc4d8, sun: 0xfff2dd, sunI: 2.4, hemi: 1.05, hemiC: 0xcfe3ff },
 ];
 
 function skyAt(phase) {
@@ -1135,7 +1139,8 @@ function skyAt(phase) {
     hemiG: lerpC(a.hemiG, b.hemiG),
     sunI: a.sunI + (b.sunI - a.sunI) * e,
     hemi: a.hemi + (b.hemi - a.hemi) * e,
-    night: a.night + (b.night - a.night) * e,
+    // 夜の濃さは daynight.js から。空の絵と遊びの判定で同じ値を使う
+    night: nightAt(phase),
   };
 }
 
@@ -1740,7 +1745,10 @@ export class Board3D {
     const sky = makeSky();
     this.skyUniforms = sky.uniforms;
     this.scene.add(sky.mesh);
-    this.skyPhaseOverride = null; // デバッグ用: 0..1 で時刻を固定
+    // 0..1 で時刻を固定する。デバッグ用と、店の「島の砂時計」用
+    // (大会のあいだは main.js が null に戻す ── 夜の見えにくさで
+    //  払った人だけが得をする形にしない)
+    this.skyPhaseOverride = null;
 
     // ライティング
     // 光る苔の材質。**全部の苔で1つを使い回す**ので、_tickSky が
@@ -2129,10 +2137,17 @@ export class Board3D {
     this.sun.position.set(c[0], c[1], c[2]).addScaledVector(sunDir, SUN_DIST);
   }
 
+  // いまの夜の濃さ(0=昼、1=真夜中)。**時刻を止めているならその時刻で**。
+  // 夜釣りの判定(walk-mode.js)がここを見る ── 空の絵と判定が同じ値を
+  // 通るので、「星が出ているのに夜の魚が来ない」が起きない。
+  nightNow(now = Date.now()) {
+    return nightAt(this.skyPhaseOverride ?? skyPhase(now));
+  }
+
   // 空の時間サイクル: 空・太陽・ライト・霧・海の縁を同じパレットで動かす
   _tickSky(now) {
     if (!this.skyUniforms) return;
-    const phase = this.skyPhaseOverride ?? (now / 1000 / SKY_CYCLE_SEC) % 1;
+    const phase = this.skyPhaseOverride ?? skyPhase(now);
     const s = skyAt(phase);
     this.skyUniforms.uZenith.value.copy(s.zenith);
     this.skyUniforms.uHorizon.value.copy(s.horizon);

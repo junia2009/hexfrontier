@@ -10,9 +10,10 @@ import {
   achievementById, progressOf, scopeOf,
 } from '../achievements.js';
 import { MODES, achievementCount, fishbookCount, summarize, winRate } from '../progress.js';
-import { FISH } from '../minigame/fish.js';
+import { FISH, isGated, placeLabel, portLabel } from '../minigame/fish.js';
 import { COIN_ICON, COIN_JP } from '../rewards.js';
 import { ITEMS, owns, whyCannotBuy } from '../shop.js';
+import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
 
 const MODE_ICON = {
   base: '⬡', cak: '🏰', dragon: '🐉', fish: '🐟', sea: '⛵',
@@ -24,22 +25,41 @@ const TIER_LABEL = {
   junk: 'ガラクタ', common: 'よくいる', rare: '大物', legend: '港のぬし', myth: 'まぼろし',
 };
 
+// まだ釣っていない欄の説明。等級は色でも分かるが、文字でも出す。
+// 店の品で開く魚(沖・夜)は、等級より「どこにいるか」のほうが要る
+// ── legend をそのまま「港のぬし」と出すと、港に居ないのに港を探すことになる。
+function lockedLabel(f) {
+  if (!isGated(f)) return TIER_LABEL[f.tier];
+  return `${placeLabel(f)}・${f.tier === 'legend' ? 'ぬし' : TIER_LABEL[f.tier]}`;
+}
+
+// 漁師の手帳を持っている人の欄。どこで釣れるかと大きさの目安まで出す。
+// **釣りやすさは変わらない** ── 探す先が分かるだけ(shop.js の線引き)。
+function noteLabel(f) {
+  const where = f.at ? portLabel(f.at) : placeLabel(f);
+  return `${where} ・ ${f.cm[0]}〜${f.cm[1]}cm`;
+}
+
 // 島を歩くモードからも同じものを出すので、外へ出しておく。
 // walk: 歩いている最中に開いたか(「島を歩くモードで…」の案内は要らない)
 export function fishbookHtml(progress, { walk = false } = {}) {
   const book = progress.fish ?? {};
-  // **深場の魚は、竿を持っているか釣ったことがある人にだけ見せる。**
-  // 持っていない人に空欄を6つ見せると、埋められない欄をずっと突きつける
-  // ことになる(店の宣伝が図鑑に居座る)。
-  const deepOpen = owns(progress, 'deepRod');
-  const shown = FISH.filter((f) => !f.deep || deepOpen || book[f.id]);
+  // **店の品で開く魚は、品を持っているか釣ったことがある人にだけ見せる。**
+  // 持っていない人に空欄を並べると、埋められない欄をずっと突きつけることに
+  // なる(店の宣伝が図鑑に居座る)。
+  const open = { deep: owns(progress, 'deepRod'), night: owns(progress, 'lantern') };
+  const canReach = (f) => (!f.deep || open.deep) && (!f.night || open.night);
+  const noted = owns(progress, 'fishNote');
+  const shown = FISH.filter((f) => canReach(f) || book[f.id]);
   const c = fishbookCount(progress, shown.length);
   const rows = shown.map((f) => {
     const got = book[f.id];
+    const small = got ? `${got.best} cm ・ ${got.n}匹`
+      : noted ? noteLabel(f) : lockedLabel(f);
     return `<div class="fbook-a t-${f.tier} ${got ? 'got' : 'locked'}">
       <span class="bicon">${got ? f.icon : '❔'}</span>
       <b>${got ? f.name : '???'}</b>
-      <small>${got ? `${got.best} cm ・ ${got.n}匹` : TIER_LABEL[f.tier]}</small>
+      <small>${small}</small>
     </div>`;
   }).join('');
   // 散策部屋の集まりの通算。出ていないものは出さない(空の行が増えるだけ)
@@ -61,6 +81,8 @@ export function fishbookHtml(progress, { walk = false } = {}) {
     <p><small>${walk
       ? '「港のぬし」はその港でしか釣れません。ほかの港もまわってみましょう。'
       : '島を歩くモードで、港のそばに立つと釣れます。「港のぬし」はその港でしか釣れません。'}
+      ${open.deep ? '桟橋で「⚓港」と「🌊沖」を投げ分けられます。' : ''}
+      ${open.night ? '夜の桟橋には、夜しか来ない魚がいます。' : ''}
     </small></p>`;
 }
 
@@ -246,4 +268,60 @@ export function shopHtml(progress) {
   return `<p class="shop-purse">手持ち ${COIN_ICON} <b>${coins}</b></p>
     ${rows}
     <p><small>遊びの結果で銀貨がたまります。売り物は増えていきます。</small></p>`;
+}
+
+// ---- 店のパネル(売り物 / 持ち物)----
+//
+// 島の HUD に置けるボタンの数は限られている(上のバーは6つで満杯)。
+// 買ったものの操作は**店のパネルの中**に持ち物として置く ── 品が増えても
+// ボタンが増えないので、売り物を足すたびに HUD を組み替えなくてよい。
+export function shopPanelHtml(progress, { tab = 'buy', mapRows = [], skyTime = 'live' } = {}) {
+  const has = ITEMS.some((i) => owns(progress, i.id));
+  const t = has ? tab : 'buy';   // 何も持っていない人に空の持ち物は見せない
+  const tabs = has ? `<div class="shop-tabs">
+    <button class="${t === 'buy' ? 'sel' : ''}" data-act="shop-tab:buy">🏪 売り物</button>
+    <button class="${t === 'bag' ? 'sel' : ''}" data-act="shop-tab:bag">🎒 持ち物</button>
+  </div>` : '';
+  return tabs + (t === 'bag' ? bagHtml(progress, { mapRows, skyTime }) : shopHtml(progress));
+}
+
+// 持ち物。使い道のある品は、ここで使う
+export function bagHtml(progress, { mapRows = [], skyTime = 'live' } = {}) {
+  const mine = ITEMS.filter((i) => owns(progress, i.id));
+  if (!mine.length) return '<p>まだ何も持っていません。</p>';
+  const rows = mine.map((item) => {
+    const body = item.id === 'islandMap' ? islandMapHtml(mapRows)
+      : item.id === 'skyGlass' ? skyTimesHtml(skyTime)
+      : `<p><small>${item.note ?? ''}</small></p>`;
+    return `<div class="bag-row">
+      <div class="shop-head"><span class="shop-icon">${item.icon}</span><b>${item.name}</b></div>
+      ${body}
+    </div>`;
+  }).join('');
+  return rows;
+}
+
+// 島の砂時計。選んだ時刻は光らせる(いまどれを選んでいるか分かるように)
+export function skyTimesHtml(skyTime = 'live') {
+  const now = skyTimeOf(skyTime).id;
+  return `<div class="bag-times">${SKY_TIMES.map((s) => `<button
+    class="${s.id === now ? 'sel' : ''}" data-act="walk-sky-set:${s.id}">${s.icon} ${s.label}</button>`).join('')}</div>
+    <p><small>大会の間は島の時刻に戻ります。</small></p>`;
+}
+
+// ---- 島の見取り図 ----
+//
+// 行を作るのは minigame/island-guide.js(純粋な計算)。ここは並べるだけ。
+export function islandMapHtml(rows) {
+  if (!rows?.length) {
+    return '<p>この島には、目印になるものがありません。</p>';
+  }
+  const list = rows.map((r) => `<div class="imap-row">
+    <span class="imap-icon">${r.icon}</span>
+    <span class="imap-what"><b>${r.label}</b><small>${r.sub}</small></span>
+    <span class="imap-dir">${r.dir}<small>歩いて約${r.sec}秒</small></span>
+  </div>`).join('');
+  return `<div class="imap">${list}</div>
+    <p><small>向きは「いま向いているほう」を前として出しています。
+    人や竜の居場所は出ません。</small></p>`;
 }

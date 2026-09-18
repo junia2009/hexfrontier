@@ -15,8 +15,11 @@ import {
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
-import { buyItem, owns } from './shop.js';
-import { fishbookHtml, shopHtml, recordsHtml } from './render/records.js';
+import { buyItem, ITEM_BY_ID, owns } from './shop.js';
+import { fishbookHtml, shopPanelHtml, recordsHtml } from './render/records.js';
+import { islandGuide } from './minigame/island-guide.js';
+import { contestCm } from './minigame/fish.js';
+import { skyTimeOf } from './minigame/daynight.js';
 import {
   legalCityVertices,
   legalRoadEdges,
@@ -869,7 +872,11 @@ const FISH_LOST = {
 
 let fishResultTimer = null;
 
+let fishBtnKind = null;   // 釣るボタンの段階。投げ先の切り替えを出す判定に使う
+
 function resetFishHud() {
+  fishBtnKind = null;
+  updateCastButton();
   document.getElementById('walk-hud')?.classList.remove('fishing');
   setWalkExitLabel(false);
   const j = jumpEl();
@@ -1094,7 +1101,9 @@ function showRaidResult(r) {
 function onFishSpot(spot) {
   if (!spot) { resetFishHud(); return; }
   setFishButton('ready');
-  walkNote('🎣 ここで釣れる');
+  // 夜にランタンを持っていれば言ってあげる(夜だけの魚が来るのが分かる)
+  const lantern = owns(progress, 'lantern') && walk?.night && !walk?.contestFishing;
+  walkNote(`🎣 ここで釣れる${lantern ? ' ・ 🪔 夜の海' : ''}`);
 }
 
 // 上のボタンは、釣っている間は「釣りをやめる」になる。
@@ -1114,6 +1123,7 @@ function setTableExitLabel(seated) {
 function setFishButton(kind) {
   const el = fishEl();
   if (!el) return;
+  fishBtnKind = kind;
   // 釣っている間は移動の案内を引っ込める(バーと重なる)
   document.getElementById('walk-hud')?.classList.toggle('fishing', kind !== 'ready');
   setWalkExitLabel(kind !== 'ready');
@@ -1124,6 +1134,7 @@ function setFishButton(kind) {
   // 釣っている間はジャンプを引っ込める(同じ場所に重なるので)
   const j = jumpEl();
   if (j) j.style.display = kind === 'ready' ? '' : 'none';
+  updateCastButton();
 }
 
 // 毎フレーム呼ばれる。バーだけを書き換える(innerHTML は段階が変わったときだけ)
@@ -1165,7 +1176,8 @@ function showCatch() {
   // 釣り大会のときだけ申告する。竜の島では釣っても得点にならない
   if (contest?.kind === 'fishing' && contest.phase === 'running'
       && contest.entries.includes(mySeat())) {
-    meetSend('land', { cm: f.fish.tier === 'junk' ? 0 : f.cm });
+    // ガラクタと、店の品で開く魚(沖・夜)は 0cm(得点にならない)
+    meetSend('land', { cm: contestCm(f.fish, f.cm) });
   }
   const r = addCatch(progress, f.fish.id, f.cm);
   progress = r.progress;
@@ -1246,7 +1258,62 @@ let walkBookOpen = false;
 // 買ったものを島の遊びへ反映する。買った直後と、島に入るたびに呼ぶ
 // (別の端末で買った、あるいは前回の続きで持っている場合があるため)
 function applyOwned() {
-  walk?.setDeepCast(owns(progress, 'deepRod'));
+  walk?.setOwned({ deepRod: owns(progress, 'deepRod'), lantern: owns(progress, 'lantern') });
+  applySkyTime();
+  updateCastButton();
+}
+
+// ---- 島の砂時計(空の時刻を選ぶ)----
+//
+// 選んだ時刻はこの端末に覚えておく。**持っていない人と大会の最中は島の時刻**
+// ── 夜の見えにくさで払った人だけが得をする形にしない(shop.js の禁じ手2)。
+let skyTime = skyTimeOf(lsGet('skyTime')).id;
+
+function applySkyTime() {
+  if (!renderer3d) return;
+  const allowed = owns(progress, 'skyGlass') && !walk?.contestFishing && !contestLive();
+  renderer3d.skyPhaseOverride = allowed ? skyTimeOf(skyTime).phase : null;
+}
+
+function setSkyTime(id) {
+  if (!owns(progress, 'skyGlass')) return;
+  skyTime = skyTimeOf(id).id;
+  lsSet('skyTime', skyTime);
+  applySkyTime();
+  sfx.play('ui');
+  renderShop();
+}
+
+// 集まりが走っているか(どの遊びでも)。空を止めるのを止める判定に使う
+function contestLive() {
+  return contest?.phase === 'running' && (contest.entries ?? []).includes(mySeat());
+}
+
+// 投げ先の切り替えボタン。竿を持っていて、港のそばにいて、
+// まだ投げていないときだけ出す(投げている最中に切り替えても効かない)。
+function updateCastButton() {
+  const el = document.getElementById('walk-cast');
+  if (!el) return;
+  const on = fishBtnKind === 'ready' && !!walk?.canCastDeep;
+  el.classList.toggle('on', on);
+  const deep = !!walk?.castDeep;
+  el.classList.toggle('deep', deep);
+  el.innerHTML = deep ? '🌊<span>沖</span>' : '⚓<span>港</span>';
+}
+
+// 店のパネル。売り物と持ち物を同じ器に出す(records.js が組み立てる)
+let shopTab = 'buy';
+function renderShop() {
+  const el = document.getElementById('walk-shop-body');
+  if (!el) return;
+  el.innerHTML = shopPanelHtml(progress, { tab: shopTab, mapRows: mapRows(), skyTime });
+}
+
+// 見取り図の行。持っていなければ空(描く側に判定を持たせない)
+function mapRows() {
+  if (!walk || !owns(progress, 'islandMap')) return [];
+  const w = walk.walker?.pos;
+  return islandGuide(state, { x: w?.x ?? 0, z: w?.z ?? 0, facing: walk.walker?.facing ?? 0 });
 }
 
 let walkShopOpen = false;
@@ -1254,9 +1321,7 @@ function setWalkShop(on) {
   if (!walk) return;
   walkShopOpen = !!on;
   const el = document.getElementById('walk-shop');
-  if (walkShopOpen) {
-    document.getElementById('walk-shop-body').innerHTML = shopHtml(progress);
-  }
+  if (walkShopOpen) renderShop();
   el?.classList.toggle('on', walkShopOpen);
   if (walkShopOpen) { setWalkEmotes(false); setWalkLooks(false); setWalkGuide(false); setWalkBook(false); }
   walk.setPaused(walkShopOpen);
@@ -1305,6 +1370,13 @@ function setWalkGuide(on) {
 // 島の上では誰も座っていない、という気づきにくい壊れかたをする。
 function applyContest(c) {
   contest = c;
+  // 釣り大会に出ているあいだは、店で買ったものを閉じる(fish.js の fishGates)。
+  // 大会は港の昼に固定 ── 払った人だけが大きい魚を申告できる形にしない。
+  walk?.setContestFishing(
+    c?.kind === 'fishing' && c.phase === 'running' && (c.entries ?? []).includes(mySeat()),
+  );
+  applySkyTime();
+  updateCastButton();
   // 竜の居場所は進行が決めている。走っている間だけ出す
   walk?.setDragon(c?.phase === 'running' && c.dragon ? c.dragon : null);
   noteContestResult(c);
@@ -2362,6 +2434,7 @@ async function ensureRenderer3d() {
       ]);
       renderer3d = new mod.Board3D(board3dWrap);
       attach3dInput();
+      applySkyTime();   // 砂時計で時刻を選んでいれば、盤の空にも効かせる
     } catch (e) {
       console.error('3D初期化に失敗:', e);
       renderer3dFailed = true;
@@ -3204,8 +3277,18 @@ document.addEventListener('click', (e) => {
       sfx.play('win');
       // 買ったものを即座に効かせる(次に投げるぶんから沖へ届く)
       applyOwned();
-      document.getElementById('walk-shop-body').innerHTML = shopHtml(progress);
-      walkNote(`🏪 ${arg === 'deepRod' ? '深場の竿' : ''}を手に入れた`);
+      renderShop();
+      walkNote(`🏪 ${ITEM_BY_ID[arg]?.name ?? 'それ'}を手に入れた`);
+      return;
+    }
+    case 'shop-tab': shopTab = arg === 'bag' ? 'bag' : 'buy'; renderShop(); return;
+    case 'walk-sky-set': setSkyTime(arg); return;
+    case 'walk-cast': {
+      if (!walk?.canCastDeep) return;
+      const deep = walk.toggleCastDeep();
+      sfx.play('ui');
+      updateCastButton();
+      walkNote(deep ? '🌊 沖へ投げる' : '⚓ 港へ投げる');
       return;
     }
     case 'walk-book': setWalkBook(true); return;
