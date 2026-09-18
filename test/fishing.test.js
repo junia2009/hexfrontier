@@ -46,7 +46,9 @@ test('魚: 大きさの範囲と引きの数値が揃っている', () => {
 });
 
 test('魚: ぬしは自分の港にしかいない', () => {
-  const legends = FISH.filter((f) => f.tier === 'legend');
+  // 深場の魚は「港のぬし」ではない(沖でしか出ず、港ごとに1匹の決まりの外)。
+  // 港の決まりはそのままなので、ここは港の魚だけを見る
+  const legends = FISH.filter((f) => f.tier === 'legend' && !f.deep);
   assert.ok(legends.length > 0);
   for (const f of legends) {
     assert.ok(PORT_TYPES.includes(f.at), `${f.id} の港 ${f.at}`);

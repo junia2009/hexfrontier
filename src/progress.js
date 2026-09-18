@@ -39,6 +39,8 @@ export function emptyProgress() {
     // 2つに分けてある。
     coins: 0,
     coinsEarned: 0,
+    // 買ったもの。{ id: true }。使い道は shop.js が持つ
+    owned: {},
   };
 }
 
@@ -337,6 +339,7 @@ export function parseProgress(raw) {
       // 蛮族を射るの記録。これもあとから足した
       raid: sanitizeRaid(p?.raid),
       ...coinsOf(p),
+      owned: sanitizeOwned(p?.owned),
     };
   } catch {
     return emptyProgress();
@@ -466,6 +469,14 @@ export function loadProgress() {
   } catch {
     return emptyProgress(); // localStorage が使えない環境(プライベートモード等)
   }
+}
+
+// 買ったもの。true 以外は落とす(壊れた値で「持っている」ことにしない)
+function sanitizeOwned(src) {
+  if (!src || typeof src !== 'object') return {};
+  const out = {};
+  for (const [id, has] of Object.entries(src)) if (has === true) out[id] = true;
+  return out;
 }
 
 // 保存されている版。読めなければ 0(=いちばん古い扱い)

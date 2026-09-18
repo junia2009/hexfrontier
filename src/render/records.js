@@ -12,6 +12,7 @@ import {
 import { MODES, achievementCount, fishbookCount, summarize, winRate } from '../progress.js';
 import { FISH } from '../minigame/fish.js';
 import { COIN_ICON, COIN_JP } from '../rewards.js';
+import { ITEMS, owns, whyCannotBuy } from '../shop.js';
 
 const MODE_ICON = {
   base: '⬡', cak: '🏰', dragon: '🐉', fish: '🐟', sea: '⛵',
@@ -27,8 +28,13 @@ const TIER_LABEL = {
 // walk: 歩いている最中に開いたか(「島を歩くモードで…」の案内は要らない)
 export function fishbookHtml(progress, { walk = false } = {}) {
   const book = progress.fish ?? {};
-  const c = fishbookCount(progress, FISH.length);
-  const rows = FISH.map((f) => {
+  // **深場の魚は、竿を持っているか釣ったことがある人にだけ見せる。**
+  // 持っていない人に空欄を6つ見せると、埋められない欄をずっと突きつける
+  // ことになる(店の宣伝が図鑑に居座る)。
+  const deepOpen = owns(progress, 'deepRod');
+  const shown = FISH.filter((f) => !f.deep || deepOpen || book[f.id]);
+  const c = fishbookCount(progress, shown.length);
+  const rows = shown.map((f) => {
     const got = book[f.id];
     return `<div class="fbook-a t-${f.tier} ${got ? 'got' : 'locked'}">
       <span class="bicon">${got ? f.icon : '❔'}</span>
@@ -214,4 +220,30 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
            <button data-act="records-clear" ${empty ? 'disabled' : ''}>記録を消す</button>
            <button class="primary" data-act="goto-title">← タイトルへ</button>
          </div>`}`;
+}
+
+// ---- 島の店 ----
+//
+// 買えるもの・値段・持っているかを並べるだけ。買う判断は shop.js が持つので、
+// ここは whyCannotBuy が返した理由をそのまま出す(理由を2か所で書かない)。
+export function shopHtml(progress) {
+  const coins = progress.coins ?? 0;
+  const rows = ITEMS.map((item) => {
+    const has = owns(progress, item.id);
+    const why = has ? null : whyCannotBuy(progress, item.id);
+    const btn = has
+      ? '<span class="shop-has">✓ 持っています</span>'
+      : `<button class="primary" data-act="shop-buy:${item.id}" ${why ? 'disabled' : ''}
+          title="${why ?? ''}">${COIN_ICON} ${item.price} で買う</button>`;
+    return `<div class="shop-row ${has ? 'has' : ''}">
+      <div class="shop-head"><span class="shop-icon">${item.icon}</span>
+        <b>${item.name}</b></div>
+      <p>${item.desc}</p>
+      ${item.note ? `<p><small>${item.note}</small></p>` : ''}
+      <div class="row end">${why && !has ? `<small>${why}</small>` : ''}${btn}</div>
+    </div>`;
+  }).join('');
+  return `<p class="shop-purse">手持ち ${COIN_ICON} <b>${coins}</b></p>
+    ${rows}
+    <p><small>遊びの結果で銀貨がたまります。売り物は増えていきます。</small></p>`;
 }

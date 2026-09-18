@@ -46,6 +46,19 @@ export const FISH = [
 
   // ---- ぜんぶの港にいる、めったに来ないやつ ----
   { id: 'daiouika', name: 'ダイオウイカ', icon: '🦑', tier: 'myth', w: 0.6, cm: [280, 700], pull: 1.05, stamina: 2.19, burst: [0.8, 1.3], burstK: 2.8 },
+
+  // ---- 沖(深場)。深場の竿を買うと、同じ桟橋から沖へ投げられるようになる ----
+  //
+  // **どれも港には出ない。** 深場は「強くなる」ための場所ではなく
+  // 「行ったことのない場所」なので、既存の魚を釣りやすくはしない。
+  // そのぶん引きは全体に強めにしてある ── 深いところのものは手強い、を
+  // 数字でも出す(stamina は港のぬしと同じか少し上)。
+  { id: 'demenigisu', name: 'デメニギス', icon: '👁', tier: 'common', deep: true, w: 14, cm: [12, 25], pull: 0.58, stamina: 1.52, burst: [1.5, 2.4], burstK: 1.8 },
+  { id: 'chouchin', name: 'チョウチンアンコウ', icon: '🏮', tier: 'rare', deep: true, w: 8, cm: [20, 60], pull: 0.74, stamina: 1.96, burst: [1.2, 2], burstK: 2.2 },
+  { id: 'takaashi', name: 'タカアシガニ', icon: '🦀', tier: 'rare', deep: true, w: 6, cm: [200, 380], pull: 0.8, stamina: 2.1, burst: [1.4, 2.2], burstK: 2 },
+  { id: 'mitsukuri', name: 'ミツクリザメ', icon: '🦈', tier: 'legend', deep: true, w: 3.5, cm: [300, 550], pull: 0.92, stamina: 2.34, burst: [1, 1.7], burstK: 2.5 },
+  { id: 'ryuuguu', name: 'リュウグウノツカイ', icon: '🎏', tier: 'legend', deep: true, w: 3, cm: [300, 800], pull: 0.9, stamina: 2.55, burst: [1.1, 1.8], burstK: 2.3 },
+  { id: 'coelacanth', name: 'シーラカンス', icon: '🐟', tier: 'myth', deep: true, w: 0.7, cm: [130, 200], pull: 1.02, stamina: 2.72, burst: [0.9, 1.4], burstK: 2.7 },
 ];
 
 export const FISH_BY_ID = Object.fromEntries(FISH.map((f) => [f.id, f]));
@@ -53,14 +66,19 @@ export const FISH_BY_ID = Object.fromEntries(FISH.map((f) => [f.id, f]));
 // 港の種類は 3:1 と資源5種。ぬしはこのどれか1つにしか付かない。
 export const PORT_TYPES = ['3:1', 'wood', 'brick', 'sheep', 'wheat', 'ore'];
 
-// その港で釣れるものだけを返す(ぬしは自分の港でだけ混ざる)
-export function tableFor(portType) {
-  return FISH.filter((f) => f.at == null || f.at === portType);
+// その港で釣れるものだけを返す(ぬしは自分の港でだけ混ざる)。
+//
+// deep=true は「沖へ投げた」とき。**港の魚は出ない** ── 深場の竿は
+// 既存の魚を釣りやすくするものではなく、別の場所を開くもの。
+// ガラクタだけは沖でも引っかかる(何も無いと手応えが平坦になる)。
+export function tableFor(portType, deep = false) {
+  if (deep) return FISH.filter((f) => f.deep || f.tier === 'junk');
+  return FISH.filter((f) => !f.deep && (f.at == null || f.at === portType));
 }
 
 // 重み付き抽選。rng は数値1つ(rng.js)で、[新しい rng, 選ばれたもの] を返す。
-export function pickFish(rng, portType) {
-  const table = tableFor(portType);
+export function pickFish(rng, portType, deep = false) {
+  const table = tableFor(portType, deep);
   const total = table.reduce((s, f) => s + f.w, 0);
   let v;
   [rng, v] = rngNext(rng);

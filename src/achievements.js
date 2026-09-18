@@ -403,7 +403,7 @@ export const ACHIEVEMENTS = [
     desc: '図鑑を全種類うめる',
     title: '博物学者',
     icon: '📖', tier: 'gold', scope: '港',
-    mark: 'fishSpecies', goal: FISH.length,
+    mark: 'fishSpecies', goal: FISH.filter((f) => !f.deep).length,
     checkFish: ({ fish }) => {
       const c = fishCounts(fish);
       return c.species >= c.total;
@@ -536,15 +536,28 @@ export function unlockedByFish(ctx) {
 }
 
 // 図鑑の数えかた。実績の判定と戦績の進捗で同じ式を通す。
+// **深場の魚はここに数えない。**
+//
+// 深場は店で竿を買うと開く追加の場所。数に入れると、実績の意味と
+// 到達可能性が変わってしまう:
+//   - 「どこかの港でぬしを釣る」が、港に行かず深場で取れてしまう
+//   - 「ダイオウイカを釣り上げる」が、シーラカンス(深場の myth)で解除される
+//   - 「図鑑を全種類うめる」が、竿を買わない人には永久に達成不能になる
+// 買わないと進めない形にはしない、というのが店の決めごと(shop.js を参照)。
+//
+// 深場の魚は図鑑には載る(釣れば欄が埋まる)。載らないのは実績の勘定だけ。
 export function fishCounts(book) {
   const got = Object.keys(book ?? {});
-  const kinds = new Set(got);
-  const tierOf = (id) => FISH.find((f) => f.id === id)?.tier ?? null;
+  const shore = FISH.filter((f) => !f.deep);
+  const byId = (id) => shore.find((f) => f.id === id) ?? null;
+  const gotShore = got.filter((id) => byId(id));
   return {
-    species: kinds.size,
-    total: FISH.length,
-    lords: got.filter((id) => tierOf(id) === 'legend').length,
-    myth: got.some((id) => tierOf(id) === 'myth'),
+    species: gotShore.length,
+    total: shore.length,
+    lords: gotShore.filter((id) => byId(id).tier === 'legend').length,
+    myth: gotShore.some((id) => byId(id).tier === 'myth'),
+    // 自己最高の大きさだけは深場も数える ── 「大きいものを釣った」は
+    // どこで釣っても同じ事実で、港の実績を横取りする話ではない
     biggest: got.reduce((m, id) => Math.max(m, book[id]?.best ?? 0), 0),
   };
 }

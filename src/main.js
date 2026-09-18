@@ -15,7 +15,8 @@ import {
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
-import { fishbookHtml, recordsHtml } from './render/records.js';
+import { buyItem, owns } from './shop.js';
+import { fishbookHtml, shopHtml, recordsHtml } from './render/records.js';
 import {
   legalCityVertices,
   legalRoadEdges,
@@ -747,6 +748,7 @@ async function startWalk() {
   }
   startLocalMeet();
   atDesk = false;
+  applyOwned();   // 深場の竿を持っていれば、この島でも沖へ投げられる
   syncLookButton();
   renderContest();
   // 竜の巣まで登った。ひとりで歩いていても付く ── 大会と違って
@@ -1241,6 +1243,26 @@ function fishRelease() {
 // 開いている間は時間を止める ── 止めないと、パネルの裏でアタリが来て
 // 見えないまま逃げられるし、歩いている途中なら海へ落ちる。
 let walkBookOpen = false;
+// 買ったものを島の遊びへ反映する。買った直後と、島に入るたびに呼ぶ
+// (別の端末で買った、あるいは前回の続きで持っている場合があるため)
+function applyOwned() {
+  walk?.setDeepCast(owns(progress, 'deepRod'));
+}
+
+let walkShopOpen = false;
+function setWalkShop(on) {
+  if (!walk) return;
+  walkShopOpen = !!on;
+  const el = document.getElementById('walk-shop');
+  if (walkShopOpen) {
+    document.getElementById('walk-shop-body').innerHTML = shopHtml(progress);
+  }
+  el?.classList.toggle('on', walkShopOpen);
+  if (walkShopOpen) { setWalkEmotes(false); setWalkLooks(false); setWalkGuide(false); setWalkBook(false); }
+  walk.setPaused(walkShopOpen);
+  if (walkShopOpen) walkStickHide();
+}
+
 function setWalkBook(on) {
   if (!walk) return;
   walkBookOpen = !!on;
@@ -1249,7 +1271,7 @@ function setWalkBook(on) {
     document.getElementById('walk-book-body').innerHTML = fishbookHtml(progress, { walk: true });
   }
   el?.classList.toggle('on', walkBookOpen);
-  if (walkBookOpen) { setWalkEmotes(false); setWalkLooks(false); setWalkGuide(false); }
+  if (walkBookOpen) { setWalkEmotes(false); setWalkLooks(false); setWalkGuide(false); setWalkShop(false); }
   walk.setPaused(walkBookOpen);
   // 移動スティックが出たままにならないように
   if (walkBookOpen) walkStickHide();
@@ -3172,6 +3194,20 @@ document.addEventListener('click', (e) => {
       // 釣っている途中なら、まず竿をしまう(押し間違いで島から出さない)
       if (!fishQuit()) exitWalk();
       return;
+    case 'walk-shop': setWalkShop(true); return;
+    case 'walk-shop-close': setWalkShop(false); return;
+    case 'shop-buy': {
+      const r = buyItem(progress, arg);
+      if (!r.ok) { walkNote(r.reason ?? '買えません'); return; }
+      progress = r.progress;
+      saveProgress(progress);
+      sfx.play('win');
+      // 買ったものを即座に効かせる(次に投げるぶんから沖へ届く)
+      applyOwned();
+      document.getElementById('walk-shop-body').innerHTML = shopHtml(progress);
+      walkNote(`🏪 ${arg === 'deepRod' ? '深場の竿' : ''}を手に入れた`);
+      return;
+    }
     case 'walk-book': setWalkBook(true); return;
     case 'walk-book-close': setWalkBook(false); return;
     case 'walk-guide': setWalkGuide(true); return;
