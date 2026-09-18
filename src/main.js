@@ -15,8 +15,8 @@ import {
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
-import { buyItem, ITEM_BY_ID, owns } from './shop.js';
-import { fishbookHtml, shopPanelHtml, recordsHtml } from './render/records.js';
+import { buyItem, ITEMS, ITEM_BY_ID, owns } from './shop.js';
+import { bagHtml, fishbookHtml, storeHtml, recordsHtml } from './render/records.js';
 import { islandGuide } from './minigame/island-guide.js';
 import { contestCm } from './minigame/fish.js';
 import { skyTimeOf } from './minigame/daynight.js';
@@ -751,7 +751,13 @@ async function startWalk() {
   }
   startLocalMeet();
   atDesk = false;
-  applyOwned();   // 深場の竿を持っていれば、この島でも沖へ投げられる
+  applyOwned();   // 買ったものをこの島にも効かせる(投げ先・ランタン・時刻)
+  // **店は島の上にある。** 画面にボタンが無いので、最初の1回だけ場所を言う
+  // (見取り図にも 🏪 の行が出る)。
+  if (!shopHintShown && walk?.shopAt) {
+    shopHintShown = true;
+    setTimeout(() => { if (screen === 'walk') walkNote('🏪 受付の隣に「島の店」があります'); }, 1800);
+  }
   syncLookButton();
   renderContest();
   // 竜の巣まで登った。ひとりで歩いていても付く ── 大会と違って
@@ -774,6 +780,7 @@ async function startWalk() {
   walk.onDrumFall = noteLogFall;
   walk.onRespawn = noteLogFall;
   walk.onSpot = onFishSpot;
+  walk.onShop = onShopNear;
   walk.onPost = onWatchPost;
   walk.onRaidEvent = (e) => {
     if (e.type === 'sink' || e.type === 'down') sfx.play('ui');
@@ -1098,6 +1105,14 @@ function showRaidResult(r) {
 }
 
 // 釣り場に入った/出た
+// 屋台のそばに来た/離れた。**店は島の上にある**ので、入口はここだけ
+// (画面の上に店のボタンは無い)。
+function onShopNear(near) {
+  updateStoreButton();
+  if (near) walkNote('🏪 島の店 ── 🏪 を押すと店主と話せる');
+  else if (walkShopOpen) setWalkShop(false);   // 離れたら閉じる
+}
+
 function onFishSpot(spot) {
   if (!spot) { resetFishHud(); return; }
   setFishButton('ready');
@@ -1135,6 +1150,7 @@ function setFishButton(kind) {
   const j = jumpEl();
   if (j) j.style.display = kind === 'ready' ? '' : 'none';
   updateCastButton();
+  updateStoreButton();
 }
 
 // 毎フレーム呼ばれる。バーだけを書き換える(innerHTML は段階が変わったときだけ)
@@ -1187,10 +1203,15 @@ function showCatch() {
   // 売った値は釣果の札に一緒に出す。あとから帯で出すと、
   // 何に対して付いたのか分からなくなる
   const sold = r.coins ? `<div class="fr-coin">${COIN_ICON} +${r.coins}</div>` : '';
+  // どこで釣れたものかを添える。沖と夜は買って開いた場所なので、
+  // 「いつもと違うものが来た」が札の上でも分かるようにする
+  const place = f.fish.deep && f.fish.night ? '🌙 夜の沖'
+    : f.fish.deep ? '🌊 沖' : f.fish.night ? '🌙 夜の海' : '';
+  const where = place ? `<div class="fr-where">${place}</div>` : '';
   showFishResult(`
     <div class="fr-icon">${f.fish.icon}</div>
     <div class="fr-name">${f.fish.name}</div>
-    <div class="fr-size">${f.cm} cm</div>${sold}${tag}`, false);
+    <div class="fr-size">${f.cm} cm</div>${where}${sold}${tag}`, false);
   // 図鑑がのびて実績が付いたら伝える。**釣果の表示に重ねない** ──
   // 1匹ぶんの札が出ている最中なので、少し待ってから帯で出す。
   if (r.unlocked.length) {
@@ -1261,6 +1282,7 @@ function applyOwned() {
   walk?.setOwned({ deepRod: owns(progress, 'deepRod'), lantern: owns(progress, 'lantern') });
   applySkyTime();
   updateCastButton();
+  syncBagButton();
 }
 
 // ---- 島の砂時計(空の時刻を選ぶ)----
@@ -1281,7 +1303,7 @@ function setSkyTime(id) {
   lsSet('skyTime', skyTime);
   applySkyTime();
   sfx.play('ui');
-  renderShop();
+  renderBag();
 }
 
 // 集まりが走っているか(どの遊びでも)。空を止めるのを止める判定に使う
@@ -1298,15 +1320,34 @@ function updateCastButton() {
   el.classList.toggle('on', on);
   const deep = !!walk?.castDeep;
   el.classList.toggle('deep', deep);
-  el.innerHTML = deep ? '🌊<span>沖</span>' : '⚓<span>港</span>';
+  // 「いまどちらへ投げるか」を文字で出す。押すと入れ替わる、が分かるように
+  // 小さく「タップで切替」を添える(アイコンだけだと何のボタンか読めない)
+  el.innerHTML = deep
+    ? '<b>🌊 沖へ投げる</b><span>タップで港ぎわ</span>'
+    : '<b>⚓ 港ぎわへ</b><span>タップで沖へ</span>';
 }
 
-// 店のパネル。売り物と持ち物を同じ器に出す(records.js が組み立てる)
-let shopTab = 'buy';
+// 店の中。屋台の前でだけ開く(店番のひとこと + 売り物)
 function renderShop() {
   const el = document.getElementById('walk-shop-body');
-  if (!el) return;
-  el.innerHTML = shopPanelHtml(progress, { tab: shopTab, mapRows: mapRows(), skyTime });
+  if (el) el.innerHTML = storeHtml(progress);
+}
+
+// 持ち物。島のどこでも開ける ── 見取り図も砂時計も、店の前まで戻らないと
+// 使えないのでは意味がない。何も持っていない人にはボタンごと出さない。
+function renderBag() {
+  const el = document.getElementById('walk-bag-body');
+  if (el) el.innerHTML = bagHtml(progress, { mapRows: mapRows(), skyTime });
+}
+
+function syncBagButton() {
+  const el = document.getElementById('walk-bag-btn');
+  if (el) el.style.display = ITEMS.some((i) => owns(progress, i.id)) ? '' : 'none';
+}
+
+// 店のボタン。屋台のそばに立っている間だけ出す(釣る・射ると同じ場所)
+function updateStoreButton() {
+  document.getElementById('walk-store')?.classList.toggle('on', !!walk?.atShop && !walk?.isFishing);
 }
 
 // 見取り図の行。持っていなければ空(描く側に判定を持たせない)
@@ -1316,6 +1357,7 @@ function mapRows() {
   return islandGuide(state, { x: w?.x ?? 0, z: w?.z ?? 0, facing: walk.walker?.facing ?? 0 });
 }
 
+let shopHintShown = false;   // 店の場所を教えるのは、ひと遊びにつき1回だけ
 let walkShopOpen = false;
 function setWalkShop(on) {
   if (!walk) return;
@@ -1326,6 +1368,18 @@ function setWalkShop(on) {
   if (walkShopOpen) { setWalkEmotes(false); setWalkLooks(false); setWalkGuide(false); setWalkBook(false); }
   walk.setPaused(walkShopOpen);
   if (walkShopOpen) walkStickHide();
+}
+
+let walkBagOpen = false;
+function setWalkBag(on) {
+  if (!walk) return;
+  walkBagOpen = !!on;
+  const el = document.getElementById('walk-bag');
+  if (walkBagOpen) renderBag();
+  el?.classList.toggle('on', walkBagOpen);
+  if (walkBagOpen) { setWalkEmotes(false); setWalkLooks(false); setWalkGuide(false); setWalkBook(false); }
+  walk.setPaused(walkBagOpen);
+  if (walkBagOpen) walkStickHide();
 }
 
 function setWalkBook(on) {
@@ -3269,6 +3323,8 @@ document.addEventListener('click', (e) => {
       return;
     case 'walk-shop': setWalkShop(true); return;
     case 'walk-shop-close': setWalkShop(false); return;
+    case 'walk-bag': setWalkBag(true); return;
+    case 'walk-bag-close': setWalkBag(false); return;
     case 'shop-buy': {
       const r = buyItem(progress, arg);
       if (!r.ok) { walkNote(r.reason ?? '買えません'); return; }
@@ -3281,14 +3337,17 @@ document.addEventListener('click', (e) => {
       walkNote(`🏪 ${ITEM_BY_ID[arg]?.name ?? 'それ'}を手に入れた`);
       return;
     }
-    case 'shop-tab': shopTab = arg === 'bag' ? 'bag' : 'buy'; renderShop(); return;
     case 'walk-sky-set': setSkyTime(arg); return;
     case 'walk-cast': {
       if (!walk?.canCastDeep) return;
       const deep = walk.toggleCastDeep();
       sfx.play('ui');
       updateCastButton();
-      walkNote(deep ? '🌊 沖へ投げる' : '⚓ 港へ投げる');
+      // **何が変わるのかを毎回言う。** 「沖」とだけ出しても、何が釣れる
+      // ようになるのかが分からない(実際そう言われた)。
+      walkNote(deep
+        ? '🌊 沖へ遠投する ── 深場の魚だけが来る(港の魚は来ない)'
+        : '⚓ 港ぎわへ投げる ── いつもの魚と、その港のぬしが来る');
       return;
     }
     case 'walk-book': setWalkBook(true); return;

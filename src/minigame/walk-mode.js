@@ -13,6 +13,7 @@ import {
 import {
   makeGround, spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
   watchPost, POST_RADIUS, POST_CLEAR, DESK_RADIUS, DESK_REACH, DESK_CLEAR,
+  shopPoint, SHOP_RADIUS, SHOP_REACH, SHOP_CLEAR,
   TABLE_RADIUS, TABLE_CLEAR, TABLE_REACH, tableSeats,
 } from './ground.js';
 import { Raid, ARCHERY_MODES, BOW_Y, reach as arrowReach } from './archery.js';
@@ -34,6 +35,7 @@ import { ST, WALK_SEATS } from './remote-st.js';
 import { emoteById } from './emote.js';
 import { speciesById, DEFAULT_SPECIES } from './species.js';
 import { makeDesk } from './desk.js';
+import { makeStore } from './store.js';
 import { meetFor } from './meets.js';
 import { makeTable } from './table.js';
 import { makeDragon } from '../render3d/board3d.js';
@@ -141,6 +143,13 @@ const FISH_YAW = -0.75;     // 本人の向きからどれだけ横へ回り込�
 const FISH_PITCH = 0.30;    // 見下ろす角度(角度は縮尺と無関係)
 const FISH_DIST = sc(1.9);
 const FISH_AIM = sc(0.42);  // 本人から浮きのほうへ、どれだけ先を見るか
+// **沖へ投げたときは、見てそれと分かるようにする。**
+// 深場の竿を買っても浮きの落ちる場所が同じでは、何が変わったのか分からない
+// (「アニメーションも変わらない」と言われたのはここ)。
+// 浮きは3倍の遠くへ飛び、カメラは引いて、見る先も沖へ伸ばす。
+const DEEP_CAST_DIST = sc(3.3);   // 沖へ投げたときに浮きが落ちる距離
+const DEEP_CAM = 1.45;            // カメラを引く倍率
+const DEEP_AIM = 2.6;             // 見る先を沖へ伸ばす倍率
 // 釣り場へ寄る時間(秒)。**瞬間移動させない。**
 // 押した場所から足場へ飛ばしていたので、始めた瞬間に「ガク」となっていた
 // (実測: 1フレームで 0.20 単位 ─ 身長の半分 ─ 動き、向きが 144° 裏返り、
@@ -349,6 +358,33 @@ export class WalkMode {
         });
       }
     }
+
+    // ---- 島の店 ----
+    //
+    // 受付の隣に屋台を建てて、店番を立たせる。**歩いて行って話しかける**
+    // ので、画面の上に店のボタンは置かない(ground.js の shopPoint)。
+    const shop = shopPoint(state);
+    this.shopAt = null;
+    this.store = null;
+    this.atShop = false;
+    this.onShop = null;      // 店に入った/出た
+    if (shop) {
+      this.shopAt = { x: shop.x, z: shop.z };
+      // 受付と同じで、まわりの木や岩は片付ける(屋台に木が刺さらないように)
+      const cut = clearAround(this.obstacles, this.shopAt, SHOP_CLEAR);
+      this.obstacles = cut.kept;
+      for (const o of cut.cleared) {
+        if (!o.obj) continue;
+        this.clearedObjs.push({ o: o.obj, vis: o.obj.visible });
+        o.obj.visible = false;
+      }
+      this.store = makeStore(
+        board3d.scene, shop.x, shop.z, this.ground(shop.x, shop.z).y, shop.facing,
+      );
+      // 屋台にもぶつかる(あとから建てたものは自分で入れる)
+      this.obstacles.push({ x: shop.x, z: shop.z, r: SHOP_RADIUS, h: sc(0.6) });
+    }
+
     this.species = speciesById(look);
     this.walker = new Walker(
       board3d.scene,
@@ -782,7 +818,7 @@ export class WalkMode {
     this.fishing = new Fishing(this.fishSeed, s.type, this.gates());
     this.fishT = 0;
     this.fishing.cast();
-    this.ffx.cast(s.x, s.z, s.outX, s.outZ);
+    this.ffx.cast(s.x, s.z, s.outX, s.outZ, this._castDist());
     return true;
   }
 
@@ -840,8 +876,13 @@ export class WalkMode {
     this.fishing = new Fishing(this.fishSeed, this.spot.type, this.gates());
     this.fishT = 0;
     this.fishing.cast();
-    this.ffx.cast(this.spot.x, this.spot.z, this.spot.outX, this.spot.outZ);
+    this.ffx.cast(this.spot.x, this.spot.z, this.spot.outX, this.spot.outZ, this._castDist());
     return true;
+  }
+
+  // 浮きをどこまで飛ばすか。沖へ投げたときだけ遠い(既定は fishing-fx.js)
+  _castDist() {
+    return this.fishing?.gates?.deep ? DEEP_CAST_DIST : undefined;
   }
 
   // カメラを回す(画面の右半分のドラッグ / マウスドラッグ)
@@ -885,6 +926,8 @@ export class WalkMode {
     // 円卓の演出(場に出た札の着地)。**座っていなくても進める** ──
     // 卓は島の真ん中にあって、立って眺めていても見えている。
     this.desk?.update?.(dt);
+    // 店番。夜はランタンが灯る(board3d が空の時刻を持っている)
+    this.store?.update(dt, t, { near: this.atShop, night: this.b?.nightNow?.() ?? 0 });
 
     if (this.fishing) {
       this._fishFrame(dt);
@@ -926,6 +969,15 @@ export class WalkMode {
     if (near !== this.atDesk) {
       this.atDesk = near;
       this.onDesk?.(near);
+    }
+
+    // 店のそばに来たら知らせる(入った/出たときだけ)。
+    // 店番はここで「いらっしゃい」と手を振る(store.js の update)
+    const onShop = !!this.shopAt && r.grounded
+      && Math.hypot(w.x - this.shopAt.x, w.z - this.shopAt.z) < SHOP_REACH;
+    if (onShop !== this.atShop) {
+      this.atShop = onShop;
+      this.onShop?.(onShop);
     }
 
     // 櫓のそばに来たら知らせる(入った/出たときだけ)。
@@ -1312,8 +1364,11 @@ export class WalkMode {
     const w = this.walker.pos;
     const s = this.spot;
     const groundY = this.ground(w.x, w.z).y;
-    // 引かれるほど寄って、手応えを見せる
-    const dist = FISH_DIST * (1 - (v.phase === 'fight' ? v.tension * 0.18 : 0));
+    // 引かれるほど寄って、手応えを見せる。沖へ投げたときは引いて、
+    // 遠くへ飛んでいく浮きが画面から出ないようにする
+    const deep = !!this.fishing?.gates?.deep;
+    const dist = FISH_DIST * (deep ? DEEP_CAM : 1)
+      * (1 - (v.phase === 'fight' ? v.tension * 0.18 : 0));
     const want = {
       yaw: this.walker.facing + FISH_YAW * (s?.side || 1),
       flat: Math.cos(FISH_PITCH) * dist,
@@ -1345,7 +1400,7 @@ export class WalkMode {
     // **投げ終わりで切り替えない** ── もとは段が変わった瞬間に 0.4 → 1 へ
     // 飛ばしていたので、視線が1コマで 4.1° 回っていた。
     // 浮きが飛んでいくのに合わせて、見る先も一緒に伸ばす。
-    const aim = FISH_AIM * (0.4 + 0.6 * ease01(castK));
+    const aim = FISH_AIM * (deep ? DEEP_AIM : 1) * (0.4 + 0.6 * ease01(castK));
     cam.lookAt(
       w.x + (s ? s.outX : 0) * aim,
       groundY + 0.18,
@@ -1612,6 +1667,7 @@ export class WalkMode {
     this._nestRestore();                                         // 巣の竜を盤に返す
     this.setDragon(null);
     this.desk?.dispose();
+    this.store?.dispose();
     this.drum?.dispose();
     this.archeryFx?.dispose();
     this.walker.dispose();

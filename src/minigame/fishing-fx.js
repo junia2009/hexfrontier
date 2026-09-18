@@ -85,6 +85,11 @@ export class FishingFx {
     this.float.visible = true;
     this.line.visible = true;
     this.ringT = 0;
+    this.landed = false;
+    // 遠くへ投げるほど高く上がる。そのまま比例させると沖へ投げたとき
+    // 浮きが空の彼方まで上がるので、平方根で抑える(遠投は「伸びる」
+    // ように見せたいのであって、打ち上げたいのではない)。
+    this.arc = CAST_ARC * Math.sqrt(dist / CAST_DIST);
   }
 
   hide() {
@@ -106,10 +111,16 @@ export class FishingFx {
       const k = Math.max(0.05, castK);
       f.set(
         tip.x + (this.landing.x - tip.x) * k,
-        tip.y + (this.landing.y - tip.y) * k + Math.sin(k * Math.PI) * CAST_ARC,
+        tip.y + (this.landing.y - tip.y) * k + Math.sin(k * Math.PI) * (this.arc ?? CAST_ARC),
         tip.z + (this.landing.z - tip.z) * k,
       );
     } else {
+      // 着水。**落ちた瞬間に波紋を1つ出す** ── 遠くへ投げたときは浮きが
+      // 小さく見えるので、どこに落ちたのかが波紋で分かる。
+      if (!this.landed) {
+        this.landed = true;
+        this.ringT = Math.max(this.ringT, 0.7);
+      }
       // 落ちたら、そこに浮かぶ(取り込み中だけは手元へ寄ってくる)
       if (v.phase !== 'fight') { f.x = this.landing.x; f.z = this.landing.z; }
       // 浮きの上下。待っている間はゆっくり、アタリでは激しく沈む

@@ -7,7 +7,7 @@
 // **人と竜は出さない。** 動くものを出すと、大会(ドラゴンから逃げろ)で
 // 払った人が有利になる。動かないものの場所だけを配る。
 
-import { fishingSpots, nestPoint, spawnPoint, watchPost } from './ground.js';
+import { fishingSpots, nestPoint, shopPoint, spawnPoint, watchPost } from './ground.js';
 import { WALK_SPEED } from './motion.js';
 import { meetFor } from './meets.js';
 import { ARCHERY_MODES } from './archery.js';
@@ -69,6 +69,8 @@ export function islandGuide(state, from = {}) {
   // 受付(円卓の島は卓)。立つ場所は walk-mode と同じ spawnPoint
   const meet = meetFor(state.mode);
   if (meet) add('meet', '📋', meet.name, '受付', spawnPoint(state));
+  // 島の店(屋台)。受付の隣に建っている
+  add('shop', '🏪', '島の店', 'なんでも屋', shopPoint(state));
   // 物見の櫓。島にひとつだけ建つ
   if (ARCHERY_MODES.includes(state.mode)) add('post', '🏹', '物見の櫓', '蛮族を射る', watchPost(state));
   // 竜の棲む山。**巣の場所だけ** ── 竜そのものの居場所は出さない

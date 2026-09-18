@@ -181,6 +181,47 @@ export function meetHome(state) {
   return nestPoint(state) ?? spawnPoint(state);
 }
 
+// ---- 島の店 ----
+//
+// **店は島の上に建っている。** 画面の上のボタンから開く形にしていたが、
+// 島に実体の無いものをアイコンで開くと「何を見ているのか分からない」に
+// なる。歩いて行って、店番に話しかけて買う。
+//
+// 建てる場所は受付の広場の**隣のヘックス**。広場からは見えていて、
+// それでいて受付・円卓・降り立つ輪とは重ならない。乱数は使わない ──
+// 同じ島なら毎回同じ場所に建っていてほしい(「あそこにある」が覚えられる)。
+export const SHOP_RADIUS = sc(0.34);   // ぶつかる大きさ(屋台の横幅の半分ほど)
+export const SHOP_REACH = sc(0.72);    // この距離まで寄ると店に入れる
+export const SHOP_CLEAR = sc(1.05);    // 屋台のまわりを片付ける広さ
+// 受付からこれだけ離すこと。広場(TABLE_CLEAR)と店の広場が重ならない距離。
+// 隣のヘックスの中心までは 1.73 あるので、実際はいつも隣に建つ。
+const SHOP_AWAY = TABLE_CLEAR + SHOP_CLEAR;
+
+export function shopPoint(state) {
+  if (!state?.board) return null;
+  const home = spawnPoint(state);
+  const ground = makeGround(state);
+  const nest = nestHexOf(state);
+  const post = watchPost(state);
+  let best = null;
+  for (const { hid, c } of landHexes(state)) {
+    if (hid === nest) continue;                       // 竜の山には建てない
+    if (!ground(c.x, c.y).ok) continue;
+    const d = Math.hypot(c.x - home.x, c.y - home.y);
+    if (d < SHOP_AWAY) continue;                      // 受付の広場は避ける
+    // 櫓とも離す(射場を片付けた広場に屋台が建つと、狙う先が塞がる)
+    if (post && Math.hypot(c.x - post.x, c.y - post.z) < POST_CLEAR + SHOP_CLEAR) continue;
+    if (!best || d < best.d) best = { d, c };
+  }
+  if (!best) return null;
+  // 入口は広場のほう(歩いてきた人の正面に店番が立つ)
+  return {
+    x: best.c.x,
+    z: best.c.y,
+    facing: Math.atan2(home.x - best.c.x, home.y - best.c.y),
+  };
+}
+
 // ---- 釣り場(港)----
 
 // 縁のちょうど上に立たせると、わずかな行き過ぎで海に落ちる。少しだけ陸側に置く。

@@ -13,7 +13,10 @@ import {
 } from '../src/minigame/daynight.js';
 import { DIRS, dirIndex, islandGuide, walkSeconds } from '../src/minigame/island-guide.js';
 import { createGame, MODE_IDS } from '../src/state.js';
-import { fishingSpots, nestPoint, spawnPoint, watchPost } from '../src/minigame/ground.js';
+import {
+  POST_CLEAR, SHOP_CLEAR, SHOP_REACH, SPAWN_RING, TABLE_CLEAR,
+  fishingSpots, makeGround, nestPoint, shopPoint, spawnPoint, watchPost,
+} from '../src/minigame/ground.js';
 
 // ---- 時刻 ----
 
@@ -131,6 +134,65 @@ test('見取り図: 近い順に並び、距離と方角がその場所と合っ
   assert.ok(Math.abs(meet.dist - want) < 1e-9, `受付までの距離がずれている: ${meet.dist} / ${want}`);
   assert.equal(meet.dir, DIRS[dirIndex(from.facing, home.x - from.x, home.y - from.z)]);
   assert.equal(meet.sec, walkSeconds(want));
+});
+
+// ---- 島の店(屋台の建つ場所)----
+//
+// **画面のボタンではなく島の上にある**ので、建つ場所が壊れると
+// 「店が無い島」「受付にめり込んだ店」「海の上の店」が黙って出来上がる。
+
+test('店: どの島にも1軒建ち、陸の上で、毎回同じ場所', () => {
+  for (const mode of MODE_IDS) {
+    const s = createGame({ mode, players: 3, seed: 31 });
+    const p = shopPoint(s);
+    assert.ok(p, `${mode}: 店が建たない`);
+    assert.equal(makeGround(s)(p.x, p.z).ok, true, `${mode}: 海の上に建っている`);
+    assert.deepEqual(shopPoint(createGame({ mode, players: 3, seed: 31 })), p,
+      `${mode}: 同じ島なのに場所が変わる`);
+  }
+});
+
+test('店: 受付の広場とも櫓とも重ならない', () => {
+  for (const mode of MODE_IDS) {
+    const s = createGame({ mode, players: 4, seed: 88 });
+    const p = shopPoint(s);
+    const home = spawnPoint(s);
+    const d = Math.hypot(p.x - home.x, p.z - home.y);
+    assert.ok(d >= TABLE_CLEAR + SHOP_CLEAR, `${mode}: 受付に近すぎる(${d.toFixed(2)})`);
+    // 降り立つ輪の上に建つと、島に降りた瞬間から店に入っていることになる
+    assert.ok(d > SPAWN_RING + SHOP_REACH, `${mode}: 降り立つ輪と重なっている`);
+    const post = watchPost(s);
+    if (post) {
+      const dp = Math.hypot(p.x - post.x, p.z - post.z);
+      assert.ok(dp >= POST_CLEAR + SHOP_CLEAR, `${mode}: 櫓に近すぎる(${dp.toFixed(2)})`);
+    }
+  }
+});
+
+test('店: 竜の山には建てない(近づくと竜が起きる場所に客を呼ばない)', () => {
+  const s = createGame({ mode: 'dragon', players: 3, seed: 5 });
+  const nest = nestPoint(s);
+  const p = shopPoint(s);
+  assert.ok(nest && p);
+  assert.ok(Math.hypot(p.x - nest.x, p.z - nest.y) > 0.5, '巣のヘックスに建っている');
+});
+
+test('店: 入口は広場のほうを向く(歩いてきた人の正面に店番が立つ)', () => {
+  const s = createGame({ mode: 'fish', players: 2, seed: 12 });
+  const p = shopPoint(s);
+  const home = spawnPoint(s);
+  assert.equal(p.facing, Math.atan2(home.x - p.x, home.y - p.z));
+  // 盤が無ければ建てない(落ちない)
+  assert.equal(shopPoint(null), null);
+  assert.equal(shopPoint({}), null);
+});
+
+test('見取り図: 店も目印として並ぶ(画面にボタンが無いので、ここが道しるべ)', () => {
+  const s = createGame({ mode: 'base', players: 2, seed: 3 });
+  const row = islandGuide(s, { x: 0, z: 0, facing: 0 }).find((r) => r.id === 'shop');
+  assert.ok(row, '見取り図に店が出ていない');
+  const p = shopPoint(s);
+  assert.ok(Math.abs(row.dist - Math.hypot(p.x, p.z)) < 1e-9, '店までの距離がずれている');
 });
 
 test('見取り図: 桟橋には港の種類が出る', () => {

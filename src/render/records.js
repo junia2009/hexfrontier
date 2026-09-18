@@ -270,19 +270,22 @@ export function shopHtml(progress) {
     <p><small>遊びの結果で銀貨がたまります。売り物は増えていきます。</small></p>`;
 }
 
-// ---- 店のパネル(売り物 / 持ち物)----
+// ---- 店の中(屋台の前で開く)----
 //
-// 島の HUD に置けるボタンの数は限られている(上のバーは6つで満杯)。
-// 買ったものの操作は**店のパネルの中**に持ち物として置く ── 品が増えても
-// ボタンが増えないので、売り物を足すたびに HUD を組み替えなくてよい。
-export function shopPanelHtml(progress, { tab = 'buy', mapRows = [], skyTime = 'live' } = {}) {
-  const has = ITEMS.some((i) => owns(progress, i.id));
-  const t = has ? tab : 'buy';   // 何も持っていない人に空の持ち物は見せない
-  const tabs = has ? `<div class="shop-tabs">
-    <button class="${t === 'buy' ? 'sel' : ''}" data-act="shop-tab:buy">🏪 売り物</button>
-    <button class="${t === 'bag' ? 'sel' : ''}" data-act="shop-tab:bag">🎒 持ち物</button>
-  </div>` : '';
-  return tabs + (t === 'bag' ? bagHtml(progress, { mapRows, skyTime }) : shopHtml(progress));
+// **店は島に建っている**(minigame/store.js)。ここはその中身で、
+// 店番のひとことと売り物を並べる。買ったものを使うのは「持ち物」のほう
+// (島のどこでも開ける)── 買う場所と使う場所を分けておくと、
+// 品が増えても店の前に行かないと何もできない、にならない。
+export function storeHtml(progress) {
+  const mine = ITEMS.filter((i) => owns(progress, i.id)).length;
+  const line = mine >= ITEMS.length
+    ? '「うちの品はもう全部あんたのもんだ。また仕入れとくよ。」'
+    : (progress?.coins ?? 0) < Math.min(...ITEMS.map((i) => i.price))
+      ? '「見ていくだけでもいいよ。銀貨がたまったらまたおいで。」'
+      : '「いらっしゃい。銀貨と引き換えに、島で使えるものを置いてるよ。」';
+  return `<p class="shop-greet"><span class="shop-face">🐻</span>
+    <span><b>店主</b><small>${line}</small></span></p>
+    ${shopHtml(progress)}`;
 }
 
 // 持ち物。使い道のある品は、ここで使う

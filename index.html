@@ -837,6 +837,7 @@
 
   /* 釣り図鑑(島を歩く中から開く)。HUD より上に出す */
   #walk-shop,
+  #walk-bag,
   #walk-book {
     position: absolute; inset: 0; z-index: 3; pointer-events: auto;
     display: none; align-items: center; justify-content: center;
@@ -844,8 +845,9 @@
     background: rgba(6, 18, 32, 0.72);
   }
   #walk-shop.on,
+  #walk-bag.on,
   #walk-book.on { display: flex; }
-  #walk-book .select-panel { max-height: 88dvh; }
+  #walk-book .select-panel, #walk-bag .select-panel { max-height: 88dvh; }
   /* あそびかた(島を歩く中から開く)。図鑑と同じ扱い。
      **pointer-events: auto を忘れない** ── #walk-hud は none なので、
      付けないと「見えるのに押せない・スクロールもできない」板になる。 */
@@ -952,11 +954,11 @@
      釣るボタンの真上。指が届く場所で、かつ釣るボタンと取り合わない。 */
   #walk-cast {
     position: absolute; pointer-events: auto; display: none;
-    right: calc(22px + env(safe-area-inset-right));
+    right: calc(12px + env(safe-area-inset-right));
     bottom: calc(206px + env(safe-area-inset-bottom));
-    width: 74px; min-height: 44px; border-radius: 22px;
-    flex-direction: row; align-items: center; justify-content: center; gap: 4px;
-    padding: 0;
+    width: 96px; min-height: 48px; border-radius: 24px;
+    flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+    padding: 4px 0;
     border: 1px solid rgba(255,255,255,0.28);
     background: rgba(8, 22, 38, 0.62);
     color: #fff; font-size: 17px; line-height: 1;
@@ -965,10 +967,31 @@
     transition: transform 90ms ease, background 90ms ease;
   }
   #walk-cast.on { display: flex; }
-  #walk-cast span { font-size: 12px; font-weight: 700; }
+  #walk-cast b { font-size: 13px; font-weight: 800; }
+  #walk-cast span { font-size: 9.5px; font-weight: 700; color: var(--dim); letter-spacing: 0.04em; }
+  #walk-cast.deep span { color: #bfe4ff; }
   #walk-cast:active { transform: scale(0.94); background: rgba(255, 217, 125, 0.34); }
   /* 沖を選んでいる間は光らせる(どちらへ投げるか、押す前に分かるように) */
   #walk-cast.deep { border-color: rgba(125, 200, 255, 0.7); background: rgba(24, 68, 110, 0.78); }
+
+  /* 島の店。屋台のそばでだけ出る。釣る・射ると同じ場所(同時には出ない) */
+  #walk-store {
+    position: absolute; pointer-events: auto; display: none;
+    right: calc(22px + env(safe-area-inset-right));
+    bottom: calc(122px + env(safe-area-inset-bottom));
+    width: 74px; height: 74px; border-radius: 50%;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 1px; padding: 0;
+    border: 2px solid rgba(255, 217, 125, 0.55);
+    background: rgba(8, 22, 38, 0.52);
+    color: #fff; font-size: 23px; line-height: 1;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 90ms ease, background 90ms ease;
+  }
+  #walk-store.on { display: flex; }
+  #walk-store span { font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
+  #walk-store:active { transform: scale(0.92); background: rgba(255, 217, 125, 0.42); }
 
   /* ---------- 蛮族を射る ---------- */
   /* 弓のボタンは釣ると同じ場所。同じ島に港と櫓が両方あっても、
@@ -1243,6 +1266,12 @@
   #fish-result .fr-icon { font-size: 44px; line-height: 1; }
   #fish-result .fr-name { font-size: 19px; font-weight: 800; margin-top: 4px; }
   #fish-result .fr-size { font-size: 14px; color: var(--dim); margin-top: 2px; }
+  /* どこで釣れたか(沖・夜)。買って開いた場所のときだけ出る */
+  #fish-result .fr-where {
+    display: inline-block; margin-top: 4px; padding: 1px 8px; border-radius: 9px;
+    font-size: 11.5px; font-weight: 700; color: #bfe4ff;
+    background: rgba(70, 140, 200, 0.28);
+  }
   /* 売った値。金額なので等幅で揃える(桁が動くと目がちらつく) */
   /* 島の店 */
   .shop-purse { color: #ffd45e; font-variant-numeric: tabular-nums; }
@@ -1255,10 +1284,15 @@
   .shop-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .shop-icon { font-size: 22px; }
   .shop-has { color: #4fd18b; font-size: 13px; }
-  /* 売り物 / 持ち物 の切り替え。戦績のタブ(.rec-tabs)と同じ見た目を借りる */
-  .shop-tabs { display: flex; gap: 6px; margin: 2px 0 8px; }
-  .shop-tabs button { flex: 1; min-height: 44px; font-size: 13px; }
-  .shop-tabs button.sel { background: rgba(255, 217, 125, 0.28); border-color: rgba(255,217,125,0.6); }
+  /* 店主のひとこと。店に入ったとき、いちばん上で話しかけてくる */
+  .shop-greet {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; margin: 0 0 10px; border-radius: 10px;
+    background: rgba(255, 217, 125, 0.10); border: 1px solid rgba(255,217,125,0.28);
+  }
+  .shop-greet .shop-face { font-size: 26px; line-height: 1; }
+  .shop-greet b { display: block; font-size: 12px; color: var(--accent2); }
+  .shop-greet small { font-size: 12.5px; line-height: 1.5; }
   /* 持ち物。使える品は中に操作を置く(見取り図の一覧・時刻の選択) */
   .bag-row { border-top: 1px solid var(--line); padding: 9px 2px; }
   .bag-row:first-child { border-top: 0; }
@@ -1938,7 +1972,7 @@
       <span id="walk-where"></span>
       <button data-act="walk-look" aria-label="すがた">🧍</button>
       <button data-act="walk-emote" aria-label="エモート">😀</button>
-      <button data-act="walk-shop" aria-label="店">🏪</button>
+      <button id="walk-bag-btn" data-act="walk-bag" aria-label="持ち物">🎒</button>
       <button data-act="walk-book" aria-label="釣り図鑑">📖</button>
       <button data-act="walk-guide" aria-label="あそびかた">❓</button>
       <button data-act="walk-exit">✕ もどる</button>
@@ -1961,6 +1995,8 @@
     </div>
     <div id="fish-note"></div>
     <div id="fish-result"></div>
+    <!-- 島の店。屋台のそばに立つと出る(画面の上には置かない) -->
+    <button id="walk-store" type="button" data-act="walk-shop">🏪<span>みせ</span></button>
     <!-- 蛮族を射る。櫓のそばで出る。押している間だけ弓を引き、離すと放つ -->
     <div id="aim-bar"></div>
     <div id="aim-mark"><i></i></div>
@@ -1993,7 +2029,17 @@
         </div>
       </div>
     </div>
-    <!-- 島の店。銀貨の使い道。開いている間は時間を止める(図鑑と同じ) -->
+    <!-- 持ち物。買ったものを使うところ(見取り図・砂時計)。図鑑と同じ器 -->
+    <div id="walk-bag">
+      <div class="select-panel rules-panel">
+        <h3>🎒 持ち物</h3>
+        <div id="walk-bag-body" class="panel-scroll"></div>
+        <div class="row end rules-close">
+          <button class="primary" data-act="walk-bag-close">とじる</button>
+        </div>
+      </div>
+    </div>
+    <!-- 島の店。屋台の前でだけ開く。開いている間は時間を止める(図鑑と同じ) -->
     <div id="walk-shop">
       <div class="select-panel rules-panel">
         <h3>🏪 島の店</h3>

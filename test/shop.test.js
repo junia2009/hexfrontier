@@ -17,7 +17,7 @@ import {
   FISH, FISH_BY_ID, PORT_TYPES, contestCm, fishGates, isGated, pickFish, tableFor,
 } from '../src/minigame/fish.js';
 import {
-  bagHtml, fishbookHtml, islandMapHtml, shopHtml, shopPanelHtml, skyTimesHtml,
+  bagHtml, fishbookHtml, islandMapHtml, shopHtml, skyTimesHtml, storeHtml,
 } from '../src/render/records.js';
 import { fishCounts } from '../src/achievements.js';
 import { coinsForCatch } from '../src/rewards.js';
@@ -313,18 +313,26 @@ test('手帳: 伏せた欄の説明が、その魚のいる場所と食い違わ
   assert.match(plain, /沖・ぬし/, '沖のぬしが「港のぬし」と出ている');
 });
 
-// ---- 持ち物(店のパネルの中)----
+// ---- 店の中(屋台の前)と、持ち物(どこでも)----
 
-test('持ち物: 何も持っていなければタブも出さない', () => {
-  const html = shopPanelHtml(emptyProgress(), { tab: 'bag' });
-  assert.doesNotMatch(html, /shop-tab/, '持ち物が空なのにタブが出ている');
-  assert.match(html, /shop-buy/, '売り物が出ていない');
+test('店の中: 店主が話しかけてきて、売り物が並ぶ', () => {
+  const html = storeHtml({ ...emptyProgress(), coins: 1000 });
+  assert.match(html, /shop-greet/, '店主のひとことが無い');
+  assert.match(html, /店主/, '誰が話しているのか分からない');
+  assert.match(html, /shop-buy:deepRod/, '売り物が出ていない');
+});
+
+test('店の中: 店主のひとことは、手持ちと買ったもので変わる', () => {
+  const broke = storeHtml({ ...emptyProgress(), coins: 0 });
+  assert.match(broke, /たまったら/, '一枚も無い人へのひとことになっていない');
+  let p = { ...emptyProgress(), coins: 99999 };
+  for (const item of ITEMS) p = buyItem(p, item.id).progress;
+  assert.match(storeHtml(p), /全部あんたのもん/, '全部買った人へのひとことになっていない');
 });
 
 test('持ち物: 買った品だけが並ぶ', () => {
   const p = buyItem(rich(), 'deepRod').progress;
-  const html = shopPanelHtml(p, { tab: 'bag' });
-  assert.match(html, /shop-tab:bag/, 'タブが出ていない');
+  const html = bagHtml(p);
   assert.ok(html.includes('深場の竿'), '買った品が持ち物に無い');
   assert.equal(html.includes('夜釣りのランタン'), false, '買っていない品が持ち物にある');
   assert.equal(bagHtml(emptyProgress()).includes('まだ何も持っていません'), true);
@@ -333,7 +341,7 @@ test('持ち物: 買った品だけが並ぶ', () => {
 test('持ち物: 見取り図を持っていれば一覧が、砂時計を持っていれば時刻が出る', () => {
   const rows = [{ id: 'meet', icon: '📋', label: '大富豪', sub: '受付', dist: 1, sec: 2, dir: '右前' }];
   const p = { ...rich(), owned: { islandMap: true, skyGlass: true } };
-  const html = shopPanelHtml(p, { tab: 'bag', mapRows: rows, skyTime: 'night' });
+  const html = bagHtml(p, { mapRows: rows, skyTime: 'night' });
   assert.match(html, /imap-row/, '見取り図の行が出ていない');
   assert.match(html, /右前/, '方角が出ていない');
   assert.match(html, /walk-sky-set:noon/, '時刻を選ぶ口が無い');
