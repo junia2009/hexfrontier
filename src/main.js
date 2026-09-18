@@ -1455,11 +1455,13 @@ function noteContestResult(c) {
   meetRound = c.round;
   meetUnlocked = [];
   meetCoins = 0;
-  const { entered, won, score } = contestOutcome(c, mySeat());
+  const { entered, won, score, place } = contestOutcome(c, mySeat());
   if (!entered) return; // 見ていただけ
   const r = addContestResult(progress, {
     // 同じ回を二重に数えないための鍵。オンラインは合言葉、ひとりは卓の目印
     kind: c.kind, won, score, key: `${net?.code ?? `solo${localMeet?.id ?? ''}`}#${c.round}`,
+    // 大富豪は順位で払う(score は実績用で、1位以外は 0 のため)
+    place, players: c.rank?.length ?? 0,
   });
   progress = r.progress;
   saveProgress(progress);

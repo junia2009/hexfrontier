@@ -203,7 +203,8 @@ export function addCatch(progress, fishId, cm, now = Date.now()) {
 // key は「部屋のコード + 何回目の大会か」。結果は25秒のあいだ毎秒配られるし、
 // その最中に再読み込みすると同じ回がもう一度届く。同じ key は数えない。
 export function addContestResult(
-  progress, { kind = 'fishing', won, score = 0, key = null, at = Date.now() },
+  progress,
+  { kind = 'fishing', won, score = 0, place = 0, players = 0, key = null, at = Date.now() },
 ) {
   const prev = progress.meets?.[kind] ?? emptyMeet();
   // 同じ回を二重に数えない。銀貨も同じ ── ここで払うと再読み込みで増える
@@ -215,7 +216,7 @@ export function addContestResult(
     last: key,
   };
   const meets = { ...(progress.meets ?? {}), [kind]: meet };
-  const coins = coinsForContest({ kind, entered: true, won, score });
+  const coins = coinsForContest({ kind, entered: true, won, score, place, players });
   const next = { ...addCoins(progress, coins), meets, achievements: { ...progress.achievements } };
   const unlocked = [];
   for (const id of unlockedByMeet({ kind, meet, meets })) {

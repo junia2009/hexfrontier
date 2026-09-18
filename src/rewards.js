@@ -41,8 +41,19 @@ export const RATE = {
   dragonhunt: 0.30,  // 生存1秒あたり
   logroll: 0.30,     // 1秒あたり
   raid: 0.10,        // 1点あたり
-  daifugo: 6,        // 卓ひとりあたり
+  daifugo: 8,        // 「抜いた人数」ひとりあたり(下の RANK_KINDS を参照)
 };
+
+// **順位で払う遊び。**
+//
+// ほかの遊びは score が連続値(cm・秒・点)なので、上手いほど自然に増える。
+// 大富豪だけは score が「1位のときだけ卓の人数、それ以外は 0」で、
+// 5人卓の2位が最下位と同じ額になってしまう ── 大富豪で2位は健闘なのに。
+//
+// score は実績の記録(いちばん大きい卓で大富豪)に使うので触らない。
+// **報酬だけ**を順位から作る: 抜いた人数 = 卓の人数 − 順位。
+// 5人卓なら 1位=4・2位=3 … 最下位=0。
+export const RANK_KINDS = new Set(['daifugo']);
 
 // 魚の等級ごとの値。**大きさで倍まで伸びる**(その種の最大なら2倍)ので、
 // 同じ等級でも「大物を狙う」動機が残る。
@@ -69,12 +80,23 @@ export function coinsForCatch(fishId, cm) {
 // entered が false(見ていただけ)なら 0。参加賞は「出た」ことに対して
 // 払うので、点が取れなくても付く ── 0 にすると、勝てない遊びを
 // 誰も触らなくなる。
-export function coinsForContest({ kind, entered = true, won = false, score = 0 } = {}) {
+export function coinsForContest(
+  { kind, entered = true, won = false, score = 0, place = 0, players = 0 } = {},
+) {
   if (!entered) return 0;
   const rate = RATE[kind];
   if (rate == null) return 0;   // 知らない遊びには払わない
-  const yields = Math.round(rate * clean(score));
-  return ENTRY_COIN + yields + (won ? WIN_COIN : 0);
+  const basis = RANK_KINDS.has(kind) ? beaten(place, players) : clean(score);
+  return ENTRY_COIN + Math.round(rate * basis) + (won ? WIN_COIN : 0);
+}
+
+// 抜いた人数。順位が分からなければ 0(参加賞だけになる)。
+// 卓の人数が分からない場合は n=0 なので n - pl が負になり、下の max が 0 に倒す
+// ── ここを `!n` でも弾いていたが、到達しない行だったので置かない。
+function beaten(place, players) {
+  const pl = Math.floor(clean(place));
+  if (!pl) return 0;
+  return Math.max(0, Math.floor(clean(players)) - pl);
 }
 
 // ---- ひとりで櫓に立った(蛮族を射る)----
