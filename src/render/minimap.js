@@ -18,9 +18,14 @@ const MARK_SIZE = 11;
 
 // size: 一辺(CSS ピクセル)。dpr: 画面の粒(Retina で2)。
 // at: 自分の場所と向き { x, z, facing }。facing は walker と同じ atan2(x, z)。
+//
+// **向いているほうが上。** 盤の向きに固定していたら「北固定なのがやだ」と
+// 言われた ── 進む先が上なら、地図の上下左右がそのまま体の前後左右になる。
+// 回すのは島と目印の**位置だけ**で、絵文字は立てたまま描く(canvas ごと
+// 回すと目印が逆さになって読めない)。
 export function drawMinimap(ctx, state, { size = 92, dpr = 1, at = null, pad = 8 } = {}) {
   if (!ctx || !state?.board) return false;
-  const d = islandMapData(state, size, pad);
+  const d = islandMapData(state, size, pad, at ? at.facing ?? 0 : null);
 
   ctx.save();
   ctx.scale(dpr, dpr);
@@ -55,21 +60,16 @@ export function drawMinimap(ctx, state, { size = 92, dpr = 1, at = null, pad = 8
     ctx.fillText(m.icon, m.x, m.y);
   }
 
-  // 自分。向きが分かるように三角で描く(地図は回さない ── 島の形が
-  // 毎フレーム回ると、どこに何があるか覚えられなくなる)
+  // 自分。**いつも真上を向いた三角**で描く ── 地図のほうを回してあるので、
+  // 上が進む先。三角の向きまで回すと二重に回ることになる。
   if (at) {
-    const p = { x: at.x * d.t.scale + d.t.ox, y: at.z * d.t.scale + d.t.oy };
-    const f = at.facing ?? 0;
-    // facing は atan2(x, z)。地図では x が右、z が下なので、進む先は
-    // (sin f, cos f) の向きになる
-    const fx = Math.sin(f);
-    const fz = Math.cos(f);
+    const p = d.at(at.x, at.z);
     const head = 6;
     const side = 3.6;
     ctx.beginPath();
-    ctx.moveTo(p.x + fx * head, p.y + fz * head);
-    ctx.lineTo(p.x - fx * side + fz * side, p.y - fz * side - fx * side);
-    ctx.lineTo(p.x - fx * side - fz * side, p.y - fz * side + fx * side);
+    ctx.moveTo(p.x, p.y - head);
+    ctx.lineTo(p.x + side, p.y + side);
+    ctx.lineTo(p.x - side, p.y + side);
     ctx.closePath();
     ctx.fillStyle = YOU;
     ctx.strokeStyle = YOU_EDGE;

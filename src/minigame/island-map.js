@@ -88,12 +88,45 @@ export function mapTransform(bounds, size, pad = 6, points = []) {
 
 // 盤の (x, z) を地図の (x, y) へ。**盤の y と世界の z は同じもの**
 // (hexCenter は平面を {x, y} で返し、3D では z に入る)。
+//
+// **鏡にしないこと。** この島では画面の右が世界の -x なので(カメラが
+// 背中側から +z のほうを見ている)、x を映さないと左右が逆になる気がする
+// ── 実際そう考えて映してみたら、余計に狂った。下の upAngle が 180° 回して
+// いるぶんで左右はすでに合っている。実機のカメラの右ベクトルと、7つの向き ×
+// 12の目印で突き合わせて確かめた(この式で 84/84 一致。映すと 24/84)。
 export function toMap(t, x, z) {
   return { x: x * t.scale + t.ox, y: z * t.scale + t.oy };
 }
 
+// 点を中心のまわりに回す(地図の座標。y は下向き)。
+// 角は canvas の回転と同じ向き ── 正で時計回りに見える。
+export function rotAbout(p, cx, cy, a) {
+  const dx = p.x - cx;
+  const dy = p.y - cy;
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c };
+}
+
+// **向いているほうを上にする**ための回転角。
+//
+// 棒人間の向き facing は atan2(x, z) なので、進む先は地図の座標で
+// (sin f, cos f) ── f=0 なら「下」。これを上(0, -1)へ持ってくる角が f - π。
+//
+// **この 180° が左右も合わせている。** 別に鏡にしてはいけない(toMap 参照)。
+//
+// **中心のまわりに回すので、円に収めた地図は何も はみ出さない**
+// (中心からの距離が変わらない)。四角に収めていたら角が切れていた。
+export function upAngle(facing) {
+  return (typeof facing === 'number' && Number.isFinite(facing) ? facing : 0) - Math.PI;
+}
+
 // 地図に出すものを1回でそろえる。描く側はこれだけ見ればよい。
-export function islandMapData(state, size, pad = 6) {
+//
+// facing を渡すと**向いているほうが上**になるように回す(渡さなければ
+// 盤の向きのまま)。回すのは点だけ ── 絵文字は立てたまま描きたいので、
+// canvas ごと回さない(回すと目印が逆さになる)。
+export function islandMapData(state, size, pad = 6, facing = null) {
   const bounds = islandBounds(state);
   const hexes = islandHexes(state);
   const marks = islandMarks(state);
@@ -101,9 +134,16 @@ export function islandMapData(state, size, pad = 6) {
   // 陸の形だけで合わせると円の縁で切れる。
   const points = [...hexes.flat(), ...marks.map((m) => ({ x: m.x, y: m.z }))];
   const t = mapTransform(bounds, size, pad, points);
+  const c = size / 2;
+  const a = facing == null ? 0 : upAngle(facing);
+  const put = (x, z) => (facing == null ? toMap(t, x, z) : rotAbout(toMap(t, x, z), c, c, a));
   return {
     t,
-    hexes: hexes.map((poly) => poly.map((p) => toMap(t, p.x, p.y))),
-    marks: marks.map((m) => ({ ...m, ...toMap(t, m.x, m.z) })),
+    spin: a,
+    at: (x, z) => put(x, z),   // 自分の場所も同じ変換を通す
+    hexes: hexes.map((poly) => poly.map((p) => put(p.x, p.y))),
+    // **地図の座標だけを返す。** 盤の座標(x, z)を混ぜて返していたら、
+    // 呼ぶ側が「m.x は地図、m.z は盤」という取り違えをした(自分でやった)
+    marks: marks.map((m) => ({ id: m.id, icon: m.icon, label: m.label, ...put(m.x, m.z) })),
   };
 }

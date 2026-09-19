@@ -12,7 +12,7 @@ import {
   isNight, isNightAt, nightAt, skyPhase, skyTimeOf,
 } from '../src/minigame/daynight.js';
 import {
-  islandBounds, islandHexes, islandMapData, islandMarks, mapTransform, toMap,
+  islandBounds, islandHexes, islandMapData, islandMarks, mapTransform, rotAbout, toMap, upAngle,
 } from '../src/minigame/island-map.js';
 import { drawMinimap } from '../src/render/minimap.js';
 import { createGame, MODE_IDS } from '../src/state.js';
@@ -183,6 +183,9 @@ function fakeCtx() {
     save: rec('save'), restore: rec('restore'), scale: rec('scale'),
     clearRect: rec('clearRect'), beginPath: rec('beginPath'), closePath: rec('closePath'),
     moveTo: rec('moveTo'), lineTo: rec('lineTo'), arc: rec('arc'), clip: rec('clip'),
+    // **回転も受けられるようにしておく。** 生やしておかないと「呼んでいない」
+    // という検査が、単に落ちないだけで通ってしまう(測定器のほうの穴)
+    rotate: rec('rotate'), translate: rec('translate'),
     fill: rec('fill'), stroke: rec('stroke'), fillText: rec('fillText'),
     set fillStyle(v) { calls.push(['fillStyle', v]); },
     set strokeStyle(v) { calls.push(['strokeStyle', v]); },
@@ -212,22 +215,73 @@ test('地図を描く: 島と目印と自分が、この順で出る', () => {
   assert.ok(lastTri > lastText, '自分の印が目印の下に隠れている');
 });
 
-test('地図を描く: 自分の印は向いているほうへ尖る', () => {
+// **向いているほうが上**(「北固定なのがやだ」と言われて直した)。
+// 地図のほうを回して、自分の印はいつも真上を向く。
+test('地図を描く: 自分の印はいつも真上。地図のほうが回る', () => {
   const s = island('base');
-  const tip = (facing) => {
+  const size = 92;
+  const shot = (facing) => {
     const ctx = fakeCtx();
-    drawMinimap(ctx, s, { size: 92, at: { x: 0, z: 0, facing } });
-    // 三角は moveTo(先端) → lineTo → lineTo。最後の moveTo が先端
-    const i = ctx.calls.map((c) => c[0]).lastIndexOf('moveTo');
-    return { x: ctx.calls[i][1], y: ctx.calls[i][2] };
+    drawMinimap(ctx, s, { size, at: { x: 0, z: 0, facing } });
+    const kinds = ctx.calls.map((c) => c[0]);
+    const i = kinds.lastIndexOf('moveTo');
+    const tri = [ctx.calls[i], ctx.calls[i + 1], ctx.calls[i + 2]];
+    return { ctx, kinds, tip: { x: tri[0][1], y: tri[0][2] }, base: tri.slice(1) };
   };
-  const c = tip(0);         // +z(地図では下)を向いている
-  const back = tip(Math.PI);
-  const right = tip(Math.PI / 2);   // +x(地図では右)
-  assert.ok(c.y > back.y, '前を向いても先端が下へ出ない');
-  assert.ok(right.x > c.x, '右を向いても先端が右へ出ない');
+  for (const f of [0, 1, -2.5, Math.PI, 7]) {
+    const { tip, base } = shot(f);
+    // 先端は底辺の2点より必ず上(y が小さい)
+    for (const b of base) assert.ok(tip.y < b[2], `facing=${f}: 先端が上を向いていない`);
+    // 底辺は水平(左右に開く)
+    assert.ok(Math.abs(base[0][2] - base[1][2]) < 1e-9, `facing=${f}: 三角が傾いている`);
+  }
+  // **canvas ごとは回さない。** 回すと目印の絵文字が逆さになる
+  assert.equal(shot(1).kinds.includes('rotate'), false, 'canvas を回している(絵文字が逆さになる)');
   // 向きが分からなくても落ちない
   assert.doesNotThrow(() => drawMinimap(fakeCtx(), s, { at: { x: 0, z: 0 } }));
   assert.equal(drawMinimap(null, s, {}), false);
   assert.equal(drawMinimap(fakeCtx(), null, {}), false);
+});
+
+test('地図: 向きを変えると、目印は自分から見た向きへ回る', () => {
+  const s = island('base');
+  const size = 92;
+  const c = size / 2;
+  // 「上」= 自分の進む先。目印が自分の正面にあるなら、どの向きを向いていても
+  // 地図の上のほうに来る ── そうでなければ、回す向きが逆。
+  const shop = islandMarks(s).find((m) => m.id === 'shop');
+  const home = spawnPoint(s);
+  // 受付から店を向いたときの facing(walker と同じ atan2(x, z))
+  const facing = Math.atan2(shop.x - home.x, shop.z - home.y);
+  const d = islandMapData(s, size, 8, facing);
+  const me = d.at(home.x, home.y);
+  const onMap = d.marks.find((m) => m.id === 'shop');
+  assert.ok(onMap.y < me.y, '正面にある店が、地図で自分より上に来ない');
+  assert.ok(Math.abs(onMap.x - me.x) < 2, `正面なのに横へずれている(${onMap.x - me.x}）`);
+  // 真後ろを向けば下に来る
+  const back = islandMapData(s, size, 8, facing + Math.PI);
+  assert.ok(back.marks.find((m) => m.id === 'shop').y > back.at(home.x, home.y).y,
+    '背にした店が、地図で自分より下に来ない');
+  // 回しても丸窓からはみ出さない(中心のまわりに回しているので距離は不変)
+  for (const f of [0, 0.7, 2.2, -1.1]) {
+    const r = islandMapData(s, size, 8, f);
+    for (const m of r.marks) {
+      assert.ok(Math.hypot(m.x - c, m.y - c) <= size / 2 - 8 + 1e-6, `facing=${f}: はみ出した`);
+    }
+  }
+  // 向きを渡さなければ盤の向きのまま(回転なし)
+  assert.equal(islandMapData(s, size, 8).spin, 0);
+  assert.equal(upAngle('あ'), -Math.PI, '壊れた向きは 0 として扱う');
+
+  // **実機のカメラと突き合わせた事実を焼き付ける。**
+  // facing 0(+z を向いている)とき、世界の +x は画面の**左**に見える
+  // ── カメラが背中側から +z を見ているため。地図でも左でなければならない。
+  // (7つの向き × 12の目印で、地図の左右上下と画面の左右前後が
+  //  84/84 一致することを確かめた式。x を鏡にすると 24/84 に落ちる)
+  const zero = islandMapData(s, size, 8, 0);
+  const o = zero.at(0, 0);
+  assert.ok(zero.at(1, 0).x < o.x, '世界の +x が地図の右に出ている(画面では左)');
+  assert.ok(zero.at(0, 1).y < o.y, 'facing 0 の正面(+z)が地図の上に来ない');
+  assert.ok(zero.at(0, -1).y > o.y, '真後ろが地図の下に来ない');
+  assert.deepEqual(rotAbout({ x: 1, y: 0 }, 0, 0, Math.PI / 2).y, 1);
 });
