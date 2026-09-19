@@ -12,6 +12,9 @@
 import { LAYOUT, boardVertexIds, boardGeometry, hexIdsWithin } from './rules/board.js';
 
 export const TILE_TOP = 0.26;   // タイル上面(board3d.js と同じ値)
+// 水面の高さ。**3か所に同じ数を書いていた**(board3d / walk-mode / water-fx)
+// ので、ここ1本にまとめる。桟橋の杭を水に差すのにも要る。
+export const SEA_Y = 0.02;
 
 // 地形ごとの起伏。amp が「いちばん盛り上がるところの高さ」。
 // 地表を張るときも、そこを歩くときも、この表を見る。

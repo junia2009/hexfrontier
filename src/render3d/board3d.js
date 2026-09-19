@@ -16,7 +16,7 @@ import { BARBARIAN_TRACK_LENGTH as BARB_TRACK } from '../rules/cak/barbarians.js
 // 地面の高さは terrain.js に集めてある。**描くほうも歩くほうも同じ1本を使う**
 // ── 別々に持つと、描いてある地表と足の高さが食い違って足が埋まる。
 import {
-  TILE_TOP, CAP_PARAMS, CAP_N, capCorners, capVertexHeight, capHeight, coordHash, boardScale,
+  TILE_TOP, SEA_Y, CAP_PARAMS, CAP_N, capCorners, capVertexHeight, capHeight, coordHash, boardScale,
 } from '../terrain.js';
 // 構図を取り直すかどうかの判断は、描画から切り離して試せるようにしてある
 import { isPortrait, needsRefit } from '../view-fit.js';
@@ -46,8 +46,7 @@ const TERRAIN_COLORS = {
 // 盤の広がり(基本の盤=半径2を1とする倍率)は terrain.js の boardScale。
 // カメラの構図にも、トークンの大きさ(= その上に立てる範囲)にも使う。
 
-// TILE_TOP(タイル上面の高さ)は terrain.js から取り込んでいる
-const SEA_Y = 0.02;
+// TILE_TOP(タイル上面)も SEA_Y(水面)も terrain.js から取り込んでいる
 
 // ---- 決定的乱数(2D版と同じ思想。装飾の配置用)----
 

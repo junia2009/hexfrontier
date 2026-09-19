@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { makeTower, makeBarbarianShip } from '../render3d/board3d.js';
-import { POST_DECK_R } from './ground.js';
+import { POST_DECK_R, pileDrop } from './ground.js';
 
 const SHIP_SCALE = 0.42;     // 盤の駒より小ぶりに。等倍だと浜を覆う
 const FOE_H = 0.20;          // 蛮族の背丈(盤の寸法)
@@ -128,18 +128,40 @@ function makeRange(post) {
     line.position.set(0, 0.036, z);
     g.add(line);
   }
-  // 脇の樽と杭。左右にだけ置く(前は射線、後ろは櫓)
+  // 脇の樽。左右にだけ置く(前は射線、後ろは櫓)
   for (const sx of [-1, 1]) {
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.15, 8), dark);
     barrel.position.set(sx * 0.36, 0.075, -0.08);
     barrel.castShadow = true;
     g.add(barrel);
-    const stake = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.026, 0.3, 5), plank);
-    stake.position.set(sx * 0.40, 0.15, 0.14);
-    stake.rotation.z = sx * 0.12;
-    stake.castShadow = true;
-    g.add(stake);
   }
+
+  // ---- 杭(板を支える柱)----
+  //
+  // **海へせり出したぶんは、必ず下から支える。** 板の上を歩けるように
+  // したら、宙に浮いた板の上に立っていることになって「物理的におかしい」と
+  // 言われた。水面より下まで差し込む ── 陸の側は地面に刺さる(見えない)。
+  //
+  // 落差は「板の高さ − 水面」。post.y は島の地面の高さなので、島ごとに変わる。
+  const drop = pileDrop(post.y);
+  // **上端と下端から中心と長さを出す口を1つにする。** 別々に書いたら、
+  // 舫い杭だけ中心を間違えて、下端が水面の 5cm 上で止まっていた。
+  const stand = (topY) => ({ len: topY + drop, y: (topY - drop) / 2 });
+  const pile = (x, z, topY = 0, r = 0.03, mat = dark) => {
+    const s2 = stand(topY);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.15, s2.len, 6), mat);
+    m.position.set(x, s2.y, z);
+    m.castShadow = true;
+    g.add(m);
+  };
+  // 海側の縁に3本、横に2本。板の裏の少し内側に立てる(縁から出さない)
+  const ring = POST_DECK_R - 0.05;
+  for (const a of [-0.75, 0, 0.75]) pile(Math.sin(a) * ring, Math.cos(a) * ring);
+  for (const sx of [-1, 1]) pile(sx * ring, -0.06);
+
+  // 舫い杭。板を突き抜けて下まで通す ── 上だけ生えていると、
+  // 何にも留まっていない棒が海に浮いていることになる(まさにそう言われた)。
+  for (const sx of [-1, 1]) pile(sx * 0.40, 0.14, 0.3, 0.022, plank);
   // 岸に沿って向ける(板の目が海と平行になる)
   g.rotation.y = Math.atan2(post.outX, post.outZ);
   return g;

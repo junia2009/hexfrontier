@@ -28,6 +28,7 @@ import { WaterFx } from './water-fx.js';
 import { Fishing, CAST_TIME } from './fishing.js';
 import { fishGates } from './fish.js';
 import { isNight } from './daynight.js';
+import { SEA_Y } from '../terrain.js';   // 水面の高さ(1か所にまとめてある)
 import { FishingFx } from './fishing-fx.js';
 import { RemoteWalkers } from './remote.js';
 import { RemoteView, WALK_COLORS, NAME_SCALE_TABLE } from './remote-view.js';
@@ -60,7 +61,7 @@ function sinkVeil(depth) {
 }
 
 const TILE_TOP = 0.26;      // board3d.js と同じタイル上面の高さ
-const SEA_Y = 0.02;         // board3d.js と同じ水面の高さ
+// 水面の高さは terrain.js(SEA_Y)。下の import で取り込んでいる
 
 const lerp = (a, b, k) => a + (b - a) * k;
 

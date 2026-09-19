@@ -7,7 +7,7 @@ import { LAYOUT } from '../rules/board.js';
 import { isLandHex } from '../rules/sea.js';
 import { s as sc } from './scale.js';
 import { ARCHERY_MODES } from './archery.js';
-import { TILE_TOP, surfaceHeight, tokenRadius, tokenTop, hexCenter } from '../terrain.js';
+import { TILE_TOP, SEA_Y, surfaceHeight, tokenRadius, tokenTop, hexCenter } from '../terrain.js';
 
 export { hexCenter };
 
@@ -191,6 +191,17 @@ export function meetHome(state) {
 // 半径は archery-fx.js の敷く板と同じでなければならない ── あちらが
 // ここを読む(2か所に書くと、見た目と足場がずれる)。
 export const POST_DECK_R = 0.36;
+
+// 板を支える杭の長さ。**水面より下まで**差し込む ── 板は海へせり出して
+// いるので、支えが無いと板が宙に浮いて見える(「梁が下まで伸びてない。
+// 物理的におかしい」と言われたのがここ)。
+// 見た目を作るのは archery-fx.js だが、長さの決めごとはここに置く
+// (水面の高さと島の地面の高さの話なので、THREE のいらない計算)。
+export const PILE_DOWN = 0.10;   // 水面より下へ差し込む長さ
+
+export function pileDrop(postY) {
+  return Math.max(0.12, (postY ?? TILE_TOP) - SEA_Y) + PILE_DOWN;
+}
 
 export function onPostDeck(post, x, z) {
   if (!post) return false;

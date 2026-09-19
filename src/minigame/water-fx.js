@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 
-const SEA_Y = 0.02;             // board3d.js と同じ水面の高さ
+import { SEA_Y } from '../terrain.js';   // 水面の高さ(1か所にまとめてある)
 const FOAM = 0xdff2ff;
 
 // 水中の色。霧をここへ寄せると、一気に「水の中」に見える。

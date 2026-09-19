@@ -6,9 +6,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, MODE_IDS } from '../src/state.js';
+import { SEA_Y } from '../src/terrain.js';
 import {
-  makeGround, makeWalkGround, onPostDeck, watchPost, spawnPoint, fishingSpots,
-  POST_DECK_R, POST_RADIUS, POST_OPEN_SEA, SPOT_RADIUS,
+  makeGround, makeWalkGround, onPostDeck, pileDrop, watchPost, spawnPoint, fishingSpots,
+  PILE_DOWN, POST_DECK_R, POST_RADIUS, POST_OPEN_SEA, SPOT_RADIUS,
 } from '../src/minigame/ground.js';
 import {
   Raid, LIVES, SHIP_SCORE, FOE_SCORE, ARROW_MIN, ARROW_MAX, ARROW_GRAVITY,
@@ -293,6 +294,23 @@ test('弓: 板の外は海のまま(見えない床を作らない)', () => {
   assert.equal(onPostDeck(null, 0, 0), false);
   assert.equal(onPostDeck(p, p.x, p.z), true);
   assert.equal(onPostDeck(p, p.x + POST_DECK_R + 1e-6, p.z), false);
+});
+
+test('弓: 板を支える杭は、水面より下まで届く', () => {
+  // **せり出した板の下に支えが無いと、宙に浮いた床になる**
+  // (「梁が下まで伸びてない。物理的におかしい」と言われた)。
+  // 長さの決めごとはここ、実際に立てるのは archery-fx.js。
+  for (const seed of SEEDS) {
+    const s = createGame({ seed, playerCount: 4, humanIndex: -1, mode: 'cak' });
+    const p = watchPost(s);
+    const y = makeGround(s)(p.x, p.z).y;          // 板の高さ = 島の地面
+    const bottom = y - pileDrop(y);               // 杭の下端
+    assert.ok(bottom <= SEA_Y - PILE_DOWN + 1e-9,
+      `seed ${seed}: 杭が水面の上で止まる(下端 ${bottom.toFixed(3)} / 水面 ${SEA_Y})`);
+  }
+  // 地面が水面すれすれでも、短くなりすぎない(見える長さを残す)
+  assert.ok(pileDrop(SEA_Y) >= 0.2, '水面と同じ高さの島で杭が消える');
+  assert.ok(pileDrop() > 0, '高さが分からなくても落ちない');
 });
 
 test('弓: 櫓の建たない島に、見えない板を作らない', () => {
