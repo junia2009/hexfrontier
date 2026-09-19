@@ -12,7 +12,7 @@ import {
 } from './logroll.js';
 import {
   spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
-  watchPost, makeWalkGround, POST_RADIUS, POST_CLEAR, DESK_RADIUS, DESK_REACH, DESK_CLEAR,
+  watchPost, makeGround, makeWalkGround, postDeckTop, POST_RADIUS, POST_CLEAR, DESK_RADIUS, DESK_REACH, DESK_CLEAR,
   shopPoint, storeBlockers, SHOP_RADIUS, SHOP_REACH, SHOP_CLEAR,
   TABLE_RADIUS, TABLE_CLEAR, TABLE_REACH, tableSeats,
 } from './ground.js';
@@ -340,7 +340,12 @@ export class WalkMode {
     if (ARCHERY_MODES.includes(state.mode)) {
       const p = watchPost(state);
       if (p) {
-        this.postAt = { ...p, y: this.ground(p.x, p.z).y };
+        // **島の地面の高さで持つ。** ここを歩く高さ(this.ground)で取ると、
+        // 板の上面を「地面」として板をもう一段高く建ててしまう。
+        // deckH は地面から板の上面までの高さ ── 見た目(archery-fx)も
+        // 歩く高さ(makeWalkGround)も、この同じ1枚の板の上面を指す。
+        const groundY = makeGround(state)(p.x, p.z).y;
+        this.postAt = { ...p, y: groundY, deckH: postDeckTop(state, p) - groundY };
         // **射場をこしらえる。** 受付の広場と同じ要領で、まわりの木や岩を
         // 片付ける ── 浜のすぐ横に松が立っているだけで海が隠れ、狙いようが
         // なくなる(実際そうなっていた)。的が見えないのは腕前の話ではない。
@@ -365,7 +370,7 @@ export class WalkMode {
         // RANGE_PROPS 1か所**(見た目もそこを読む)── 別々に書くと、
         // 見えている樽をすり抜ける(実際そうなっていた)。
         // 高さは板の床から数えるので、床の高さ(足の高さの流儀)を渡す。
-        this.obstacles.push(...rangeBlockers(p, this.postAt.y - TILE_TOP));
+        this.obstacles.push(...rangeBlockers(p, this.ground(p.x, p.z).y - TILE_TOP));
       }
     }
 

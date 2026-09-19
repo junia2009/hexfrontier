@@ -49,6 +49,35 @@ export function applyPose(parts, pose, x, y, z) {
   }
 }
 
+// **足の裏を地面(y)にそろえる。** applyPose のすぐあとに呼ぶ。
+//
+// pose.js は腰から靴までを「点」で辿って沈み(lift)を出しているが、
+// 実物とはずれる ── 靴は寝かせたカプセルで、脚を振ると爪先と踵が足首より
+// 下がる。腰(hips)の前傾も点の計算に入っていない。合わせて**歩くと足が
+// 最大 1.7cm 地面に埋まっていた**(実測。「歩く時に足が若干地面に
+// めり込んでる」と報告された)。
+//
+// 計算を継ぎ足して合わせにいくと、すがたごとの寸法(species.js が腰の
+// 高さや脚の長さを上書きする)まで抱え込むことになる。**実物の靴を測って、
+// 低いほうを地面に置く。**
+//
+// 自分の体(Walker)と、散策部屋の他の人(remote-view.js)の両方が通る。
+//
+// **先に行列を作り直すこと。** Box3.setFromObject は渡した物の行列しか
+// 更新せず親はそのままなので、描画前に呼ぶと**1コマ前の体**を測る
+// ── 実際それで、測った値が体の高さに関わらず動かなくなっていた。
+export function plantFeet(parts, y, box) {
+  parts.group.updateWorldMatrix(false, true);
+  let low = null;
+  for (const leg of parts.legs) {
+    if (!leg.end) continue;
+    box.setFromObject(leg.end);
+    if (low == null || box.min.y < low) low = box.min.y;
+  }
+  if (low == null) return;
+  parts.group.position.y += y - low;
+}
+
 // これ以下の速さは「止まっている」扱い(歩く速さに対する割合)。
 // 指を離すと速度は指数で落ちるので、ぴたりと 0 にはならない。
 const STAND_SPEED = 0.06;
@@ -72,6 +101,7 @@ export class Walker {
     this.sink = poseFade(SINK_RIGHT);   // 着水したら水が体を起こす(pose.js)
     this.wasInWater = false;
     this.outroDt = 0;             // その時計。update だけが進める
+    this._box = new THREE.Box3(); // 靴の下端を測る入れ物(_plant。毎コマ使い回す)
   }
 
   // 実際に足を置いている高さ(段差をならしたもの)。持ち主は motion。
@@ -234,6 +264,7 @@ export class Walker {
         ? this.rest.pose(walkPose(this.phase, gait, m.facing), m.facing, moving, dt)
         : airPose(m.vy, m.facing),
       y,
+      r.grounded,   // 立っているときだけ、足の裏を地面に合わせる
     );
     // 足が地面に着いた瞬間。歩行サイクルは半周(π)で片足ぶんなので、
     // π の倍数をまたいだら1歩。音を鳴らす側が動きと合わせられるように返す。
@@ -242,9 +273,25 @@ export class Walker {
     return stepped ? { ...r, stepped: true, gait } : r;
   }
 
-  _apply(pose, y) {
+  _apply(pose, y, plant = false) {
     this.lastPose = this._unfish(pose);
     applyPose(this.parts, this.lastPose, this.pos.x, y, this.pos.z);
+    if (plant) this._plant(y);
+  }
+
+  // 足の裏を地面にそろえる(plantFeet)。歩き・立ち止まりのときだけ。
+  _plant(y) { plantFeet(this.parts, y, this._box); }
+
+  // 両足の靴の、いちばん低い点(世界座標)。E2E の確認に使う。
+  _soleY() {
+    this.parts.group.updateWorldMatrix(false, true);
+    let low = null;
+    for (const leg of this.parts.legs) {
+      if (!leg.end) continue;
+      this._box.setFromObject(leg.end);
+      if (low == null || this._box.min.y < low) low = this._box.min.y;
+    }
+    return low;
   }
 
   // 竿をしまっている最中なら、釣りの姿勢から混ぜて返す。

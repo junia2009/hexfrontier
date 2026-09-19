@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { makeTower, makeBarbarianShip } from '../render3d/board3d.js';
-import { POST_DECK_R, pileDrop } from './ground.js';
+import { POST_DECK_R, POST_DECK_H, pileDrop } from './ground.js';
 import { RANGE_PROPS } from './archery.js';
 
 const SHIP_SCALE = 0.42;     // 盤の駒より小ぶりに。等倍だと浜を覆う
@@ -113,10 +113,15 @@ function makeRange(post) {
   // **大きさは ground.js の POST_DECK_R から取る。** 板は海へせり出して
   // いて、その上も歩けることにしてあるので(makeWalkGround)、見た目と
   // 足場の半径がずれると「見えているのに踏み抜ける」が戻ってくる。
+  // **上面の高さは ground.js が決める**(post.deckH = postDeckTop − 地面)。
+  // 歩く高さ(makeWalkGround)も同じ値なので、板の上に立てば足の裏が
+  // ちょうど板の面に乗る ── 見た目だけ持ち上げていたころは、板の上で
+  // 足が丸ごと埋まっていた。
+  const top = post.deckH ?? POST_DECK_H;
   const deck = new THREE.Mesh(
-    new THREE.CylinderGeometry(POST_DECK_R - 0.02, POST_DECK_R + 0.02, 0.035, 12), plank,
+    new THREE.CylinderGeometry(POST_DECK_R - 0.02, POST_DECK_R + 0.02, POST_DECK_H, 12), plank,
   );
-  deck.position.y = 0.017;
+  deck.position.y = top - POST_DECK_H / 2;
   deck.receiveShadow = true;
   g.add(deck);
   // 板の目。1枚板だと「土を塗った」ようにしか見えない。
@@ -126,14 +131,15 @@ function makeRange(post) {
     const z = i * 0.13;
     const half = Math.sqrt(Math.max(0, R * R - z * z));
     const line = new THREE.Mesh(new THREE.BoxGeometry(half * 2, 0.004, 0.012), dark);
-    line.position.set(0, 0.036, z);
+    line.position.set(0, top + 0.001, z);
     g.add(line);
   }
   // 脇の樽。左右にだけ置く(前は射線、後ろは櫓)。
   // **場所は archery.js の RANGE_PROPS**(ぶつかる判定と同じ表を読む)
   for (const o of RANGE_PROPS.filter((q) => q.kind === 'barrel')) {
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(o.r, o.r, o.h, 8), dark);
-    barrel.position.set(o.x, o.h / 2, o.z);
+    // 樽は**板の上**に置く(RANGE_PROPS の高さは板からの高さ)
+    barrel.position.set(o.x, top + o.h / 2, o.z);
     barrel.castShadow = true;
     g.add(barrel);
   }
@@ -158,13 +164,13 @@ function makeRange(post) {
   };
   // 海側の縁に3本、横に2本。板の裏の少し内側に立てる(縁から出さない)
   const ring = POST_DECK_R - 0.05;
-  for (const a of [-0.75, 0, 0.75]) pile(Math.sin(a) * ring, Math.cos(a) * ring);
-  for (const sx of [-1, 1]) pile(sx * ring, -0.06);
+  for (const a of [-0.75, 0, 0.75]) pile(Math.sin(a) * ring, Math.cos(a) * ring, top - POST_DECK_H);
+  for (const sx of [-1, 1]) pile(sx * ring, -0.06, top - POST_DECK_H);
 
   // 舫い杭。板を突き抜けて下まで通す ── 上だけ生えていると、
   // 何にも留まっていない棒が海に浮いていることになる(まさにそう言われた)。
   for (const o of RANGE_PROPS.filter((q) => q.kind === 'stake')) {
-    pile(o.x, o.z, o.h, o.r * 0.75, plank);
+    pile(o.x, o.z, top + o.h, o.r * 0.75, plank);
   }
   // 岸に沿って向ける(板の目が海と平行になる)
   g.rotation.y = Math.atan2(post.outX, post.outZ);

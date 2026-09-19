@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import { makeWalker, walkerHeight } from './body.js';
-import { applyPose } from './walker.js';
+import { applyPose, plantFeet } from './walker.js';
 import {
   walkPose, airPose, tumblePose, fishPose, sitPose, emotePose,
   sitPlayPose, sitPassPose, sitWinPose, restBlend, phasePerUnit,
@@ -137,6 +137,7 @@ export class RemoteView {
     this.nameScale = 1;
     this.turnSeat = null;      // 円卓でいま手番の席(自分なら null のまま)
     this.hands = null;         // 席 → 手札の枚数(円卓に着いている間だけ)
+    this.box = new THREE.Box3(); // 靴の下端を測る入れ物(plantFeet で使い回す)
   }
 
   // 円卓のしぐさを1つ始める(出す/パス/上がり)。
@@ -279,6 +280,7 @@ export class RemoteView {
 
       e.parts.rod.group.visible = p.st === ST.fish;
       let pose;
+      let walking = false;
       if (emote && emoteK < 1 && p.st === ST.walk) {
         pose = emotePose(emote.key, e.emoteT, p.facing, emoteK);
       } else if (p.st === ST.sit) {
@@ -303,6 +305,7 @@ export class RemoteView {
       } else if (p.st === ST.air) {
         pose = airPose(vy, p.facing);
       } else {
+        walking = true;
         // **位相は進んだ距離から引く。** 決め打ちの係数(5.2)が残っていて、
         // 自分の体(walker.js)だけ直してここが取り残されていた ──
         // 縮尺を ×0.5 にしたとき、相手だけ 1歩で進む距離が足の振れ幅の
@@ -317,6 +320,9 @@ export class RemoteView {
         );
       }
       applyPose(e.parts, pose, p.x, y, p.z);
+      // 歩き・立ち止まりは、自分の体と同じように足の裏を地面へそろえる
+      // (walker.js の plantFeet。ここを忘れると相手だけ足が埋まる)
+      if (walking) plantFeet(e.parts, y, this.box);
     }
 
     // 消えた人は片付ける

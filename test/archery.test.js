@@ -9,8 +9,8 @@ import { createGame, MODE_IDS } from '../src/state.js';
 import { SEA_Y, TILE_TOP } from '../src/terrain.js';
 import { makeBlocker, WALKER_RADIUS } from '../src/minigame/obstacles.js';
 import {
-  makeGround, makeWalkGround, onPostDeck, pileDrop, watchPost, spawnPoint, fishingSpots,
-  PILE_DOWN, POST_DECK_R, POST_RADIUS, POST_OPEN_SEA, SPOT_RADIUS,
+  makeGround, makeWalkGround, onPostDeck, pileDrop, postDeckTop, watchPost, spawnPoint, fishingSpots,
+  PILE_DOWN, POST_DECK_H, POST_DECK_R, POST_RADIUS, POST_OPEN_SEA, SPOT_RADIUS,
 } from '../src/minigame/ground.js';
 import {
   Raid, LIVES, SHIP_SCORE, FOE_SCORE, ARROW_MIN, ARROW_MAX, ARROW_GRAVITY,
@@ -269,13 +269,25 @@ test('弓: 射場の板の上は、海にせり出していても歩ける', () 
         const x = p.x + Math.cos(a) * POST_DECK_R * k;
         const z = p.z + Math.sin(a) * POST_DECK_R * k;
         assert.ok(walk(x, z).ok, `seed ${seed}: 板の上なのに踏み抜ける`);
-        assert.equal(walk(x, z).y, land(x, z).ok ? land(x, z).y : y,
-          `seed ${seed}: 板と陸で高さが違う(段差ができる)`);
+        // **板は一枚の平らな板。** どこを踏んでも同じ高さで、陸の上でも
+        // 板の上面を歩く ── 陸の側だけ地面の高さにしていたので、そこで
+        // 足が板に埋まっていた(「桟橋だと完全に足が埋まってる」)。
+        assert.equal(walk(x, z).y, y, `seed ${seed}: 板が平らでない`);
         if (!land(x, z).ok) overSea += 1;
+        else {
+          assert.ok(walk(x, z).y > land(x, z).y,
+            `seed ${seed}: 板が地面より下(踏むと板に埋まる)`);
+        }
       }
     }
     // そもそも海にせり出していなければ、この直しに意味がない
     assert.ok(overSea > 0, `seed ${seed}: 板が海に出ていない(前提が崩れている)`);
+    // 板の上面は postDeckTop 1か所で決まる。見た目(archery-fx)もここを読む
+    assert.equal(y, postDeckTop(s, p), `seed ${seed}: 歩く高さが板の上面と違う`);
+    // 「板の下でいちばん高い地面 + 厚み」── 厚みぶんだけ持ち上げていたら、
+    // 起伏の大きい島(実測 6.7cm)で地面が板を突き抜けていた
+    assert.ok(y >= land(p.x, p.z).y + POST_DECK_H - 1e-12,
+      `seed ${seed}: 板が薄すぎる(中心の地面より低い)`);
   }
 });
 

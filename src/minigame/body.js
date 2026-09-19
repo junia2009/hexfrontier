@@ -125,7 +125,9 @@ function makeLimb(mat, upper, lower, thick, end, lowMat) {
   }
   root.add(knee);
 
-  return { root, knee };
+  // end(靴・手先)も返す。**接地は実物を測って合わせる**ので、歩く側が
+  // 靴そのものを掴めないといけない(walker.js の _plant)。
+  return { root, knee, end: end ?? null };
 }
 
 // ひれ(ペンギン)。腕と同じ関節構成のまま、平たい板にする。

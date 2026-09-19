@@ -203,9 +203,32 @@ export function pileDrop(postY) {
   return Math.max(0.12, (postY ?? TILE_TOP) - SEA_Y) + PILE_DOWN;
 }
 
+// 板の厚み。**板は島の地面の上に置いてある**ので、上面の高さもこれになる。
+// 歩くのは板の**上面**で、見た目(archery-fx.js)もここから作る ──
+// 見た目だけ厚みぶん持ち上げて、歩く高さを地面のままにしていたので、
+// 板の上に立つと足が丸ごと板に埋まっていた(実測 3.5cm。報告された)。
+export const POST_DECK_H = 0.035;
+
 export function onPostDeck(post, x, z) {
   if (!post) return false;
   return Math.hypot(x - post.x, z - post.z) <= POST_DECK_R;
+}
+
+// 板の上面の高さ。**板の下でいちばん高い地面に載せる。**
+//
+// 中心の地面 + 厚み で決めていたら、起伏の大きい島(実測で最大 6.7cm)で
+// 地面が板を突き抜けた。板は平らな一枚なので、高いところに合わせて載せ、
+// 低いほうは杭が支える(archery-fx.js の杭は水面下まで届いている)。
+export function postDeckTop(state, post) {
+  const base = makeGround(state);
+  let top = base(post.x, post.z).y;
+  for (let a = 0; a < Math.PI * 2 - 1e-9; a += Math.PI / 12) {
+    for (const k of [0.4, 0.7, 0.9, 1]) {
+      const g = base(post.x + Math.cos(a) * POST_DECK_R * k, post.z + Math.sin(a) * POST_DECK_R * k);
+      if (g.ok && g.y > top) top = g.y;
+    }
+  }
+  return top + POST_DECK_H;
 }
 
 // 島の地面に「射場の板」を重ねたもの。**歩く人・他の人・カメラは全部これを
@@ -215,12 +238,13 @@ export function makeWalkGround(state) {
   const base = makeGround(state);
   const post = ARCHERY_MODES.includes(state?.mode) ? watchPost(state) : null;
   if (!post) return base;
-  const deckY = base(post.x, post.z).y;
+  // 板は**一枚の平らな板**なので、陸の上も海の上も同じ高さで歩く。
+  // 海にせり出したぶんだけ差し替えていたころは、陸側で板より下(地面)を
+  // 歩いていて、そこだけ足が板にめり込んでいた。
+  const deckY = postDeckTop(state, post);
   return (x, z) => {
     const g = base(x, z);
-    if (g.ok) return g;
-    // 板の上。高さは陸と同じにする(陸と板の境目に段差を作らない)
-    if (onPostDeck(post, x, z)) return { y: deckY, ok: true, hexId: null };
+    if (onPostDeck(post, x, z)) return { y: deckY, ok: true, hexId: g.hexId };
     return g;
   };
 }
