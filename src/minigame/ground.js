@@ -6,6 +6,7 @@
 import { LAYOUT } from '../rules/board.js';
 import { isLandHex } from '../rules/sea.js';
 import { s as sc } from './scale.js';
+import { ARCHERY_MODES } from './archery.js';
 import { TILE_TOP, surfaceHeight, tokenRadius, tokenTop, hexCenter } from '../terrain.js';
 
 export { hexCenter };
@@ -179,6 +180,38 @@ export function nestHexOf(state) {
 // ここを通す ── 分岐を Durable Object の中に置くとテストから触れない。
 export function meetHome(state) {
   return nestPoint(state) ?? spawnPoint(state);
+}
+
+// ---- 射場の板(櫓の足もと)----
+//
+// **板は海へせり出している。** 陸のヘックスだけで歩ける場所を決めていると、
+// 見えている板の上を踏み抜けて海に落ちる(実機で「ここ地面がない」と
+// 報告された)。板の上は歩けることにする。
+//
+// 半径は archery-fx.js の敷く板と同じでなければならない ── あちらが
+// ここを読む(2か所に書くと、見た目と足場がずれる)。
+export const POST_DECK_R = 0.36;
+
+export function onPostDeck(post, x, z) {
+  if (!post) return false;
+  return Math.hypot(x - post.x, z - post.z) <= POST_DECK_R;
+}
+
+// 島の地面に「射場の板」を重ねたもの。**歩く人・他の人・カメラは全部これを
+// 通す**(walk-mode.js)。makeGround そのものには足せない ── 櫓の場所を
+// 決める watchPost が makeGround を使っているので、輪になってしまう。
+export function makeWalkGround(state) {
+  const base = makeGround(state);
+  const post = ARCHERY_MODES.includes(state?.mode) ? watchPost(state) : null;
+  if (!post) return base;
+  const deckY = base(post.x, post.z).y;
+  return (x, z) => {
+    const g = base(x, z);
+    if (g.ok) return g;
+    // 板の上。高さは陸と同じにする(陸と板の境目に段差を作らない)
+    if (onPostDeck(post, x, z)) return { y: deckY, ok: true, hexId: null };
+    return g;
+  };
 }
 
 // ---- 島の店 ----

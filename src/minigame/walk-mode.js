@@ -11,8 +11,8 @@ import {
   ROLL_WALK, ROLL_ACCEL, courseGround, makeCourse, rollTime, startSpots,
 } from './logroll.js';
 import {
-  makeGround, spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
-  watchPost, POST_RADIUS, POST_CLEAR, DESK_RADIUS, DESK_REACH, DESK_CLEAR,
+  spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
+  watchPost, makeWalkGround, POST_RADIUS, POST_CLEAR, DESK_RADIUS, DESK_REACH, DESK_CLEAR,
   shopPoint, SHOP_RADIUS, SHOP_REACH, SHOP_CLEAR,
   TABLE_RADIUS, TABLE_CLEAR, TABLE_REACH, tableSeats,
 } from './ground.js';
@@ -217,7 +217,10 @@ export class WalkMode {
     // 島の地面。**丸太乗りの丸太はこの上に被せる**ので、外へ渡すのは
     // 下の包み(this.ground)のほう ── 包みを1つ通しておけば、歩き・
     // 他の人の描画・カメラの高さまで、全部が同じ足場を見る。
-    this.islandGround = makeGround(state);
+    // **射場の板の上も歩ける地面に含める**(makeWalkGround)。
+    // 板は海へせり出しているので、陸のヘックスだけで見ていると
+    // 見えている床を踏み抜けて落ちる。
+    this.islandGround = makeWalkGround(state);
     this.roll = null;      // { course, anchor, at } 回っている丸太(無ければ null)
     this.rollT = 0;        // 丸太が回りはじめてからの秒数
     this.ground = (x, z) => {

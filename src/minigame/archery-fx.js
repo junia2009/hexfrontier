@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { makeTower, makeBarbarianShip } from '../render3d/board3d.js';
+import { POST_DECK_R } from './ground.js';
 
 const SHIP_SCALE = 0.42;     // 盤の駒より小ぶりに。等倍だと浜を覆う
 const FOE_H = 0.20;          // 蛮族の背丈(盤の寸法)
@@ -107,13 +108,19 @@ function makeRange(post) {
 
   // 斜め上から見下ろすようにしたぶん、台は小ぶりにする ── 大きいままだと
   // 手前の板が画面の半分を占めて、せっかく広げた海が狭くなる。
-  const deck = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.035, 12), plank);
+  //
+  // **大きさは ground.js の POST_DECK_R から取る。** 板は海へせり出して
+  // いて、その上も歩けることにしてあるので(makeWalkGround)、見た目と
+  // 足場の半径がずれると「見えているのに踏み抜ける」が戻ってくる。
+  const deck = new THREE.Mesh(
+    new THREE.CylinderGeometry(POST_DECK_R - 0.02, POST_DECK_R + 0.02, 0.035, 12), plank,
+  );
   deck.position.y = 0.017;
   deck.receiveShadow = true;
   g.add(deck);
   // 板の目。1枚板だと「土を塗った」ようにしか見えない。
   // 長さは円の弦に合わせる ── 全部同じ長さにすると、端の目が台からはみ出す
-  const R = 0.36;
+  const R = POST_DECK_R;
   for (let i = -2; i <= 2; i++) {
     const z = i * 0.13;
     const half = Math.sqrt(Math.max(0, R * R - z * z));

@@ -7,7 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, MODE_IDS } from '../src/state.js';
 import {
-  makeGround, watchPost, spawnPoint, fishingSpots, POST_RADIUS, POST_OPEN_SEA, SPOT_RADIUS,
+  makeGround, makeWalkGround, onPostDeck, watchPost, spawnPoint, fishingSpots,
+  POST_DECK_R, POST_RADIUS, POST_OPEN_SEA, SPOT_RADIUS,
 } from '../src/minigame/ground.js';
 import {
   Raid, LIVES, SHIP_SCORE, FOE_SCORE, ARROW_MIN, ARROW_MAX, ARROW_GRAVITY,
@@ -243,6 +244,67 @@ test('弓: 櫓は降り立つ場所から離れている', () => {
     const home = spawnPoint(s);
     const d = Math.hypot(p.x - home.x, p.z - home.y);
     assert.ok(d > POST_RADIUS * 4, `seed ${seed}: 櫓が近すぎる(${d.toFixed(2)})`);
+  }
+});
+
+// ---- 射場の板(足場)----
+//
+// **板は海へせり出している。** 陸のヘックスだけで歩ける場所を決めていると、
+// 見えている床を踏み抜けて海に落ちる(実機で「ここ地面がない」と言われた)。
+// 板の上は歩ける、が守られているか。
+
+test('弓: 射場の板の上は、海にせり出していても歩ける', () => {
+  for (const seed of SEEDS) {
+    const s = createGame({ seed, playerCount: 4, humanIndex: -1, mode: 'cak' });
+    const p = watchPost(s);
+    const land = makeGround(s);
+    const walk = makeWalkGround(s);
+    const y = walk(p.x, p.z).y;
+    let overSea = 0;
+    // 板の上を隅々まで踏んでみる
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 12) {
+      for (const k of [0.3, 0.6, 0.9, 0.99]) {
+        const x = p.x + Math.cos(a) * POST_DECK_R * k;
+        const z = p.z + Math.sin(a) * POST_DECK_R * k;
+        assert.ok(walk(x, z).ok, `seed ${seed}: 板の上なのに踏み抜ける`);
+        assert.equal(walk(x, z).y, land(x, z).ok ? land(x, z).y : y,
+          `seed ${seed}: 板と陸で高さが違う(段差ができる)`);
+        if (!land(x, z).ok) overSea += 1;
+      }
+    }
+    // そもそも海にせり出していなければ、この直しに意味がない
+    assert.ok(overSea > 0, `seed ${seed}: 板が海に出ていない(前提が崩れている)`);
+  }
+});
+
+test('弓: 板の外は海のまま(見えない床を作らない)', () => {
+  const s = createGame({ seed: 11, playerCount: 4, humanIndex: -1, mode: 'cak' });
+  const p = watchPost(s);
+  const walk = makeWalkGround(s);
+  const land = makeGround(s);
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 12) {
+    for (const d of [POST_DECK_R + 0.05, POST_DECK_R + 0.4, POST_DECK_R + 1.2]) {
+      const x = p.x + Math.cos(a) * d;
+      const z = p.z + Math.sin(a) * d;
+      // 陸でないところが歩けてはいけない
+      assert.equal(walk(x, z).ok, land(x, z).ok, `板の外(${d})で判定が違う`);
+    }
+  }
+  assert.equal(onPostDeck(null, 0, 0), false);
+  assert.equal(onPostDeck(p, p.x, p.z), true);
+  assert.equal(onPostDeck(p, p.x + POST_DECK_R + 1e-6, p.z), false);
+});
+
+test('弓: 櫓の建たない島に、見えない板を作らない', () => {
+  for (const mode of MODE_IDS.filter((m) => m !== 'cak')) {
+    const s = createGame({ seed: 11, playerCount: 4, humanIndex: -1, mode });
+    const land = makeGround(s);
+    const walk = makeWalkGround(s);
+    const p = watchPost(s);
+    // 櫓を建てない島では、その場所のまわりも「陸のまま」でなければならない
+    for (const d of [0, 0.2, 0.35]) {
+      assert.equal(walk(p.x + d, p.z).ok, land(p.x + d, p.z).ok, `${mode}: 板ができている`);
+    }
   }
 });
 

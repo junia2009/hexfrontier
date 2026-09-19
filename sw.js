@@ -15,7 +15,7 @@
 // (登録側は updateViaCache: 'none' で HTTP キャッシュを介さず sw.js を確認する)
 
 // >>> precache:generated (scripts/gen-precache.mjs で生成。手で編集しない)
-const PRECACHE_VERSION = '0ca53b0f806c';
+const PRECACHE_VERSION = '3329389083c6';
 const PRECACHE = [
   './',
   './icons/apple-touch-icon.png',
