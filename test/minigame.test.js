@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 import { createGame, MODE_IDS } from '../src/state.js';
 import { LAYOUT } from '../src/rules/board.js';
 import { isLandHex } from '../src/rules/sea.js';
-import { makeGround, spawnPoint } from '../src/minigame/ground.js';
+import { makeGround, spawnPoint, shopPoint, storeBlockers, STORE_PROPS } from '../src/minigame/ground.js';
+import { TILE_TOP } from '../src/terrain.js';
 import {
   WalkerMotion, WALK_SPEED, JUMP_HEIGHT, WATER_Y, FOOT_RATE, MAX_DT,
 } from '../src/minigame/motion.js';
@@ -317,6 +318,44 @@ test('walk: 盤の上の物を通り抜けられない(歩き続けても中に�
   }
   assert.ok(closest >= o.r + WALKER_RADIUS - 1e-6, `中に入った(最接近 ${closest.toFixed(3)})`);
   assert.ok(w.pos.z > start.y, '障害物の手前まで進んでいない');
+});
+
+// **見えている物はすり抜けない。** 屋台の裏の樽と木箱は見た目だけ置いて
+// あって、当たり判定を足し忘れていた(「オブジェクトが貫通してる」と報告
+// された)。置き場所は ground.js の STORE_PROPS 1か所で、store.js の
+// 見た目もそこを読む。
+test('walk: 屋台の裏の樽と木箱をすり抜けられない', () => {
+  const s = game('cak');
+  const shop = shopPoint(s);
+  assert.ok(shop, '前提: 島に店が建つ');
+  // 屋台の建つ地面の高さ(タイル上面を 0 とした足の高さ)を渡す。
+  // **渡さないと makeBlocker が「足より低い」と見て丸ごと無視する** ──
+  // 木箱は高さ 0.05 しかないので、少し盛り上がった地面でも消える。
+  const baseY = makeGround(s)(shop.x, shop.z).y - TILE_TOP;
+  const blocks = storeBlockers(shop, baseY);
+  assert.equal(blocks.length, STORE_PROPS.length);
+  const blocked = makeBlocker(blocks);
+  for (const b of blocks) {
+    assert.ok(b.h > baseY, `地面の上に立つと無視される高さ(${b.h} ≤ 足 ${baseY.toFixed(3)})`);
+    // 物の中へ踏み込む(makeBlocker は行き先が中に入っているかで見るので、
+    // またぎ越す距離は渡さない ── 渡すと当たらずに通り過ぎてしまう)
+    const from = { x: b.x, z: b.z - (b.r + 0.02) };
+    const r = blocked(from.x, from.z, b.x, b.z, WALKER_RADIUS, baseY);
+    assert.equal(r.hit, true, '物に当たらない(すり抜ける)');
+    const got = Math.hypot(r.x - b.x, r.z - b.z);
+    assert.ok(got >= b.r + WALKER_RADIUS - 1e-6,
+      `物にめり込んだ(中心から ${got.toFixed(3)} / 要 ${(b.r + WALKER_RADIUS).toFixed(3)})`);
+  }
+  // 屋台の向きに合わせて回る(距離は変わらない)。向きを無視すると、
+  // 見えている樽と当たり判定が別の場所に離れる
+  const turned = storeBlockers({ ...shop, facing: shop.facing + Math.PI / 2 }, baseY);
+  for (const [i, b] of blocks.entries()) {
+    const d0 = Math.hypot(b.x - shop.x, b.z - shop.z);
+    const d1 = Math.hypot(turned[i].x - shop.x, turned[i].z - shop.z);
+    assert.ok(Math.abs(d0 - d1) < 1e-9, '向きを変えたら距離まで変わった');
+    assert.ok(Math.hypot(turned[i].x - b.x, turned[i].z - b.z) > 1e-3, '向きを見ていない');
+  }
+  assert.deepEqual(storeBlockers(null), []);
 });
 
 // 目標へまっすぐ倒し続ける。たどり着けたら経過秒、駄目なら止まった場所。

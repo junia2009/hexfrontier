@@ -6,14 +6,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGame, MODE_IDS } from '../src/state.js';
-import { SEA_Y } from '../src/terrain.js';
+import { SEA_Y, TILE_TOP } from '../src/terrain.js';
+import { makeBlocker, WALKER_RADIUS } from '../src/minigame/obstacles.js';
 import {
   makeGround, makeWalkGround, onPostDeck, pileDrop, watchPost, spawnPoint, fishingSpots,
   PILE_DOWN, POST_DECK_R, POST_RADIUS, POST_OPEN_SEA, SPOT_RADIUS,
 } from '../src/minigame/ground.js';
 import {
   Raid, LIVES, SHIP_SCORE, FOE_SCORE, ARROW_MIN, ARROW_MAX, ARROW_GRAVITY,
-  BOW_Y, reach, shipsInWave, ARCHERY_MODES,
+  BOW_Y, reach, shipsInWave, ARCHERY_MODES, RANGE_PROPS, rangeBlockers,
 } from '../src/minigame/archery.js';
 
 const game = (mode) => createGame({ seed: 7, playerCount: 4, humanIndex: -1, mode });
@@ -294,6 +295,62 @@ test('弓: 板の外は海のまま(見えない床を作らない)', () => {
   assert.equal(onPostDeck(null, 0, 0), false);
   assert.equal(onPostDeck(p, p.x, p.z), true);
   assert.equal(onPostDeck(p, p.x + POST_DECK_R + 1e-6, p.z), false);
+});
+
+// **置いてある物はすり抜けない。** 樽も舫い杭も、見た目だけ置いて
+// 当たり判定を足し忘れていた(「オブジェクトが貫通してる」と報告された)。
+// 場所は archery.js の RANGE_PROPS 1か所で、見た目もぶつかる判定もそこを読む。
+
+test('弓: 射場の樽と杭は、板の上の正しい場所に来る', () => {
+  const post = { x: 3, z: -2, outX: 0, outZ: 1 };   // 沖が +z の向き
+  const blocks = rangeBlockers(post);
+  assert.equal(blocks.length, RANGE_PROPS.length);
+  for (const [i, o] of RANGE_PROPS.entries()) {
+    // この向きなら局所座標がそのまま盤の座標(ずれ以外は動かない)
+    assert.ok(Math.abs(blocks[i].x - (post.x + o.x)) < 1e-9, `${o.kind}: x がずれている`);
+    assert.ok(Math.abs(blocks[i].z - (post.z + o.z)) < 1e-9, `${o.kind}: z がずれている`);
+    assert.equal(blocks[i].r, o.r);
+    assert.equal(blocks[i].h, o.h);
+  }
+  // 床の高さは高さに足される(足さないと、高い板の上で丸ごと無視される)
+  const raised = rangeBlockers(post, 0.4);
+  for (const [i, o] of RANGE_PROPS.entries()) {
+    assert.ok(Math.abs(raised[i].h - (0.4 + o.h)) < 1e-9, `${o.kind}: 床の高さを足していない`);
+  }
+  // 向きを変えても、立ち位置からの距離は変わらない(回すだけ)
+  const turned = rangeBlockers({ ...post, outX: 1, outZ: 0 });
+  for (const [i, b] of blocks.entries()) {
+    const d0 = Math.hypot(b.x - post.x, b.z - post.z);
+    const d1 = Math.hypot(turned[i].x - post.x, turned[i].z - post.z);
+    assert.ok(Math.abs(d0 - d1) < 1e-9, '向きを変えたら距離まで変わった');
+  }
+  assert.deepEqual(rangeBlockers(null), []);
+});
+
+test('弓: 樽と杭をすり抜けられない', () => {
+  const s = createGame({ seed: 11, playerCount: 4, humanIndex: -1, mode: 'cak' });
+  const p = watchPost(s);
+  // **足の高さを渡して試す。** makeBlocker は「足より低い物は跳び越え中」と
+  // みなして無視するので、板が高いところにあると樽が丸ごと消える ──
+  // h は板からの高さではなく**タイル上面からの高さ**で持たないといけない。
+  const deckFoot = makeWalkGround(s)(p.x, p.z).y - TILE_TOP;
+  const blocks = rangeBlockers(p, deckFoot);
+  const blocked = makeBlocker(blocks);
+  for (const b of blocks) {
+    assert.ok(b.h > deckFoot,
+      `板の上に立つと無視される高さ(${b.h} ≤ 足 ${deckFoot.toFixed(3)})`);
+    // 物の中へ踏み込もうとする(歩幅は1コマぶん。makeBlocker は
+    // 行き先が中に入っているかで見るので、またぐ距離は渡さない)
+    const dx = b.x - p.x;
+    const dz = b.z - p.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const from = { x: b.x - (dx / len) * (b.r + 0.06), z: b.z - (dz / len) * (b.r + 0.06) };
+    const r = blocked(from.x, from.z, b.x, b.z, WALKER_RADIUS, deckFoot);
+    assert.equal(r.hit, true, '物に当たらない(すり抜ける)');
+    const got = Math.hypot(r.x - b.x, r.z - b.z);
+    assert.ok(got >= b.r + WALKER_RADIUS - 1e-6,
+      `物にめり込んだ(中心から ${got.toFixed(3)} / 要 ${(b.r + WALKER_RADIUS).toFixed(3)})`);
+  }
 });
 
 test('弓: 板を支える杭は、水面より下まで届く', () => {

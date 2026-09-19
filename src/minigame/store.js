@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { WALK_SCALE, s as sc } from './scale.js';
 import { makeSignFace } from './desk.js';
+import { STORE_PROPS } from './ground.js';
 import { makeWalker } from './body.js';
 import { applyPose } from './walker.js';
 import { speciesById } from './species.js';
@@ -134,15 +135,16 @@ export function makeStore(scene, x, z, groundY, facing = 0) {
   lamp.position.set(HALF - 0.05, POST_H - 0.10, DEPTH / 2 + 0.01);
   g.add(lamp);
 
-  // 樽と木箱(屋台の裏。人の立つところは空けておく)
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.055, 0.14, 10), dark);
-  barrel.position.set(-HALF + 0.05, 0.07, -0.30);
-  barrel.castShadow = true;
-  g.add(barrel);
-  const crate = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.10, 0.12), wood);
-  crate.position.set(HALF - 0.06, 0.05, -0.28);
-  crate.castShadow = true;
-  g.add(crate);
+  // 樽と木箱(屋台の裏。人の立つところは空けておく)。
+  // **置き場所は ground.js の STORE_PROPS**(ぶつかる判定と同じ表を読む)
+  for (const o of STORE_PROPS) {
+    const mesh = o.kind === 'barrel'
+      ? new THREE.Mesh(new THREE.CylinderGeometry(o.r, o.r * 0.92, o.h, 10), dark)
+      : new THREE.Mesh(new THREE.BoxGeometry(o.r * 1.6, o.h, o.r * 1.6), wood);
+    mesh.position.set(o.x, o.h / 2, o.z);
+    mesh.castShadow = true;
+    g.add(mesh);
+  }
 
   scene.add(g);
 

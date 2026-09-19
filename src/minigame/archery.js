@@ -27,6 +27,40 @@ export const ARCHERY_MODES = ['cak'];
 
 export const LIVES = 3;             // 櫓に着かれてよい回数
 
+// ---- 射場に置いてあるもの(樽と舫い杭)----
+//
+// **場所はここ1か所。** 見た目を作るのは archery-fx.js、ぶつかる判定を
+// 足すのは walk-mode.js で、どちらもこの表を読む ── 別々に座標を書くと、
+// 樽をすり抜ける(実際そうなっていた。「貫通してる」と報告された)。
+//
+// 座標は板の局所座標(+z が沖の向き、+x が岸に沿った横)。
+// r はぶつかる太さ、h は高さ(これより高く跳べば越えられる)。
+export const RANGE_PROPS = [
+  { kind: 'barrel', x: -0.36, z: -0.08, r: 0.075, h: 0.15 },
+  { kind: 'barrel', x: 0.36, z: -0.08, r: 0.075, h: 0.15 },
+  { kind: 'stake', x: -0.40, z: 0.14, r: 0.03, h: 0.30 },
+  { kind: 'stake', x: 0.40, z: 0.14, r: 0.03, h: 0.30 },
+];
+
+// 射場の物を、盤の座標に置き直す。
+//
+// 板は岸に沿って向けてある(archery-fx の g.rotation.y = atan2(outX, outZ))
+// ので、局所の +z は沖の向き(outX, outZ)、+x はそれを横に倒した向き
+// (outZ, -outX)になる。
+//
+// **baseY は板の床の高さ**(タイル上面を 0 とした足の高さ)。obstacles.js は
+// 「h が足より低い物は跳び越え中」とみなして無視するので、床の高さを
+// 足さないと、板が高い島で樽が丸ごと消えてすり抜ける。
+export function rangeBlockers(post, baseY = 0) {
+  if (!post) return [];
+  return RANGE_PROPS.map((o) => ({
+    x: post.x + o.x * post.outZ + o.z * post.outX,
+    z: post.z - o.x * post.outX + o.z * post.outZ,
+    r: o.r,
+    h: baseY + o.h,
+  }));
+}
+
 const SPAWN_D = 5.4;                // 沖のどれだけ先に湧くか(タイル)
 const SPAWN_SIDE = 2.4;             // 左右のばらけ幅(±)
 const LAND_D = 1.0;                 // ここまで来たら浜に着く

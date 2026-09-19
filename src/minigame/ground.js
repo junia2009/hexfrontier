@@ -241,6 +241,34 @@ export const SHOP_CLEAR = sc(1.05);    // 屋台のまわりを片付ける広�
 // 隣のヘックスの中心までは 1.73 あるので、実際はいつも隣に建つ。
 const SHOP_AWAY = TABLE_CLEAR + SHOP_CLEAR;
 
+// 屋台のまわりに置いてある物(裏の樽と木箱)。座標は屋台の局所(縮尺を
+// 掛ける前)で、+z が店の正面。**見た目(store.js)もぶつかる判定も
+// ここを読む** ── 射場の樽をすり抜けていたのと同じ間違いを繰り返さない。
+export const STORE_PROPS = [
+  { kind: 'barrel', x: -0.25, z: -0.30, r: 0.06, h: 0.14 },
+  { kind: 'crate', x: 0.24, z: -0.28, r: 0.075, h: 0.10 },
+];
+
+// 屋台の物を盤の座標へ。屋台は WALK_SCALE で縮めてあるので、
+// 置き場所も太さも同じ率で縮める(store.js の g.scale と揃える)。
+//
+// **baseY は屋台の建つ地面の高さ**(タイル上面を 0 とした足の高さ)。
+// obstacles.js は「h が足より低い物は跳び越え中」として無視するので、
+// 盛り上がった地面に建てると、足すのを忘れた木箱(高さ 0.05)が消える。
+export function storeBlockers(shop, baseY = 0) {
+  if (!shop) return [];
+  const f = shop.facing ?? 0;
+  const cos = Math.cos(f);
+  const sin = Math.sin(f);
+  return STORE_PROPS.map((o) => ({
+    // rotation.y = facing の回し方(three.js)と同じ式
+    x: shop.x + sc(o.x) * cos + sc(o.z) * sin,
+    z: shop.z - sc(o.x) * sin + sc(o.z) * cos,
+    r: sc(o.r),
+    h: baseY + sc(o.h),
+  }));
+}
+
 export function shopPoint(state) {
   if (!state?.board) return null;
   const home = spawnPoint(state);

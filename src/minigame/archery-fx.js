@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { makeTower, makeBarbarianShip } from '../render3d/board3d.js';
 import { POST_DECK_R, pileDrop } from './ground.js';
+import { RANGE_PROPS } from './archery.js';
 
 const SHIP_SCALE = 0.42;     // 盤の駒より小ぶりに。等倍だと浜を覆う
 const FOE_H = 0.20;          // 蛮族の背丈(盤の寸法)
@@ -128,10 +129,11 @@ function makeRange(post) {
     line.position.set(0, 0.036, z);
     g.add(line);
   }
-  // 脇の樽。左右にだけ置く(前は射線、後ろは櫓)
-  for (const sx of [-1, 1]) {
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.15, 8), dark);
-    barrel.position.set(sx * 0.36, 0.075, -0.08);
+  // 脇の樽。左右にだけ置く(前は射線、後ろは櫓)。
+  // **場所は archery.js の RANGE_PROPS**(ぶつかる判定と同じ表を読む)
+  for (const o of RANGE_PROPS.filter((q) => q.kind === 'barrel')) {
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(o.r, o.r, o.h, 8), dark);
+    barrel.position.set(o.x, o.h / 2, o.z);
     barrel.castShadow = true;
     g.add(barrel);
   }
@@ -161,7 +163,9 @@ function makeRange(post) {
 
   // 舫い杭。板を突き抜けて下まで通す ── 上だけ生えていると、
   // 何にも留まっていない棒が海に浮いていることになる(まさにそう言われた)。
-  for (const sx of [-1, 1]) pile(sx * 0.40, 0.14, 0.3, 0.022, plank);
+  for (const o of RANGE_PROPS.filter((q) => q.kind === 'stake')) {
+    pile(o.x, o.z, o.h, o.r * 0.75, plank);
+  }
   // 岸に沿って向ける(板の目が海と平行になる)
   g.rotation.y = Math.atan2(post.outX, post.outZ);
   return g;

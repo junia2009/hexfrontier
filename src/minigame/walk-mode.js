@@ -13,10 +13,10 @@ import {
 import {
   spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
   watchPost, makeWalkGround, POST_RADIUS, POST_CLEAR, DESK_RADIUS, DESK_REACH, DESK_CLEAR,
-  shopPoint, SHOP_RADIUS, SHOP_REACH, SHOP_CLEAR,
+  shopPoint, storeBlockers, SHOP_RADIUS, SHOP_REACH, SHOP_CLEAR,
   TABLE_RADIUS, TABLE_CLEAR, TABLE_REACH, tableSeats,
 } from './ground.js';
-import { Raid, ARCHERY_MODES, BOW_Y, reach as arrowReach } from './archery.js';
+import { Raid, ARCHERY_MODES, BOW_Y, rangeBlockers, reach as arrowReach } from './archery.js';
 import { ArcheryFx } from './archery-fx.js';
 import { makeBlocker, clearAround } from './obstacles.js';
 import {
@@ -28,7 +28,7 @@ import { WaterFx } from './water-fx.js';
 import { Fishing, CAST_TIME } from './fishing.js';
 import { fishGates } from './fish.js';
 import { isNight } from './daynight.js';
-import { SEA_Y } from '../terrain.js';   // 水面の高さ(1か所にまとめてある)
+import { SEA_Y, TILE_TOP } from '../terrain.js';   // 水面とタイル上面の高さ(1か所にまとめてある)
 import { FishingFx } from './fishing-fx.js';
 import { RemoteWalkers } from './remote.js';
 import { RemoteView, WALK_COLORS, NAME_SCALE_TABLE } from './remote-view.js';
@@ -60,8 +60,9 @@ function sinkVeil(depth) {
   return Math.max(0, Math.min(1, k));
 }
 
-const TILE_TOP = 0.26;      // board3d.js と同じタイル上面の高さ
-// 水面の高さは terrain.js(SEA_Y)。下の import で取り込んでいる
+// タイル上面と水面の高さは terrain.js(TILE_TOP / SEA_Y)。上の import で
+// 取り込んでいる ── ここで 0.26 と書き写していたら、import を足した拍子に
+// 二重宣言で島が開かなくなった(テストは THREE を読めないので気づけない)。
 
 const lerp = (a, b, k) => a + (b - a) * k;
 
@@ -360,6 +361,11 @@ export class WalkMode {
           z: p.z - p.outZ * 1.05 + p.outX * 0.45,
           r: 0.10, h: 0.5,
         });
+        // 射場に置いた樽と舫い杭にもぶつかる。**置き場所は archery.js の
+        // RANGE_PROPS 1か所**(見た目もそこを読む)── 別々に書くと、
+        // 見えている樽をすり抜ける(実際そうなっていた)。
+        // 高さは板の床から数えるので、床の高さ(足の高さの流儀)を渡す。
+        this.obstacles.push(...rangeBlockers(p, this.postAt.y - TILE_TOP));
       }
     }
 
@@ -382,11 +388,12 @@ export class WalkMode {
         this.clearedObjs.push({ o: o.obj, vis: o.obj.visible });
         o.obj.visible = false;
       }
-      this.store = makeStore(
-        board3d.scene, shop.x, shop.z, this.ground(shop.x, shop.z).y, shop.facing,
-      );
-      // 屋台にもぶつかる(あとから建てたものは自分で入れる)
-      this.obstacles.push({ x: shop.x, z: shop.z, r: SHOP_RADIUS, h: sc(0.6) });
+      const shopY = this.ground(shop.x, shop.z).y;
+      this.store = makeStore(board3d.scene, shop.x, shop.z, shopY, shop.facing);
+      // 屋台にもぶつかる(あとから建てたものは自分で入れる)。
+      // 裏の樽と木箱も忘れずに ── 見た目だけ置くとすり抜ける
+      this.obstacles.push({ x: shop.x, z: shop.z, r: SHOP_RADIUS, h: shopY - TILE_TOP + sc(0.6) });
+      this.obstacles.push(...storeBlockers(shop, shopY - TILE_TOP));
     }
 
     this.species = speciesById(look);
