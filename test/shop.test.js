@@ -473,6 +473,30 @@ test('店の中: 店主のひとことは、手持ちと買ったもので変わ
   let p = { ...emptyProgress(), coins: 99999 };
   for (const item of ITEMS) p = buyItem(p, item.id).progress;
   assert.match(storeHtml(p), /全部あんたのもん/, '全部買った人へのひとことになっていない');
+  // **境目。** いちばん安い品にちょうど届いたら「たまったらまたおいで」ではない
+  // ── 買えるのに追い返される(故障注入で「< を <= に」しても落ちなかった)
+  const cheapest = Math.min(...ITEMS.map((i) => i.price));
+  assert.match(storeHtml({ ...emptyProgress(), coins: cheapest }), /いらっしゃい/,
+    'ちょうど買えるのに追い返している');
+  assert.match(storeHtml({ ...emptyProgress(), coins: cheapest - 1 }), /たまったら/);
+});
+
+// **かぶる/ぬぐが逆さまになっていないか。** 逆だと、かぶっている帽子に
+// 「かぶる」が出て、押しても何も起きないように見える。
+// (故障注入で「worn === item.id」をひっくり返しても誰も落ちなかった)
+test('持ち物: かぶっているものだけ「ぬぐ」になる', () => {
+  const p = {
+    ...rich(9999), owned: { straw: true, crown: true }, worn: { hat: 'straw' },
+  };
+  const html = bagHtml(p, { hat: 'straw' });
+  const row = (name) => html.slice(html.indexOf(name), html.indexOf(name) + 400);
+  assert.match(row('麦わら帽子'), /wear-hat:none[^>]*>ぬぐ/, 'かぶっているのに「ぬぐ」が無い');
+  assert.match(row('麦わら帽子'), /いまかぶっています/);
+  assert.match(row('王かんむり'), /wear-hat:crown[^>]*>かぶる/, 'かぶっていないのに「かぶる」が無い');
+  assert.doesNotMatch(row('王かんむり'), /いまかぶっています/, 'かぶっていないものが「かぶっている」');
+  // 何もかぶっていなければ、どれも「かぶる」
+  const bare = bagHtml(p, { hat: null });
+  assert.equal((bare.match(/>ぬぐ</g) ?? []).length, 0, '素頭なのに「ぬぐ」が出ている');
 });
 
 // **買うときと使うときで並びを揃える。** 違うと、さっき買ったものが

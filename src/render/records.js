@@ -429,7 +429,7 @@ function placeSwitchHtml(item, n, canPlace) {
 // かぶりもの。**いま着けている1つだけ**を光らせる ── 2つ同時にはかぶれない
 // ので、選び直すと前のものは自然に外れる。
 function wearSwitchHtml(item, worn) {
-  const on = worn !== item.id;
+  const on = worn === item.id;
   return `<p><small>${item.note ?? ''}${on ? ' いまかぶっています。' : ''}</small></p>
     <div class="row end"><button class="${on ? '' : 'primary'}"
       data-act="wear-hat:${on ? 'none' : item.id}">${on ? 'ぬぐ' : 'かぶる'}</button></div>`;
