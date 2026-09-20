@@ -12,7 +12,7 @@ import { WALK_SCALE } from './scale.js';
 import { makeSignFace } from './desk.js';
 import {
   BOARD_H, HALF, HEAD_H, PANEL_D, PANEL_Z, PAPER, PAPER_H, PAPER_W, PAPER_Z,
-  POST_BURY, POST_H, POST_TOP, flapAngle,
+  POST_BURY, POST_H, POST_TOP,
 } from './notice-fit.js';
 
 export function makeNoticeBoard(scene, x, z, groundY, facing = 0) {
@@ -72,29 +72,21 @@ export function makeNoticeBoard(scene, x, z, groundY, facing = 0) {
   roof.castShadow = true;
   g.add(roof);
 
-  // 貼り紙。**留め具は上の辺**なので、めくれるのは下 ── 回す軸を紙の上端に
-  // 置きたいので、紙は入れ物(ピン)の子にして、その中で下へずらす。
-  const papers = [];
-  const paperY = panel.position.y + BOARD_H / 2 - 0.03;
+  // 貼り紙。**動かさない。** 前は下端がめくれる演出を入れていたが、掲示板は
+  // 島の真ん中にずっと立っているので、視界のすみで何かが揺れ続けることになる
+  // (「パタパタしなくていい」と言われた)。板に貼ってあるものとして、
+  // 留め板の手前(notice-fit.js の PAPER_Z)に平らに置く。
+  const paperTop = panel.position.y + BOARD_H / 2 - 0.03;
   for (let i = 0; i < PAPER; i += 1) {
-    const pin = new THREE.Group();
-    pin.position.set((i - (PAPER - 1) / 2) * 0.155, paperY, PAPER_Z);
     const sheet = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), paperMat);
-    sheet.position.y = -PAPER_H / 2;
-    pin.add(sheet);
-    g.add(pin);
-    papers.push(pin);
+    sheet.position.set((i - (PAPER - 1) / 2) * 0.155, paperTop - PAPER_H / 2, PAPER_Z);
+    g.add(sheet);
   }
 
   scene.add(g);
 
   return {
     group: g,
-    // near: そばに立っているか。t: 通しの秒数
-    update(t, { near = false } = {}) {
-      // めくれ角は notice-fit.js が決める(手前へ片側だけ。離れていれば小さく)
-      for (const [i, p] of papers.entries()) p.rotation.x = flapAngle(t, i, near);
-    },
     dispose() {
       g.removeFromParent();
       g.traverse((o) => {
