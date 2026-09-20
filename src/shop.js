@@ -38,7 +38,7 @@ const TOOLS = [
     icon: '📖',
     price: 120,
     // 何が起きるかを1行で。「強くなる」と読める書きかたにしない
-    desc: '図鑑のまだ釣っていない欄に、どこで釣れるかと大きさの目安が出ます。',
+    desc: '図鑑の伏せた欄に、釣れる場所と大きさの目安が出ます。',
     note: '釣れやすさは変わりません。どこを探せばいいか分かるだけです。',
   },
   {
@@ -113,6 +113,90 @@ export const HAT_ITEMS = WEARS;
 export const DECOR_ITEMS = PLACEABLES;
 
 export const ITEM_BY_ID = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
+
+// ---- 棚 ----
+//
+// **「何でも屋」に見せない。** 道具・かぶりもの・飾りは買う理由がまるで違うのに、
+// 同じ大きさの札で13品を縦に積んでいた ── 携帯(390×844)で測ったら
+// **4.64画面ぶん**あって、下まで行くと手持ちの銀貨も見出しも画面の外だった
+// (「店が何でも屋だけど見にくい」と言われた)。棚で分けて、
+// 見ている棚の品だけを出す。
+//
+// 棚そのものは表で持つ。並べる側(render/records.js)が
+// 「道具はこれ、かぶりものはこれ」と書き直すと、品を足したときに必ず落ちる。
+export const SHELVES = [
+  {
+    id: 'tool',
+    icon: '🧰',
+    label: '道具',
+    note: 'できることが増えます',
+    items: TOOLS,
+  },
+  {
+    id: 'wear',
+    icon: '👒',
+    label: 'かぶりもの',
+    note: '見た目だけ。遊びは変わりません',
+    items: WEARS,
+  },
+  {
+    id: 'decor',
+    icon: '🪵',
+    label: '島の飾り',
+    note: '島に置けます。何個でも買えます',
+    items: PLACEABLES,
+  },
+];
+
+export const SHELF_BY_ID = Object.fromEntries(SHELVES.map((s) => [s.id, s]));
+export const SHELF_IDS = SHELVES.map((s) => s.id);
+
+// 知らない棚は最初の棚に倒す(保存や URL から来た値でも落ちないように)
+export function cleanShelf(id) {
+  return SHELF_BY_ID[id] ? id : SHELVES[0].id;
+}
+
+// どの棚の品か。持ち物の画面が、買った品を棚ごとにまとめるのに使う
+export function shelfOf(id) {
+  return SHELVES.find((s) => s.items.some((i) => i.id === id))?.id ?? null;
+}
+
+// **買い切ったか。** 飾りは何個でも買えるので、いつまでも「買い切り」にならない
+export function soldOut(progress, id) {
+  return !isDecor(id) && owns(progress, id);
+}
+
+// 棚の並び。**安い順。買い切ったものは下へ送る** ── 上から順に
+// 「いま手が届くもの」が並ぶようにする。買った品が真ん中に居座ると、
+// まだ買えるものを探すのに毎回そこを読み飛ばすことになる。
+export function shelfItems(shelfId, progress) {
+  const shelf = SHELF_BY_ID[cleanShelf(shelfId)];
+  return [...shelf.items].sort((a, b) => (soldOut(progress, a.id) ? 1 : 0) - (soldOut(progress, b.id) ? 1 : 0)
+    || a.price - b.price);
+}
+
+// この棚で**いますぐ買える**品の数。棚の見出しに出す ──
+// 「どの棚に行けば何か買えるのか」が、開かずに分かるようにする。
+export function buyableCount(progress, shelfId) {
+  const shelf = SHELF_BY_ID[cleanShelf(shelfId)];
+  return shelf.items.filter((i) => !whyCannotBuy(progress, i.id)).length;
+}
+
+// 札に出す短い説明。**desc をそのまま切って使う** ── 短い版を別に書くと、
+// 必ず片方だけ直されてずれる(値段と説明を hats.js と shop.js に別々に
+// 書かないのと同じ理由)。
+//
+// **短ければ丸ごと、長ければ最初の一文。** 「最初の一文」だけにすると、
+// 飾りが「木のベンチ。」「石の灯籠。」になって名前の繰り返しにしかならない ──
+// 効きめが書いてあるのは2文目のほう(「夜になると明かりがともります」)。
+const SHORT_MAX = 30;
+
+export function shortDesc(item) {
+  const s = String(item?.desc ?? '');
+  if (s.length <= SHORT_MAX) return s;
+  const i = s.indexOf('。');
+  return i >= 0 ? s.slice(0, i + 1) : s;
+}
 
 // かぶりものかどうか。持ち物の画面が「かぶる/ぬぐ」を出すのに使う
 export function isWear(id) {

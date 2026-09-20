@@ -1388,17 +1388,99 @@
     background: rgba(70, 140, 200, 0.28);
   }
   /* 売った値。金額なので等幅で揃える(桁が動くと目がちらつく) */
-  /* 島の店 */
-  .shop-purse { color: #ffd45e; font-variant-numeric: tabular-nums; }
-  .shop-row {
+  /* ---------- 島の店 ---------- */
+  /* 13品を同じ札で縦に積むと携帯で 4.6 画面ぶんになる(実測)。棚の帯を
+     上に貼り付けて、1品は2行に畳む ── くわしい説明は押したときだけ開く。 */
+  /* 手持ちと、いま見ている棚の説明。帯の2段目 */
+  .shop-purse {
+    display: flex; align-items: baseline; gap: 5px; margin: 5px 0 0;
+    color: #ffd45e; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 13px;
+  }
+  /* 棚を選ぶ帯。**手持ちの銀貨も一緒に貼り付ける** ── 前は先頭の1行だけで、
+     少しスクロールすると「いくら持っているか」が画面から消えていた。
+     **2段にする**: 390px で棚3つと手持ちを1行に並べたら重なった(実測)。
+     透けると下の札と字が重なるので、帯は不透明にする(.rules-tabs と同じ手) */
+  .shop-bar {
+    position: sticky; top: -2px; z-index: 2;
+    padding: 6px 0 7px; margin-bottom: 4px;
+    background: #17334f; box-shadow: 0 6px 8px -6px rgba(0,0,0,0.5);
+  }
+  .seg.shop-tabs { gap: 4px; }
+  .seg.shop-tabs button {
+    position: relative; flex: 1 1 0; min-width: 0; overflow: hidden;
+    padding: 8px 3px; font-size: 11.5px; min-height: 42px;
+  }
+  .seg.shop-tabs button.sel {
+    background: rgba(255, 217, 125, 0.26); border-color: rgba(255,217,125,0.6);
+  }
+  /* いちばん狭い画面(320px)だと「かぶりもの」が 5px はみ出す(実測)。
+     字を詰めて収める ── 折り返すと帯が2段ぶん高くなって、品が1つ減る */
+  @media (max-width: 340px) {
+    .seg.shop-tabs button { font-size: 10.5px; padding: 8px 1px; }
+  }
+  /* 買える数。棚を開かなくても「ここに何かある」と分かる印。
+     **文字の横ではなく角に置く** ── 横に並べると 360px の画面で
+     「かぶりもの」の札からはみ出して、隣の札に隠れていた(実測)。 */
+  .shop-cnt {
+    position: absolute; top: 1px; right: 2px;
+    min-width: 14px; padding: 0 3px; border-radius: 8px;
+    background: #ffd45e; color: #23384f;
+    font-size: 10px; font-weight: 800; font-style: normal; line-height: 14px;
+  }
+  /* 棚の説明。手持ちの右に寄せる ── 棚を切り替えたときに何の棚か分かる */
+  .shop-what {
+    margin: 0 0 0 auto; color: var(--dim); font-size: 11.5px; font-weight: 400;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  /* 持ち物の仕切り(店と同じ棚で仕切る) */
+  .shop-sec { margin: 10px 0 2px; color: var(--accent2); font-size: 12.5px; font-weight: 700; }
+  .shop-sec:first-child { margin-top: 0; }
+  .shop-foot { margin-top: 10px; }
+  .shop-item {
     border: 1px solid var(--line); border-radius: 10px;
-    padding: 10px 12px; margin-bottom: 10px;
+    padding: 7px 9px; margin-bottom: 7px;
     background: linear-gradient(135deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01));
   }
-  .shop-row.has { opacity: 0.75; }
+  /* 買い切った品は1行に畳む(shelfItems が下へ送っている) */
+  .shop-item.has { opacity: 0.6; padding: 5px 9px; }
+  .shop-item.open { border-color: rgba(255,217,125,0.45); background: rgba(255,217,125,0.07); }
+  .shop-line { display: flex; align-items: center; gap: 8px; }
+  /* 名前と短い説明。**行ごと押せる**(説明を開く口) */
+  /* 折り返しを戻す。button は既定で white-space: nowrap にしてあるので、
+     そのままだと説明が1行に伸びて切れる */
+  .shop-name {
+    flex: 1 1 auto; min-width: 0; text-align: left; white-space: normal;
+    background: none; border: 0; box-shadow: none; padding: 4px 0;
+    color: inherit; font: inherit;
+  }
+  .shop-name:hover:not(:disabled) { transform: none; }
+  .shop-name b { display: block; font-size: 14.5px; }
+  /* 短い説明は**2行まで**。1行だと幅 177px しかなく、13品のうち9品が
+     途中で切れていた(実測。「夜釣りのランタン」は 162px ぶんはみ出した)。
+     2行あれば全部収まる。短い品は1行のままなので、札は高くならない。
+     **-webkit-line-clamp は効かない** ── Chrome は button の中の子要素の
+     display を潰すので(-webkit-box が flow-root になる。実測)、
+     行の高さで切る。 */
+  .shop-name small {
+    display: block; color: var(--dim); font-size: 11.5px; line-height: 1.35;
+    max-height: 2.7em; overflow: hidden;
+  }
+  /* 値段。押すと買う。数字だけなので幅が動かないよう等幅で揃える */
+  .shop-pay {
+    flex: 0 0 auto; min-height: 40px; padding: 8px 11px;
+    font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .shop-item.poor .shop-pay { opacity: 0.45; }
+  /* あと何枚たりないか。値段を消してしまうと品くらべができなくなるので、
+     値段は出したまま、足りない数を下の行に小さく出す */
+  .shop-line-2 { display: flex; justify-content: flex-end; margin-top: -2px; }
+  .shop-lack { color: #ffb86b; font-size: 11px; font-weight: 700; }
+  .shop-detail { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 6px; }
+  .shop-detail p { margin: 0 0 4px; font-size: 13px; }
+  .shop-detail p:last-child { margin-bottom: 0; }
   .shop-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-  .shop-icon { font-size: 22px; }
-  .shop-has { color: #4fd18b; font-size: 13px; }
+  .shop-icon { font-size: 22px; flex: 0 0 auto; }
+  .shop-has { color: #4fd18b; font-size: 12px; flex: 0 0 auto; }
   /* 店主のひとこと。店に入ったとき、いちばん上で話しかけてくる */
   .shop-greet {
     display: flex; align-items: center; gap: 10px;

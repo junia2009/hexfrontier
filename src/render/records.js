@@ -13,7 +13,8 @@ import { MODES, achievementCount, fishbookCount, summarize, winRate } from '../p
 import { FISH, isGated, placeLabel, portLabel } from '../minigame/fish.js';
 import { COIN_ICON, COIN_JP } from '../rewards.js';
 import {
-  DECOR_ITEMS, HAT_ITEMS, ITEMS, TOOL_IDS, isDecor, isWear, owns, stockOf, whyCannotBuy,
+  ITEMS, SHELVES, buyableCount, cleanShelf, isDecor, isWear, owns, shelfItems, shelfOf,
+  shortDesc, soldOut, stockOf, whyCannotBuy,
 } from '../shop.js';
 import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
 import { dayLabel, questWhere } from '../quests.js';
@@ -251,44 +252,87 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
 //
 // 買えるもの・値段・持っているかを並べるだけ。買う判断は shop.js が持つので、
 // ここは whyCannotBuy が返した理由をそのまま出す(理由を2か所で書かない)。
-// 売り物1つぶん。道具もかぶりものも同じ形で並べる
-function shopRows(list, progress) {
-  return list.map((item) => {
-    // 飾りは**何個でも買える**ので「✓ 持っています」で終わらせない。
-    // いくつ手元にあるかを出して、買うボタンは出したままにする
-    const many = isDecor(item.id);
-    const has = !many && owns(progress, item.id);
-    const why = has ? null : whyCannotBuy(progress, item.id);
-    const n = many ? stockOf(progress, item.id) : 0;
-    const btn = has
-      ? '<span class="shop-has">✓ 持っています</span>'
-      : `${many && n ? `<span class="shop-n">手持ち ${n}</span>` : ''}
-        <button class="primary" data-act="shop-buy:${item.id}" ${why ? 'disabled' : ''}
-          title="${why ?? ''}">${COIN_ICON} ${item.price} で買う</button>`;
-    return `<div class="shop-row ${has ? 'has' : ''}">
-      <div class="shop-head"><span class="shop-icon">${item.icon}</span>
-        <b>${item.name}</b></div>
-      <p>${item.desc}</p>
-      ${item.note ? `<p><small>${item.note}</small></p>` : ''}
-      <div class="row end">${why && !has ? `<small>${why}</small>` : ''}${btn}</div>
+//
+// **並べかたの決めごと**(「何でも屋で見にくい」と言われて作り直した):
+//
+//   1. **棚は1つずつ。** 13品を1本の列に積むと携帯で 4.64 画面ぶんになる
+//      (実測)。棚を選ぶ帯を上に貼り付けて、見ている棚だけを出す。
+//   2. **手持ちの銀貨は貼り付ける。** 前は先頭に1行あるだけで、少し
+//      スクロールすると「いくら持っているか」が画面から消えていた。
+//   3. **札は2行。** 絵・名前・値段が1行目、短い説明が2行目。
+//      長い説明と注意書きは、押したときだけ開く ── 全部の品の説明を
+//      いつも開いておくと、目当ての品にたどり着くまでが遠い。
+//   4. **買い切った品は1行に畳んで下へ送る**(shop.js の shelfItems)。
+//      上から順に「いま手が届くもの」が並ぶ。
+
+// 売り物1つぶん。**開いているものだけ**説明と注意書きを出す
+function shopItemHtml(item, progress, open) {
+  // 飾りは**何個でも買える**ので「✓ 持っています」で終わらせない。
+  // いくつ手元にあるかを出して、買う口は出したままにする
+  const many = isDecor(item.id);
+  const done = soldOut(progress, item.id);
+  const why = whyCannotBuy(progress, item.id);
+  const n = many ? stockOf(progress, item.id) : 0;
+  // 買い切った品は絵と名前だけの1行に畳む(下へ送ってあるので邪魔にならない)
+  if (done) {
+    return `<div class="shop-item has">
+      <div class="shop-line"><span class="shop-icon">${item.icon}</span>
+        <span class="shop-name"><b>${item.name}</b></span>
+        <span class="shop-has">✓ 持っています</span></div>
     </div>`;
-  }).join('');
+  }
+  const lack = why && why.startsWith('あと') ? `<span class="shop-lack">${why}</span>` : '';
+  return `<div class="shop-item ${open ? 'open' : ''} ${why ? 'poor' : ''}">
+    <div class="shop-line">
+      <span class="shop-icon">${item.icon}</span>
+      <button class="shop-name" data-act="shop-more:${item.id}"
+        aria-expanded="${open ? 'true' : 'false'}">
+        <b>${item.name}${many && n ? ` <span class="shop-n">手持ち ${n}</span>` : ''}</b>
+        ${open ? '' : `<small>${shortDesc(item)}</small>`}
+      </button>
+      <button class="primary shop-pay" data-act="shop-buy:${item.id}" ${why ? 'disabled' : ''}
+        title="${why ?? `${item.price}枚で買う`}">${COIN_ICON} ${item.price}</button>
+    </div>
+    ${lack ? `<div class="shop-line-2">${lack}</div>` : ''}
+    ${open ? `<div class="shop-detail"><p>${item.desc}</p>
+      ${item.note ? `<p><small>${item.note}</small></p>` : ''}</div>` : ''}
+  </div>`;
 }
 
-// **道具とかぶりものを分けて並べる。** 混ぜると「遊びかたが増える品」と
-// 「見た目だけの品」が見分けられず、見た目を買ったのに何も起きないと
-// 思われる(値段だけ見て買う人がいちばん困る)。
-export function shopHtml(progress) {
+// 棚を選ぶ帯。**買える数を添える** ── どの棚に行けば何か買えるのかが、
+// 開かずに分かる(0 のときは何も出さない。「0」を並べても読む手間が増えるだけ)。
+//
+// **2段にする。** 携帯(390px)で棚3つと手持ちを1行に並べたら、
+// 「島の飾り」と「手持ち 300」が重なった(実測)。棚の説明は棚の下 ──
+// いま見ている棚が何の棚なのか、スクロールしても消えないようにする。
+function shelfTabsHtml(progress, shelf) {
   const coins = progress.coins ?? 0;
-  const tools = ITEMS.filter((i) => TOOL_IDS.includes(i.id));
-  return `<p class="shop-purse">手持ち ${COIN_ICON} <b>${coins}</b></p>
-    <p class="shop-sec">🧰 道具 <small>できることが増えます</small></p>
-    ${shopRows(tools, progress)}
-    <p class="shop-sec">👒 かぶりもの <small>見た目だけ。遊びは変わりません</small></p>
-    ${shopRows(HAT_ITEMS, progress)}
-    <p class="shop-sec">🪵 島の飾り <small>島に置けます。何個でも買えます</small></p>
-    ${shopRows(DECOR_ITEMS, progress)}
-    <p><small>遊びの結果で銀貨がたまります。売り物は増えていきます。</small></p>`;
+  const tabs = SHELVES.map((s) => {
+    const n = buyableCount(progress, s.id);
+    return `<button class="${s.id === shelf ? 'sel' : ''}" data-act="shop-shelf:${s.id}">
+      ${s.icon} ${s.label}${n ? `<i class="shop-cnt">${n}</i>` : ''}</button>`;
+  }).join('');
+  const note = SHELVES.find((s) => s.id === shelf)?.note ?? '';
+  return `<div class="shop-bar">
+    <div class="seg shop-tabs">${tabs}</div>
+    <p class="shop-purse">手持ち ${COIN_ICON} <b>${coins}</b>
+      <span class="shop-what">${note}</span></p>
+  </div>`;
+}
+
+// 売り場。view は { shelf, open } ── どの棚を見ているか、どの品を開いているか。
+// **状態は呼び出し側(main.js)が持つ。** ここで覚えると、描き直すたびに
+// 棚が先頭に戻る。
+export function shopHtml(progress, view = {}) {
+  const shelf = cleanShelf(view.shelf);
+  const open = view.open ?? null;
+  const list = shelfItems(shelf, progress);
+  const rows = list.map((item) => shopItemHtml(item, progress, item.id === open)).join('');
+  const left = list.filter((item) => !soldOut(progress, item.id)).length;
+  return `${shelfTabsHtml(progress, shelf)}
+    ${rows}
+    ${left ? '' : '<p><small>この棚のものは全部そろいました。</small></p>'}
+    <p class="shop-foot"><small>札を押すとくわしい説明が出ます。遊ぶと銀貨がたまります。</small></p>`;
 }
 
 // ---- 店の中(屋台の前で開く)----
@@ -297,7 +341,7 @@ export function shopHtml(progress) {
 // 店番のひとことと売り物を並べる。買ったものを使うのは「持ち物」のほう
 // (島のどこでも開ける)── 買う場所と使う場所を分けておくと、
 // 品が増えても店の前に行かないと何もできない、にならない。
-export function storeHtml(progress) {
+export function storeHtml(progress, view = {}) {
   const mine = ITEMS.filter((i) => owns(progress, i.id)).length;
   const line = mine >= ITEMS.length
     ? '「うちの品はもう全部あんたのもんだ。また仕入れとくよ。」'
@@ -306,7 +350,7 @@ export function storeHtml(progress) {
       : '「いらっしゃい。銀貨と引き換えに、島で使えるものを置いてるよ。」';
   return `<p class="shop-greet"><span class="shop-face">🐻</span>
     <span><b>店主</b><small>${line}</small></span></p>
-    ${shopHtml(progress)}`;
+    ${shopHtml(progress, view)}`;
 }
 
 // ---- 島の掲示板(日替わりの依頼)----
@@ -342,13 +386,16 @@ export function questsHtml(board, { now = Date.now(), here = null } = {}) {
     ${rows}${foot}`;
 }
 
-// 持ち物。使い道のある品は、ここで使う
+// 持ち物。使い道のある品は、ここで使う。
+//
+// **店と同じ棚で仕切る。** 買うときと使うときで並びが違うと、
+// さっき買ったものがどこにあるか分からなくなる(店は shopHtml)。
 export function bagHtml(
   progress, { mapOn = true, skyTime = 'live', hat = null, canPlace = null } = {},
 ) {
   const mine = ITEMS.filter((i) => owns(progress, i.id));
   if (!mine.length) return '<p>まだ何も持っていません。</p>';
-  const rows = mine.map((item) => {
+  const rowOf = (item) => {
     const body = item.id === 'islandMap' ? mapSwitchHtml(mapOn)
       : item.id === 'skyGlass' ? skyTimesHtml(skyTime)
       : isWear(item.id) ? wearSwitchHtml(item, hat)
@@ -359,8 +406,13 @@ export function bagHtml(
       <div class="shop-head"><span class="shop-icon">${item.icon}</span><b>${item.name}</b>${n}</div>
       ${body}
     </div>`;
+  };
+  // 持っている棚だけ見出しを出す ── 空の見出しを並べても場所を食うだけ
+  return SHELVES.map((s) => {
+    const got = mine.filter((i) => shelfOf(i.id) === s.id);
+    if (!got.length) return '';
+    return `<p class="shop-sec">${s.icon} ${s.label}</p>${got.map(rowOf).join('')}`;
   }).join('');
-  return rows;
 }
 
 // 島の飾り。**立っているところの少し前に置く** ── 携帯で置き場所を
@@ -377,7 +429,7 @@ function placeSwitchHtml(item, n, canPlace) {
 // かぶりもの。**いま着けている1つだけ**を光らせる ── 2つ同時にはかぶれない
 // ので、選び直すと前のものは自然に外れる。
 function wearSwitchHtml(item, worn) {
-  const on = worn === item.id;
+  const on = worn !== item.id;
   return `<p><small>${item.note ?? ''}${on ? ' いまかぶっています。' : ''}</small></p>
     <div class="row end"><button class="${on ? '' : 'primary'}"
       data-act="wear-hat:${on ? 'none' : item.id}">${on ? 'ぬぐ' : 'かぶる'}</button></div>`;

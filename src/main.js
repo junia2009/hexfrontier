@@ -16,7 +16,7 @@ import {
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
-import { buyItem, ITEMS, ITEM_BY_ID, owns } from './shop.js';
+import { buyItem, cleanShelf, ITEMS, ITEM_BY_ID, owns } from './shop.js';
 import { DECOR_BY_ID, placeSpot, whyCannotPlace } from './minigame/decor.js';
 import { bagHtml, fishbookHtml, questsHtml, storeHtml, recordsHtml } from './render/records.js';
 import { drawMinimap } from './render/minimap.js';
@@ -1426,9 +1426,13 @@ function toggleWalkMap() {
 }
 
 // 店の中。屋台の前でだけ開く(店番のひとこと + 売り物)
+//
+// **どの棚を見ているか・どの品を開いているかは、ここが覚える。**
+// 描き直すのは買うたびなので、描く側が覚えると棚が毎回先頭に戻る。
+let shopView = { shelf: 'tool', open: null };
 function renderShop() {
   const el = document.getElementById('walk-shop-body');
-  if (el) el.innerHTML = storeHtml(progress);
+  if (el) el.innerHTML = storeHtml(progress, shopView);
 }
 
 // 持ち物。島のどこでも開ける ── 見取り図も砂時計も、店の前まで戻らないと
@@ -3552,6 +3556,19 @@ document.addEventListener('click', (e) => {
     case 'walk-quests-close': setWalkQuests(false); return;
     case 'walk-bag': setWalkBag(true); return;
     case 'walk-bag-close': setWalkBag(false); return;
+    // 棚を選ぶ。開いていた説明は閉じる(別の棚の品を開いたままにしない)
+    case 'shop-shelf':
+      shopView = { shelf: cleanShelf(arg), open: null };
+      renderShop();
+      sfx.play('ui');
+      return;
+    // くわしい説明の開け閉め。**開くのは1つだけ** ── 全部開けられると、
+    // 棚で短くした意味が無くなる(もう一度押すと閉じる)
+    case 'shop-more':
+      shopView = { ...shopView, open: shopView.open === arg ? null : arg };
+      renderShop();
+      sfx.play('ui');
+      return;
     case 'shop-buy': {
       const r = buyItem(progress, arg);
       if (!r.ok) { walkNote(r.reason ?? '買えません'); return; }
@@ -3560,6 +3577,9 @@ document.addEventListener('click', (e) => {
       sfx.play('win');
       // 買ったものを即座に効かせる(次に投げるぶんから沖へ届く)
       applyOwned();
+      // 買い切った品は1行に畳んで下へ送られる。開いたままにすると
+      // 「開いている品」が畳んだ行と食い違う
+      shopView = { ...shopView, open: null };
       renderShop();
       walkNote(`🏪 ${ITEM_BY_ID[arg]?.name ?? 'それ'}を手に入れた`);
       return;

@@ -10,7 +10,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ITEMS, ITEM_BY_ID, buyItem, owns, priceOf, whyCannotBuy,
+  ITEMS, ITEM_BY_ID, SHELVES, SHELF_IDS, buyItem, buyableCount, cleanShelf, owns, priceOf,
+  shelfItems, shelfOf, shortDesc, soldOut, whyCannotBuy,
 } from '../src/shop.js';
 import { emptyProgress, parseProgress } from '../src/progress.js';
 import {
@@ -209,7 +210,7 @@ test('大会への申告: ガラクタと店の品の魚は 0cm', () => {
 
 test('店の画面: 買えないときは押せず、理由が出る', () => {
   const poor = { ...emptyProgress(), coins: 0 };
-  const html = shopHtml(poor);
+  const html = shopHtml(poor, { shelf: 'tool' });
   assert.match(html, /shop-buy:deepRod/, '買う口が無い');
   assert.match(html, /disabled/, '0枚なのに押せる');
   assert.match(html, /たりません/, '理由が出ていない');
@@ -217,21 +218,165 @@ test('店の画面: 買えないときは押せず、理由が出る', () => {
 
 test('店の画面: 買えるときは押せる。買ったあとは「持っています」', () => {
   const p = rich();
-  const can = shopHtml(p);
+  const can = shopHtml(p, { shelf: 'tool' });
   assert.doesNotMatch(can.match(/data-act="shop-buy:deepRod"[^>]*/)[0], /disabled/,
     '買えるのに押せない');
-  const after = shopHtml(buyItem(p, 'deepRod').progress);
+  const after = shopHtml(buyItem(p, 'deepRod').progress, { shelf: 'tool' });
   assert.match(after, /持っています/, '買ったのに表示が変わらない');
   assert.doesNotMatch(after, /shop-buy:deepRod/, '買ったのにまだ買う口が出ている');
 });
 
-test('店の画面: 手持ちと、売り物が全部出る', () => {
-  const html = shopHtml({ ...emptyProgress(), coins: 77 });
-  assert.match(html, /77/, '手持ちが出ていない');
-  for (const item of ITEMS) {
-    assert.ok(html.includes(item.name), `${item.id}: 並んでいない`);
-    assert.ok(html.includes(String(item.price)), `${item.id}: 値段が出ていない`);
+test('店の画面: 手持ちと、その棚の売り物が全部出る', () => {
+  for (const shelf of SHELVES) {
+    const html = shopHtml({ ...emptyProgress(), coins: 77 }, { shelf: shelf.id });
+    assert.match(html, /手持ち[^<]*<b>77<\/b>/, `${shelf.id}: 手持ちが出ていない`);
+    for (const item of shelf.items) {
+      assert.ok(html.includes(item.name), `${item.id}: 並んでいない`);
+      assert.ok(html.includes(String(item.price)), `${item.id}: 値段が出ていない`);
+    }
   }
+});
+
+// ---- 棚(「何でも屋で見にくい」を直したときの決めごと)----
+//
+// 13品を1本の列に積むと、携帯(390×844)で **4.64画面ぶん**あった(実測)。
+// 下まで行くと手持ちの銀貨も棚の見出しも画面の外で、道具と見た目の品が
+// 同じ札で混ざっていた。ここから下は、そのときに入れた約束の番人。
+
+test('棚: 売り物はどれか1つの棚にだけ入る', () => {
+  assert.equal(SHELVES.length, 3);
+  const seen = new Set();
+  for (const s of SHELVES) {
+    assert.ok(s.icon && s.label && s.note, `${s.id}: 見出しが足りない`);
+    assert.ok(s.items.length > 0, `${s.id}: 空の棚`);
+    for (const item of s.items) {
+      assert.equal(seen.has(item.id), false, `${item.id}: 2つの棚に出ている`);
+      seen.add(item.id);
+      assert.equal(shelfOf(item.id), s.id, `${item.id}: shelfOf が違う棚を返す`);
+    }
+  }
+  // **売り物を足して棚に入れ忘れると、店から消える。** ここで捕まえる
+  assert.equal(seen.size, ITEMS.length, '棚に入っていない売り物がある');
+  assert.deepEqual(SHELF_IDS, SHELVES.map((s) => s.id));
+  assert.equal(shelfOf('しらないしな'), null);
+});
+
+test('棚: 知らない棚は最初の棚に倒す', () => {
+  assert.equal(cleanShelf('wear'), 'wear');
+  for (const bad of [null, undefined, '', 'みらいのたな', 3, {}]) {
+    assert.equal(cleanShelf(bad), SHELVES[0].id, `${String(bad)} で落ちている`);
+  }
+});
+
+// **見ている棚のものだけ出す。** これが崩れると 4.64 画面に戻る
+test('店の画面: 選んだ棚の品だけが出る', () => {
+  const p = rich(9999);
+  for (const s of SHELVES) {
+    const html = shopHtml(p, { shelf: s.id });
+    for (const other of SHELVES) {
+      if (other.id === s.id) continue;
+      for (const item of other.items) {
+        assert.equal(html.includes(`shop-buy:${item.id}`), false,
+          `${s.id} の棚に ${item.id}(${other.id} の棚)が出ている`);
+      }
+    }
+    // 棚を選ぶ口は3つとも出ている(でないと別の棚へ行けない)
+    for (const t of SHELVES) assert.match(html, new RegExp(`shop-shelf:${t.id}`));
+  }
+});
+
+// **上から順に「いま手が届くもの」。** 買った品が真ん中に居座ると、
+// まだ買えるものを探すのに毎回そこを読み飛ばすことになる
+test('棚の並び: 安い順。買い切った品は下', () => {
+  const p = rich(9999);
+  const prices = shelfItems('tool', p).map((i) => i.price);
+  assert.deepEqual(prices, [...prices].sort((a, b) => a - b), '安い順になっていない');
+  // いちばん安いものを買うと、それが最後に回る
+  const cheap = shelfItems('tool', p)[0];
+  const after = shelfItems('tool', buyItem(p, cheap.id).progress);
+  assert.equal(after.at(-1).id, cheap.id, '買った品が下へ送られていない');
+  assert.equal(soldOut(buyItem(p, cheap.id).progress, cheap.id), true);
+  // **飾りは何個でも買えるので、買っても下へ送らない**(まだ買えるものだから)
+  const d = shelfItems('decor', p)[0];
+  const bought = buyItem(p, d.id).progress;
+  assert.equal(soldOut(bought, d.id), false, '飾りが「買い切り」扱いになっている');
+  assert.equal(shelfItems('decor', bought)[0].id, d.id, '飾りが下へ送られた');
+});
+
+test('棚: 買える数が出る。買えないときは出さない', () => {
+  const broke = { ...emptyProgress(), coins: 0 };
+  for (const s of SHELVES) assert.equal(buyableCount(broke, s.id), 0, `${s.id}: 0枚で買える`);
+  assert.doesNotMatch(shopHtml(broke, { shelf: 'tool' }), /shop-cnt/, '0なのに数が出ている');
+  // 道具のいちばん安いものだけ買える額
+  const tools = shelfItems('tool', broke);
+  const p = { ...emptyProgress(), coins: tools[0].price };
+  assert.equal(buyableCount(p, 'tool'), 1);
+  assert.match(shopHtml(p, { shelf: 'tool' }), /shop-cnt">1</, '買える数が出ていない');
+  // 買い切ったら数から抜ける
+  assert.equal(buyableCount(buyItem(p, tools[0].id).progress, 'tool'), 0,
+    '買ったのにまだ「買える」と数えている');
+});
+
+// **くわしい説明は押したときだけ。** 全部の説明をいつも開いておくと、
+// 棚で短くした意味が無くなる
+test('店の画面: くわしい説明は開いた1つだけ', () => {
+  const p = rich(9999);
+  const shut = shopHtml(p, { shelf: 'tool' });
+  const item = ITEM_BY_ID.deepRod;
+  assert.equal(shut.includes(item.desc), false, '閉じているのに長い説明が出ている');
+  assert.ok(shut.includes(shortDesc(item)), '短い説明が出ていない');
+  assert.match(shut, /shop-more:deepRod/, '開く口が無い');
+  const open = shopHtml(p, { shelf: 'tool', open: 'deepRod' });
+  assert.ok(open.includes(item.desc), '開いても長い説明が出ない');
+  assert.ok(open.includes(item.note), '開いても注意書きが出ない');
+  // **開いている札はちょうど1つ。** 短い説明が desc と丸ごと同じ品もある
+  // (説明が短い品)ので、文字で数えると数えそこなう ── 開いた札の数で見る
+  assert.equal((shut.match(/shop-detail/g) ?? []).length, 0, '何も押していないのに開いている');
+  assert.equal((open.match(/shop-detail/g) ?? []).length, 1, '開いている札が1つではない');
+  assert.equal((open.match(/aria-expanded="true"/g) ?? []).length, 1);
+});
+
+// **短い説明は desc をそのまま切って使う。** 短い版を別に書くと、
+// 必ず片方だけ直されてずれる(値段を hats.js と shop.js に別々に書かないのと同じ)。
+//
+// 30字は**実測の上限**。札の説明の欄は幅 177px・2行までで、1行におよそ
+// 15字入る。超えたぶんは黙って切れる(「漁師の手帳」が33字で1行ぶん切れていた)。
+test('短い説明: desc を切ったもの。札の2行に収まる長さ', () => {
+  for (const item of ITEMS) {
+    const s = shortDesc(item);
+    assert.ok(item.desc.startsWith(s), `${item.id}: desc と食い違う`);
+    assert.ok(s.length > 0, `${item.id}: 空`);
+    assert.ok(s.length <= 30, `${item.id}: 札の2行に収まらない(${s.length}字)「${s}」`);
+  }
+  // 短ければ丸ごと。**最初の一文だけにすると、飾りが名前の繰り返しになる**
+  // (「木のベンチ。」── 効きめは2文目に書いてある)
+  assert.equal(shortDesc({ desc: '木のベンチ。島のすきな場所に置けます。' }),
+    '木のベンチ。島のすきな場所に置けます。', '短いのに切られた');
+  // 長ければ最初の一文
+  const long = 'あいうえおかきくけこさしすせそ。たちつてとなにぬねの。はひふへほ。';
+  assert.equal(shortDesc({ desc: long }), 'あいうえおかきくけこさしすせそ。');
+  // 境目ちょうど(30字)は丸ごと。31字から切る ── 故障注入で
+  // 「<= を < に」しても誰も落ちなかったので足した
+  const n30 = `${'あ'.repeat(19)}。${'い'.repeat(10)}`;
+  assert.equal(n30.length, 30);
+  assert.equal(shortDesc({ desc: n30 }), n30, 'ちょうど30字が切られた');
+  assert.equal(shortDesc({ desc: `${n30}う` }), `${'あ'.repeat(19)}。`, '31字が切られていない');
+  // 「。」が無ければ、長くても丸ごと返す(切りどころが無い)
+  assert.equal(shortDesc({ desc: 'あ'.repeat(50) }), 'あ'.repeat(50));
+  assert.equal(shortDesc({ desc: '一文だけ' }), '一文だけ', '。が無いと空になる');
+  assert.equal(shortDesc(null), '');
+});
+
+// **値段は消さない。** 足りないときに値段を「あと◯枚」に置き換えると、
+// 品くらべ(どれが高いのか)ができなくなる
+test('店の画面: 足りないときも値段は出る。足りない数は別に出す', () => {
+  const rod = ITEM_BY_ID.deepRod;
+  const html = shopHtml({ ...emptyProgress(), coins: rod.price - 100 }, { shelf: 'tool' });
+  assert.ok(html.includes(String(rod.price)), '足りないと値段が消えている');
+  assert.match(html, /shop-lack">あと100枚/, '足りない数が出ていない');
+  // 足りていれば出さない
+  assert.doesNotMatch(shopHtml(rich(9999), { shelf: 'tool' }), /shop-lack/,
+    '買えるのに「あと」が出ている');
 });
 
 test('店: 売り物の定義がそろっている', () => {
@@ -328,6 +473,27 @@ test('店の中: 店主のひとことは、手持ちと買ったもので変わ
   let p = { ...emptyProgress(), coins: 99999 };
   for (const item of ITEMS) p = buyItem(p, item.id).progress;
   assert.match(storeHtml(p), /全部あんたのもん/, '全部買った人へのひとことになっていない');
+});
+
+// **買うときと使うときで並びを揃える。** 違うと、さっき買ったものが
+// どこにあるか分からなくなる。故障注入で「棚の振り分けをひっくり返しても
+// 誰も落ちない」と出たので足した。
+test('持ち物: 店と同じ棚で仕切る。持っていない棚の見出しは出さない', () => {
+  const p = { ...rich(9999), owned: { deepRod: true, crown: true }, stock: { bench: 1 } };
+  const html = bagHtml(p);
+  // 見出しは棚の順(道具 → かぶりもの → 飾り)。品はその見出しの下に来る
+  const at = (s) => html.indexOf(s);
+  assert.ok(at('道具') >= 0 && at('かぶりもの') >= 0 && at('島の飾り') >= 0, '見出しが無い');
+  assert.ok(at('道具') < at('深場の竿'), '道具が「道具」の見出しの上にある');
+  assert.ok(at('深場の竿') < at('かぶりもの'), '道具がかぶりものの棚に入っている');
+  assert.ok(at('かぶりもの') < at('王かんむり'), 'かぶりものが見出しの上にある');
+  assert.ok(at('王かんむり') < at('島の飾り'), 'かぶりものが飾りの棚に入っている');
+  assert.ok(at('島の飾り') < at('ベンチ'), '飾りが見出しの上にある');
+  // 持っていない棚の見出しは出さない(空の見出しは場所を食うだけ)
+  const only = bagHtml({ ...rich(), owned: { deepRod: true } });
+  assert.ok(only.includes('道具'), '持っている棚の見出しが無い');
+  assert.equal(only.includes('かぶりもの'), false, '何も持っていない棚の見出しが出ている');
+  assert.equal(only.includes('島の飾り'), false, '何も持っていない棚の見出しが出ている');
 });
 
 test('持ち物: 買った品だけが並ぶ', () => {
