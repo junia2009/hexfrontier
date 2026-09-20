@@ -10,13 +10,10 @@
 import * as THREE from 'three';
 import { WALK_SCALE } from './scale.js';
 import { makeSignFace } from './desk.js';
-
-const HALF = 0.26;        // 板の横はば(半分)
-const HEAD_H = 0.13;      // 見出しの板の高さ
-const BOARD_H = 0.26;     // 貼り紙を留める板の高さ
-const POST_H = 0.62;      // 柱の高さ(見出しの板の上端まで)
-const PAPER = 3;          // 貼ってある紙の枚数
-const FLAP_SEC = 2.6;     // 紙がめくれる周期(秒)
+import {
+  BOARD_H, HALF, HEAD_H, PANEL_D, PANEL_Z, PAPER, PAPER_H, PAPER_W, PAPER_Z,
+  POST_BURY, POST_H, POST_TOP, flapAngle,
+} from './notice-fit.js';
 
 export function makeNoticeBoard(scene, x, z, groundY, facing = 0) {
   const g = new THREE.Group();
@@ -27,16 +24,25 @@ export function makeNoticeBoard(scene, x, z, groundY, facing = 0) {
   const wood = new THREE.MeshStandardMaterial({ color: 0x8a5a32, roughness: 0.85 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x4a3a24, roughness: 0.8 });
   const cork = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.95 });
+  // 紙は板の上に**貼ってある**ので、深さの争いでは必ず紙が勝つようにする。
+  // 隙間(notice-fit.js の PAPER_Z)だけでも足りるはずだが、奥行きの
+  // ビット数は端末まかせ ── 手元は24ビットで出なかったのに実機で出た。
   const paperMat = new THREE.MeshStandardMaterial({
-    color: 0xfaf0d8, roughness: 0.95, side: THREE.DoubleSide,
+    color: 0xfaf0d8,
+    roughness: 0.95,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -4,
   });
 
-  // 柱2本。地面に刺さるぶんだけ下へ伸ばす(浮いて見えないように)
+  // 柱2本。地面に刺さるぶんだけ下へ伸ばす(浮いて見えないように)。
+  // 上端は見出しの板の中へ埋める(notice-fit.js の POST_TOP)
   for (const sx of [-1, 1]) {
     const post = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.028, 0.032, POST_H + 0.12, 7), dark,
+      new THREE.CylinderGeometry(0.028, 0.032, POST_TOP + POST_BURY, 7), dark,
     );
-    post.position.set(sx * (HALF - 0.015), (POST_H - 0.12) / 2, 0);
+    post.position.set(sx * (HALF - 0.015), (POST_TOP - POST_BURY) / 2, 0);
     post.castShadow = true;
     g.add(post);
   }
@@ -52,8 +58,8 @@ export function makeNoticeBoard(scene, x, z, groundY, facing = 0) {
   g.add(head);
 
   // 貼り紙を留める板。ここに紙を貼る
-  const panel = new THREE.Mesh(new THREE.BoxGeometry(HALF * 2, BOARD_H, 0.025), cork);
-  panel.position.set(0, POST_H - HEAD_H - BOARD_H / 2 - 0.005, 0.008);
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(HALF * 2, BOARD_H, PANEL_D), cork);
+  panel.position.set(0, POST_H - HEAD_H - BOARD_H / 2 - 0.005, PANEL_Z);
   panel.receiveShadow = true;
   g.add(panel);
 
@@ -70,9 +76,9 @@ export function makeNoticeBoard(scene, x, z, groundY, facing = 0) {
   const paperY = panel.position.y + BOARD_H / 2 - 0.03;
   for (let i = 0; i < PAPER; i += 1) {
     const pin = new THREE.Group();
-    pin.position.set((i - (PAPER - 1) / 2) * 0.155, paperY, 0.022);
-    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(0.115, 0.14), paperMat);
-    sheet.position.y = -0.07;
+    pin.position.set((i - (PAPER - 1) / 2) * 0.155, paperY, PAPER_Z);
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(PAPER_W, PAPER_H), paperMat);
+    sheet.position.y = -PAPER_H / 2;
     pin.add(sheet);
     g.add(pin);
     papers.push(pin);
@@ -84,12 +90,8 @@ export function makeNoticeBoard(scene, x, z, groundY, facing = 0) {
     group: g,
     // near: そばに立っているか。t: 通しの秒数
     update(t, { near = false } = {}) {
-      for (const [i, p] of papers.entries()) {
-        // 離れているときはほとんど動かさない ── ずっと揺れていると、
-        // 遠くからでも気が散る
-        const k = near ? 1 : 0.18;
-        p.rotation.x = Math.sin((t / FLAP_SEC) * Math.PI * 2 + i * 1.7) * 0.3 * k;
-      }
+      // めくれ角は notice-fit.js が決める(手前へ片側だけ。離れていれば小さく)
+      for (const [i, p] of papers.entries()) p.rotation.x = flapAngle(t, i, near);
     },
     dispose() {
       g.removeFromParent();
