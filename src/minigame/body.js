@@ -957,13 +957,17 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
 //
 // **頭(head)に付ける。** 首を振ると一緒に動く ── 胴に付けると、
 // うつむいたときに帽子だけ空に残る(耳と同じ理由)。
+// 頭は横幅と前後を潰してある(headW / 0.96)ので、子の帽子もその形に
+// ならう ── 細い顔には細い帽子が載る。
 //
-// 寸法は全部 headR に対する割合。すがたごとに頭の大きさが違うので、
-// 絶対値で書くと、ねこに合わせるとドラゴンで浮く。
+// **どの帽子も「下端が y=0」になるように組む。** 載せる高さは hats.js の
+// sit(頭の中心 0、てっぺん 1)1か所で決める ── 組み立てのほうにも高さを
+// 書くと、片方だけ動かしたときに浮く。
 //
-// **載せる高さは「頭のてっぺん + すがたの出っぱり」。** 角やもこもこで
-// 背が伸びるすがた(sp.top)があるので、そこを見ないと角に帽子が刺さる。
-export function makeHat(hatId, p, top = 0) {
+// **すがたの出っぱり(species.js の top)は足さない。** 耳や角のぶん
+// 持ち上げていたころ、耳の高いきつねとドラゴンだけ帽子が頭から浮いていた。
+// 耳や角は帽子を突き抜けてよい ── 突き抜けを避けようとすると必ず浮く。
+export function makeHat(hatId, p) {
   const h = HAT_BY_ID[hatId];
   if (!h) return null;
   const g = new THREE.Group();
@@ -972,74 +976,74 @@ export function makeHat(hatId, p, top = 0) {
   const acc = new THREE.MeshStandardMaterial({ color: h.accent, roughness: 0.6 });
 
   if (h.kind === 'brim' || h.kind === 'cone') {
-    // つば。頭にかぶせるので、頭のてっぺんより少し下から始める
+    // つば。厚み 0.06r で、下端が 0 に来るように置く
+    const brimH = 0.06;
     const brim = new THREE.Mesh(
-      new THREE.CylinderGeometry(r * h.brim, r * h.brim, r * 0.06, 20), main,
+      new THREE.CylinderGeometry(r * h.brim, r * h.brim, r * brimH, 20), main,
     );
-    brim.position.y = r * 0.62;
+    brim.position.y = r * (brimH / 2);
     brim.castShadow = true;
     g.add(brim);
     if (h.kind === 'brim') {
       const crown = new THREE.Mesh(
         new THREE.CylinderGeometry(r * 0.82, r * 0.98, r * h.crown, 16), main,
       );
-      crown.position.y = r * (0.62 + h.crown / 2);
+      crown.position.y = r * (brimH + h.crown / 2);
       crown.castShadow = true;
       g.add(crown);
       // リボン。麦わらの山の根元に巻く
       const band = new THREE.Mesh(
         new THREE.CylinderGeometry(r * 1.0, r * 1.0, r * 0.18, 16), acc,
       );
-      band.position.y = r * 0.72;
+      band.position.y = r * (brimH + 0.1);
       g.add(band);
     } else {
       const cone = new THREE.Mesh(new THREE.ConeGeometry(r * 0.95, r * h.crown, 16), main);
-      cone.position.y = r * (0.62 + h.crown / 2);
+      cone.position.y = r * (brimH + h.crown / 2);
       cone.rotation.z = -0.12;          // 少し傾けると生きた形に見える
       cone.castShadow = true;
       g.add(cone);
       // 先の星。小さな八面体で足りる
       const star = new THREE.Mesh(new THREE.OctahedronGeometry(r * 0.19), acc);
-      star.position.set(r * -0.2, r * (0.62 + h.crown), 0);
+      star.position.set(r * -0.2, r * (brimH + h.crown), 0);
       g.add(star);
     }
   } else if (h.kind === 'wreath') {
-    // 花かんむり。つるの輪に花を並べる
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(r * 0.92, r * 0.08, 6, 16), main,
-    );
+    // 花かんむり。つるの輪に花を並べる。輪の太さぶん持ち上げて下端を 0 に
+    const tube = 0.08;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 0.92, r * tube, 6, 16), main);
     ring.rotation.x = Math.PI / 2;
-    ring.position.y = r * 0.66;
+    ring.position.y = r * tube;
     g.add(ring);
     for (let i = 0; i < h.petals; i += 1) {
       const a = (i / h.petals) * Math.PI * 2;
       const f = new THREE.Mesh(new THREE.SphereGeometry(r * 0.16, 8, 6), acc);
       f.scale.y = 0.6;
-      f.position.set(Math.cos(a) * r * 0.92, r * 0.72, Math.sin(a) * r * 0.92);
+      f.position.set(Math.cos(a) * r * 0.92, r * (tube + 0.06), Math.sin(a) * r * 0.92);
       g.add(f);
     }
   } else if (h.kind === 'crown') {
-    // **頭のてっぺんより上に出すこと。** 頭の球は半径 r なので、帯を 0.78r に
-    // 置くと頭の面に沿って埋まり、遠目には金の線にしか見えなかった。
     const ring = r * 0.86;
+    const bandH = 0.34;
     const band = new THREE.Mesh(
-      new THREE.CylinderGeometry(ring, ring, r * 0.34, 18, 1, true), main,
+      new THREE.CylinderGeometry(ring, ring, r * bandH, 18, 1, true), main,
     );
-    band.position.y = r * 0.86;
+    band.position.y = r * (bandH / 2);
     band.castShadow = true;
     g.add(band);
     for (let i = 0; i < h.spikes; i += 1) {
       const a = (i / h.spikes) * Math.PI * 2;
-      const sp = new THREE.Mesh(new THREE.ConeGeometry(r * 0.2, r * 0.58, 5), main);
-      sp.position.set(Math.cos(a) * ring, r * 1.32, Math.sin(a) * ring);
+      const sp = new THREE.Mesh(new THREE.ConeGeometry(r * 0.2, r * 0.5, 5), main);
+      sp.position.set(Math.cos(a) * ring, r * (bandH + 0.25), Math.sin(a) * ring);
       sp.castShadow = true;
       g.add(sp);
       const gem = new THREE.Mesh(new THREE.OctahedronGeometry(r * 0.12), acc);
-      gem.position.set(Math.cos(a) * ring * 1.06, r * 0.9, Math.sin(a) * ring * 1.06);
+      gem.position.set(Math.cos(a) * ring * 1.06, r * (bandH / 2), Math.sin(a) * ring * 1.06);
       g.add(gem);
     }
   }
-  g.position.y = top;
+  // 下端を頭の sit の高さへ。**ここが唯一の高さの決めごと**
+  g.position.y = r * h.sit;
   return g;
 }
 
@@ -1057,7 +1061,7 @@ export function setHat(parts, hatId, species = null) {
   }
   const sp = species ?? speciesById(DEFAULT_SPECIES);
   const p = { ...CUTE, ...(sp.props ?? {}) };
-  const g = makeHat(hatId, p, sp.top ?? 0);
+  const g = makeHat(hatId, p);
   if (!g) return null;
   parts.head.add(g);
   parts.hat = g;

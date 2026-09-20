@@ -30,6 +30,22 @@ test('かぶりもの: 表がそろっている', () => {
   assert.equal(HAT_BY_ID[HATS[0].id], HATS[0]);
 });
 
+// **これが「浮いた帽子」を二度とやらないための番人。**
+//
+// sit は帽子の下端が頭のどこに来るか(頭の中心 0、てっぺん 1)。
+// 1 以上だと頭に載らず宙に浮く ── 耳や角のぶん(species.js の top)を
+// 足して持ち上げていたころ、耳の高いきつねとドラゴンだけ 32 通り中 8 通りで
+// 帽子が頭から浮いていた(実測、最大 1.3cm。「被り物が浮いてる」と報告された)。
+test('かぶりもの: どれも頭に載る(宙に浮かない)', () => {
+  for (const h of HATS) {
+    assert.equal(typeof h.sit, 'number', `${h.id}: sit が無い`);
+    assert.ok(h.sit < 1, `${h.id}: 頭のてっぺんより上に置いている(浮く) sit=${h.sit}`);
+    // 低すぎると顔まで飲み込む。頭の上半分に収める
+    assert.ok(h.sit >= 0.4, `${h.id}: 深くかぶりすぎ(顔が隠れる) sit=${h.sit}`);
+    assert.ok(h.sit <= 0.8, `${h.id}: 浅すぎて引っかかりが無い sit=${h.sit}`);
+  }
+});
+
 // **店は1か所。** 値段と説明を hats.js と shop.js に別々に書くと必ずずれる。
 test('かぶりもの: 店の並びは hats.js をそのまま読む', () => {
   assert.equal(HAT_ITEMS.length, HATS.length);
