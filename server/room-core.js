@@ -11,6 +11,7 @@ import { chooseAction } from '../src/ai/cpu-player.js';
 import { totalCards } from '../src/rules/build.js';
 import { WALK_SEATS } from '../src/minigame/remote-st.js';
 import { cleanSpecies, DEFAULT_SPECIES } from '../src/minigame/species.js';
+import { cleanHat } from '../src/minigame/hats.js';
 
 export const MAX_SEATS = 4;
 // 散策部屋(同じ島をみんなで歩く)は対戦の席数に縛られないので多めに取る。
@@ -126,7 +127,7 @@ export class RoomCore {
   // 参加(再接続なら元の席に戻る)
   // look: 散策部屋での「すがた」(species.js の番号)。名前と同じく
   // 変わらない値なので、位置とは別に名簿へ乗せる(毎フレーム送らない)。
-  join({ clientId, name, look }) {
+  join({ clientId, name, look, hat }) {
     if (!clientId) return { error: '不正な参加者です' };
     this.touch();
     const existing = this.seatOf(clientId);
@@ -134,6 +135,7 @@ export class RoomCore {
       this.seats[existing].online = true;
       if (name) this.seats[existing].name = sanitizeName(name, this.seats[existing].name);
       if (look != null) this.seats[existing].look = cleanSpecies(look);
+      if (hat !== undefined) this.seats[existing].hat = cleanHat(hat);
       if (this.hostId == null) this.hostId = clientId;
       return { seat: existing, rejoined: true };
     }
@@ -144,6 +146,9 @@ export class RoomCore {
       clientId,
       name: sanitizeName(name, `プレイヤー${seat + 1}`),
       look: look == null ? DEFAULT_SPECIES : cleanSpecies(look),
+      // かぶりもの(店で買う見た目の品。hats.js)。すがたと同じ扱いで
+      // 名簿に乗せる ── 毎フレーム送る値ではない
+      hat: cleanHat(hat),
       online: true,
     };
     if (this.hostId == null) this.hostId = clientId;
@@ -151,12 +156,15 @@ export class RoomCore {
   }
 
   // すがたを変える。島に入ったあとでも変えてよい(相手の画面で作り直される)
-  setLook(clientId, look) {
+  setLook(clientId, look, hat) {
     const seat = this.seatOf(clientId);
     if (seat < 0) return { error: '席がありません' };
     this.seats[seat].look = cleanSpecies(look);
+    // hat を送ってこない古い版の相手もいる。**undefined は「変えない」**
+    // (null は「ぬいだ」なので、ここを ?? でまとめると脱げなくなる)
+    if (hat !== undefined) this.seats[seat].hat = cleanHat(hat);
     this.touch();
-    return { seat, look: this.seats[seat].look };
+    return { seat, look: this.seats[seat].look, hat: this.seats[seat].hat ?? null };
   }
 
   // 切断。対戦中は席を残し(再接続で復帰)、ロビーなら席を空ける。
@@ -326,6 +334,7 @@ export class RoomCore {
         seat: i,
         name: s ? s.name : null,
         look: s ? (s.look ?? DEFAULT_SPECIES) : DEFAULT_SPECIES,
+        hat: s ? (s.hat ?? null) : null,
         online: s ? s.online : false,
         occupied: !!s,
       })),

@@ -12,7 +12,7 @@ import {
 import { MODES, achievementCount, fishbookCount, summarize, winRate } from '../progress.js';
 import { FISH, isGated, placeLabel, portLabel } from '../minigame/fish.js';
 import { COIN_ICON, COIN_JP } from '../rewards.js';
-import { ITEMS, owns, whyCannotBuy } from '../shop.js';
+import { HAT_ITEMS, ITEMS, TOOL_IDS, isWear, owns, whyCannotBuy } from '../shop.js';
 import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
 import { dayLabel, questWhere } from '../quests.js';
 
@@ -249,9 +249,9 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
 //
 // 買えるもの・値段・持っているかを並べるだけ。買う判断は shop.js が持つので、
 // ここは whyCannotBuy が返した理由をそのまま出す(理由を2か所で書かない)。
-export function shopHtml(progress) {
-  const coins = progress.coins ?? 0;
-  const rows = ITEMS.map((item) => {
+// 売り物1つぶん。道具もかぶりものも同じ形で並べる
+function shopRows(list, progress) {
+  return list.map((item) => {
     const has = owns(progress, item.id);
     const why = has ? null : whyCannotBuy(progress, item.id);
     const btn = has
@@ -266,8 +266,19 @@ export function shopHtml(progress) {
       <div class="row end">${why && !has ? `<small>${why}</small>` : ''}${btn}</div>
     </div>`;
   }).join('');
+}
+
+// **道具とかぶりものを分けて並べる。** 混ぜると「遊びかたが増える品」と
+// 「見た目だけの品」が見分けられず、見た目を買ったのに何も起きないと
+// 思われる(値段だけ見て買う人がいちばん困る)。
+export function shopHtml(progress) {
+  const coins = progress.coins ?? 0;
+  const tools = ITEMS.filter((i) => TOOL_IDS.includes(i.id));
   return `<p class="shop-purse">手持ち ${COIN_ICON} <b>${coins}</b></p>
-    ${rows}
+    <p class="shop-sec">🧰 道具 <small>できることが増えます</small></p>
+    ${shopRows(tools, progress)}
+    <p class="shop-sec">👒 かぶりもの <small>見た目だけ。遊びは変わりません</small></p>
+    ${shopRows(HAT_ITEMS, progress)}
     <p><small>遊びの結果で銀貨がたまります。売り物は増えていきます。</small></p>`;
 }
 
@@ -323,12 +334,13 @@ export function questsHtml(board, { now = Date.now(), here = null } = {}) {
 }
 
 // 持ち物。使い道のある品は、ここで使う
-export function bagHtml(progress, { mapOn = true, skyTime = 'live' } = {}) {
+export function bagHtml(progress, { mapOn = true, skyTime = 'live', hat = null } = {}) {
   const mine = ITEMS.filter((i) => owns(progress, i.id));
   if (!mine.length) return '<p>まだ何も持っていません。</p>';
   const rows = mine.map((item) => {
     const body = item.id === 'islandMap' ? mapSwitchHtml(mapOn)
       : item.id === 'skyGlass' ? skyTimesHtml(skyTime)
+      : isWear(item.id) ? wearSwitchHtml(item, hat)
       : `<p><small>${item.note ?? ''}</small></p>`;
     return `<div class="bag-row">
       <div class="shop-head"><span class="shop-icon">${item.icon}</span><b>${item.name}</b></div>
@@ -336,6 +348,15 @@ export function bagHtml(progress, { mapOn = true, skyTime = 'live' } = {}) {
     </div>`;
   }).join('');
   return rows;
+}
+
+// かぶりもの。**いま着けている1つだけ**を光らせる ── 2つ同時にはかぶれない
+// ので、選び直すと前のものは自然に外れる。
+function wearSwitchHtml(item, worn) {
+  const on = worn === item.id;
+  return `<p><small>${item.note ?? ''}${on ? ' いまかぶっています。' : ''}</small></p>
+    <div class="row end"><button class="${on ? '' : 'primary'}"
+      data-act="wear-hat:${on ? 'none' : item.id}">${on ? 'ぬぐ' : 'かぶる'}</button></div>`;
 }
 
 // 島の砂時計。選んだ時刻は光らせる(いまどれを選んでいるか分かるように)

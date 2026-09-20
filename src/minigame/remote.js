@@ -39,7 +39,8 @@ export class RemoteWalkers {
   constructor({ delay = DELAY_MS, gone = GONE_MS } = {}) {
     this.delay = delay;
     this.goneMs = gone;
-    this.seats = new Map(); // seat -> { name, look, buf: [{t, x, z, y, f, st, em}] }
+    // seat -> { name, look, hat, buf: [{t, x, z, y, f, st, em}] }
+    this.seats = new Map();
   }
 
   // 名簿(名前とすがた)。位置と違って変わらない値なので、
@@ -47,14 +48,19 @@ export class RemoteWalkers {
   setNames(seats) {
     this.names = new Map();
     this.looks = new Map();
+    // かぶりものは **null が「ぬいだ」** なので ?? でまとめられない。
+    // 名簿に席があったかどうかで見る
+    this.hats = new Map();
     for (const s of seats ?? []) {
       if (!s) continue;
       if (s.name) this.names.set(s.seat, s.name);
       if (s.look) this.looks.set(s.seat, s.look);
+      this.hats.set(s.seat, s.hat ?? null);
     }
     for (const [seat, e] of this.seats) {
       e.name = this.names.get(seat) ?? e.name;
       e.look = this.looks.get(seat) ?? e.look;
+      if (this.hats.has(seat)) e.hat = this.hats.get(seat);
     }
   }
 
@@ -71,6 +77,7 @@ export class RemoteWalkers {
         e = {
           name: this.names?.get(seat) ?? null,
           look: this.looks?.get(seat) ?? null,
+          hat: this.hats?.get(seat) ?? null,
           buf: [],
         };
         this.seats.set(seat, e);
@@ -112,7 +119,8 @@ export class RemoteWalkers {
       if (!c) {
         // まだ次が来ていない。最後の姿で止める(勝手に進めると行き過ぎる)
         out.push({
-          seat, name: e.name, look: e.look, x: a.x, z: a.z, y: a.y, facing: a.f,
+          seat, name: e.name, look: e.look, hat: e.hat ?? null,
+          x: a.x, z: a.z, y: a.y, facing: a.f,
           st: a.st, emote: a.em, speed: 0,
         });
         continue;
@@ -127,6 +135,7 @@ export class RemoteWalkers {
         seat,
         name: e.name,
         look: e.look,
+        hat: e.hat ?? null,
         x,
         z,
         y: lerp(a.y, c.y, k),

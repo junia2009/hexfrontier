@@ -222,7 +222,7 @@ export class RoomDO {
 
     // すがたを変えた。名簿を配り直せば、みんなの画面で体が作り直される
     if (msg.t === 'look') {
-      const res = room.setLook(clientId, msg.look);
+      const res = room.setLook(clientId, msg.look, msg.hat);
       if (res.error) return this.send(ws, { t: 'error', msg: res.error });
       this.broadcastLobby();
       return this.save();

@@ -63,10 +63,12 @@ export class NetClient {
 
   // kind: 'game'(対戦)/ 'walk'(散策)。まだ無い部屋を作るときにだけ効く
   // look: 散策部屋での「すがた」。名前と同じく、繋いだときに一度だけ送る
-  connect(code, name, kind = 'game', look = null) {
+  // hat: かぶりもの(店の品)。look と同じ扱い
+  connect(code, name, kind = 'game', look = null, hat = null) {
     this.code = code;
     this.name = name;
     this.look = look;
+    this.hat = hat;
     this.kind = kind === 'walk' ? 'walk' : 'game';
     this.closedByUs = false;
     this._open();
@@ -86,7 +88,8 @@ export class NetClient {
     ws.addEventListener('open', () => {
       this.retry = 0;
       ws.send(JSON.stringify({
-        t: 'hello', clientId: clientId(), name: this.name, look: this.look ?? undefined,
+        t: 'hello', clientId: clientId(), name: this.name,
+        look: this.look ?? undefined, hat: this.hat ?? null,
       }));
       clearInterval(this.pingTimer);
       this.pingTimer = setInterval(() => this.send({ t: 'ping' }), PING_MS);
@@ -181,9 +184,10 @@ export class NetClient {
   // 散策部屋: 自分の位置。届かなくても次が来るので、送れなければ黙って捨てる
   // (取りこぼしを再送すると、古い位置で上書きしてしまう)。
   // すがたを変える。再接続したときも同じ姿で戻れるよう覚えておく
-  setLook(look) {
+  setLook(look, hat = this.hat ?? null) {
     this.look = look;
-    return this.send({ t: 'look', look });
+    this.hat = hat ?? null;
+    return this.send({ t: 'look', look, hat: this.hat });
   }
 
   // 釣り大会。do は 'enter' / 'leave' / 'start' / 'land'

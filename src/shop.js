@@ -18,9 +18,19 @@
 // 大会のあいだは、店の品で開くものを全部閉じる(fish.js の fishGates)。
 // 大会は港の昼に固定 ── 払った人だけが大きい魚を申告できる形にしない。
 //
+// **5つめは「見た目は別枠」。** 上の3つは「遊びに効くものを売らない」ための
+// 線引きで、**遊びに1ミリも効かないもの**まで断る理由はない。かぶりもの
+// (hats.js)は頭に載るだけで、釣果も勝敗も実績も一切動かさない ──
+// そして道具と違って**いくつ足しても釣り合いが崩れない**ので、
+// 買い切ったあとの銀貨の行き先になる。道具5品(1220枚)だけだと、
+// 1〜2時間で全部買えてそこで銀貨が死ぬ。
+//
 // 全て純粋関数。localStorage も画面も触らない。
 
-export const ITEMS = [
+import { HATS } from './minigame/hats.js';
+
+// ---- 道具(遊びかたが増える品)----
+const TOOLS = [
   {
     id: 'fishNote',
     name: '漁師の手帳',
@@ -66,7 +76,31 @@ export const ITEMS = [
   },
 ];
 
+// ---- かぶりもの(見た目だけの品)----
+//
+// 表そのものは minigame/hats.js(body.js も同じ表を読んでメッシュを作る)。
+// ここでは店に並べる形に直すだけ ── 値段と説明を2か所に書くと必ずずれる。
+const WEARS = HATS.map((h) => ({
+  id: h.id,
+  name: h.name,
+  icon: h.icon,
+  price: h.price,
+  kind: 'hat',
+  desc: h.desc,
+  note: '見た目だけの品です。釣りも大会も何も変わりません。',
+}));
+
+// 店に並ぶもの。**道具が先、かぶりものが後**(遊びが増える品を上に出す)
+export const ITEMS = [...TOOLS, ...WEARS];
+export const TOOL_IDS = TOOLS.map((i) => i.id);
+export const HAT_ITEMS = WEARS;
+
 export const ITEM_BY_ID = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
+
+// かぶりものかどうか。持ち物の画面が「かぶる/ぬぐ」を出すのに使う
+export function isWear(id) {
+  return ITEM_BY_ID[id]?.kind === 'hat';
+}
 
 // 値付けの根拠:
 // 上出来な大会1回が 48〜60 枚、港で数匹釣って 30〜60 枚。

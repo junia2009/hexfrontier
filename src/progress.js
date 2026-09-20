@@ -15,6 +15,7 @@ import {
   coinsForCatch, coinsForContest, coinsForFound, coinsForPastCatches, coinsForRaidRun,
 } from './rewards.js';
 import { dayIndex, questGain, questsFor } from './quests.js';
+import { isWear } from './shop.js';
 
 const KEY = 'progress';
 export const PROGRESS_VERSION = 2;
@@ -44,7 +45,28 @@ export function emptyProgress() {
     owned: {},
     // 今日の依頼の進み具合。日が変わったら作り直す(quests.js)
     quests: emptyQuests(),
+    // いま身に着けているもの。買っただけでは着ない(持ち物から選ぶ)
+    worn: { hat: null },
   };
+}
+
+// ---- 身に着けるもの ----
+//
+// 買った品(owned)と、いま着けている品(worn)は**別に持つ** ── 買った
+// 瞬間に着替わると、集めるほど勝手に見た目が変わっていくことになる。
+//
+// **持っていないものは着けられない。** ここで弾いておかないと、保存を
+// 書き換えるだけで買わずにかぶれる。
+export function wearHat(progress, id) {
+  const next = id == null ? null : (progress?.owned?.[id] && isWear(id) ? id : null);
+  if ((progress?.worn?.hat ?? null) === next) return progress;
+  return { ...progress, worn: { ...(progress?.worn ?? {}), hat: next } };
+}
+
+export function wornHat(progress) {
+  const id = progress?.worn?.hat ?? null;
+  // 保存を直に書き換えられても、持っていないものは着けない
+  return id && progress?.owned?.[id] ? id : null;
 }
 
 export const emptyQuests = () => ({ day: 0, n: {}, got: {} });
@@ -410,6 +432,7 @@ export function parseProgress(raw) {
       ...coinsOf(p),
       owned: sanitizeOwned(p?.owned),
       quests: sanitizeQuests(p?.quests),
+      worn: sanitizeWorn(p?.worn, sanitizeOwned(p?.owned)),
     };
   } catch {
     return emptyProgress();
@@ -432,6 +455,13 @@ function coinsOf(p) {
   if (v >= 2) return { coins: n(p.coins), coinsEarned: n(p.coinsEarned) };
   const back = coinsForPastCatches(p?.fish);
   return { coins: back, coinsEarned: back };
+}
+
+// 身に着けているもの。**持っていないものは外す** ── 保存を書き換えても
+// 買わずにかぶれないように、読み込みの時点で落とす。
+function sanitizeWorn(src, owned) {
+  const id = typeof src?.hat === 'string' ? src.hat : null;
+  return { hat: id && owned[id] && isWear(id) ? id : null };
 }
 
 // 今日の依頼の進み。**壊れていたら白紙**にしてよい ── その日のぶんしか

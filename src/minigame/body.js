@@ -9,6 +9,7 @@
 
 import * as THREE from 'three';
 import { speciesById, DEFAULT_SPECIES } from './species.js';
+import { HAT_BY_ID } from './hats.js';
 import {
   WALK_SCALE, HIP_Y, THIGH, SHIN, SHOE_R, SHOE_LIFT, SOLE_AHEAD,
 } from './scale.js';
@@ -949,7 +950,118 @@ export function makeWalker(color = CLOTH, species = speciesById(DEFAULT_SPECIES)
   // この入れ物の子なので、まとめて同じ率で縮む。
   // applyPose は位置と回転しか触らないので、この scale は消えない。
   g.scale.setScalar(WALK_SCALE);
-  return { group: g, hips, chest, head, mouth, arms, legs, rod, bow };
+  return { group: g, hips, chest, head, mouth, arms, legs, rod, bow, hat: null };
+}
+
+// ---- かぶりもの(店で買う見た目の品。表は hats.js)----
+//
+// **頭(head)に付ける。** 首を振ると一緒に動く ── 胴に付けると、
+// うつむいたときに帽子だけ空に残る(耳と同じ理由)。
+//
+// 寸法は全部 headR に対する割合。すがたごとに頭の大きさが違うので、
+// 絶対値で書くと、ねこに合わせるとドラゴンで浮く。
+//
+// **載せる高さは「頭のてっぺん + すがたの出っぱり」。** 角やもこもこで
+// 背が伸びるすがた(sp.top)があるので、そこを見ないと角に帽子が刺さる。
+export function makeHat(hatId, p, top = 0) {
+  const h = HAT_BY_ID[hatId];
+  if (!h) return null;
+  const g = new THREE.Group();
+  const r = p.headR;
+  const main = new THREE.MeshStandardMaterial({ color: h.color, roughness: 0.85 });
+  const acc = new THREE.MeshStandardMaterial({ color: h.accent, roughness: 0.6 });
+
+  if (h.kind === 'brim' || h.kind === 'cone') {
+    // つば。頭にかぶせるので、頭のてっぺんより少し下から始める
+    const brim = new THREE.Mesh(
+      new THREE.CylinderGeometry(r * h.brim, r * h.brim, r * 0.06, 20), main,
+    );
+    brim.position.y = r * 0.62;
+    brim.castShadow = true;
+    g.add(brim);
+    if (h.kind === 'brim') {
+      const crown = new THREE.Mesh(
+        new THREE.CylinderGeometry(r * 0.82, r * 0.98, r * h.crown, 16), main,
+      );
+      crown.position.y = r * (0.62 + h.crown / 2);
+      crown.castShadow = true;
+      g.add(crown);
+      // リボン。麦わらの山の根元に巻く
+      const band = new THREE.Mesh(
+        new THREE.CylinderGeometry(r * 1.0, r * 1.0, r * 0.18, 16), acc,
+      );
+      band.position.y = r * 0.72;
+      g.add(band);
+    } else {
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(r * 0.95, r * h.crown, 16), main);
+      cone.position.y = r * (0.62 + h.crown / 2);
+      cone.rotation.z = -0.12;          // 少し傾けると生きた形に見える
+      cone.castShadow = true;
+      g.add(cone);
+      // 先の星。小さな八面体で足りる
+      const star = new THREE.Mesh(new THREE.OctahedronGeometry(r * 0.19), acc);
+      star.position.set(r * -0.2, r * (0.62 + h.crown), 0);
+      g.add(star);
+    }
+  } else if (h.kind === 'wreath') {
+    // 花かんむり。つるの輪に花を並べる
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(r * 0.92, r * 0.08, 6, 16), main,
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = r * 0.66;
+    g.add(ring);
+    for (let i = 0; i < h.petals; i += 1) {
+      const a = (i / h.petals) * Math.PI * 2;
+      const f = new THREE.Mesh(new THREE.SphereGeometry(r * 0.16, 8, 6), acc);
+      f.scale.y = 0.6;
+      f.position.set(Math.cos(a) * r * 0.92, r * 0.72, Math.sin(a) * r * 0.92);
+      g.add(f);
+    }
+  } else if (h.kind === 'crown') {
+    // **頭のてっぺんより上に出すこと。** 頭の球は半径 r なので、帯を 0.78r に
+    // 置くと頭の面に沿って埋まり、遠目には金の線にしか見えなかった。
+    const ring = r * 0.86;
+    const band = new THREE.Mesh(
+      new THREE.CylinderGeometry(ring, ring, r * 0.34, 18, 1, true), main,
+    );
+    band.position.y = r * 0.86;
+    band.castShadow = true;
+    g.add(band);
+    for (let i = 0; i < h.spikes; i += 1) {
+      const a = (i / h.spikes) * Math.PI * 2;
+      const sp = new THREE.Mesh(new THREE.ConeGeometry(r * 0.2, r * 0.58, 5), main);
+      sp.position.set(Math.cos(a) * ring, r * 1.32, Math.sin(a) * ring);
+      sp.castShadow = true;
+      g.add(sp);
+      const gem = new THREE.Mesh(new THREE.OctahedronGeometry(r * 0.12), acc);
+      gem.position.set(Math.cos(a) * ring * 1.06, r * 0.9, Math.sin(a) * ring * 1.06);
+      g.add(gem);
+    }
+  }
+  g.position.y = top;
+  return g;
+}
+
+// 頭のかぶりものを取り替える。**作り直すのは帽子だけ** ── すがたごと
+// 作り直すと、歩いている最中に替えたときに姿勢が1コマ飛ぶ。
+export function setHat(parts, hatId, species = null) {
+  if (parts.hat) {
+    parts.hat.removeFromParent();
+    parts.hat.traverse((o) => {
+      o.geometry?.dispose?.();
+      const m = o.material;
+      if (m) (Array.isArray(m) ? m : [m]).forEach((q) => q.dispose?.());
+    });
+    parts.hat = null;
+  }
+  const sp = species ?? speciesById(DEFAULT_SPECIES);
+  const p = { ...CUTE, ...(sp.props ?? {}) };
+  const g = makeHat(hatId, p, sp.top ?? 0);
+  if (!g) return null;
+  parts.head.add(g);
+  parts.hat = g;
+  return g;
 }
 
 // 足元から頭のてっぺんまで。名札の高さとカメラの寄りに使う。

@@ -18,7 +18,7 @@ import {
   walkPose, airPose, tumblePose, sinkPose, aimPose, sitPose, emotePose,
   fishPoseBlender, rodOutro, restBlend, poseFade, SINK_RIGHT, phasePerUnit,
 } from './pose.js';
-import { makeWalker } from './body.js';
+import { makeWalker, setHat } from './body.js';
 
 export { WALK_SPEED };
 
@@ -86,11 +86,13 @@ export class Walker {
   // groundAt(x, z) → { y, ok }。ok が false なら「そこは地面でない」
   // blockAt: 盤の上の物にめり込ませないための関数(obstacles.js)
   // species: species.js の1つ(省略すると「ひと」)
-  constructor(scene, groundAt, color, blockAt = null, species = null) {
+  constructor(scene, groundAt, color, blockAt = null, species = null, hat = null) {
     this.scene = scene;
     this.color = color;
     this.parts = makeWalker(color, species);
     this.species = species;
+    this.hat = hat;
+    if (hat) setHat(this.parts, hat, species);
     scene.add(this.parts.group);
     this.motion = new WalkerMotion(groundAt, blockAt);
     this.phase = 0;       // 歩行サイクル
@@ -119,6 +121,8 @@ export class Walker {
     this.dispose();
     this.species = species;
     this.parts = makeWalker(this.color, species);
+    // かぶりものは作り直し(頭の大きさがすがたで違うので、載せ直す)
+    if (this.hat) setHat(this.parts, this.hat, species);
     this.parts.rod.group.visible = rod;
     this.parts.bow.group.visible = bow;
     this.scene.add(this.parts.group);
@@ -126,6 +130,15 @@ export class Walker {
     // 次の1フレームだけ原点(島の中心)に現れる
     const { x, z } = this.pos;
     this.parts.group.position.set(x, this.motion.groundAt(x, z).y, z);
+  }
+
+  // かぶりものを替える。**体は作り直さない** ── 歩いている最中に替えても
+  // 姿勢が飛ばないように、帽子だけ載せ替える(body.js の setHat)。
+  setHat(hat) {
+    const id = hat ?? null;
+    if (id === this.hat) return;
+    this.hat = id;
+    setHat(this.parts, id, this.species);
   }
 
   // 位置・速度・向きは motion が持つ(walk-mode.js のカメラ追従が読む)

@@ -11,7 +11,7 @@ import {
 } from './rules/road-building.js';
 import {
   addCatch, addContestResult, addRaidRun, addResult, clearProgress, currentTitle, loadProgress,
-  noteSeen, questBoard, resultOf, saveProgress, setTitle,
+  noteSeen, questBoard, resultOf, saveProgress, setTitle, wearHat, wornHat,
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
@@ -506,7 +506,7 @@ function startNet(code, name, kind = 'game') {
   // すがたは種類によらず必ず名乗る。合言葉で入るときは、繋いでみるまで
   // 散策部屋かどうか分からない ── ここで出し惜しむと、入った人だけ
   // 既定の姿になる(実際そうなった)。対戦部屋では使われないだけ。
-  net.connect(code, name, kind, myLook);
+  net.connect(code, name, kind, myLook, wornHat(progress));
   setScreen('online');
   renderOnlinePanel();
 }
@@ -742,7 +742,7 @@ async function startWalk() {
   }
   const mySeatNo = lobby ? seat : (localMeet ? SOLO_SEAT : null);
   const mod = await import('./minigame/walk-mode.js');
-  walk = new mod.WalkMode(r, state, undefined, mySeatNo, myLook);
+  walk = new mod.WalkMode(r, state, undefined, mySeatNo, myLook, wornHat(progress));
   if (mySeatNo != null) {
     if (lobby) walk.onPos = (p) => net?.pos(p);
     walk.setWalkerNames(lobby ? lobby.seats : localMeet.roster());
@@ -1426,7 +1426,7 @@ function renderShop() {
 // 使えないのでは意味がない。何も持っていない人にはボタンごと出さない。
 function renderBag() {
   const el = document.getElementById('walk-bag-body');
-  if (el) el.innerHTML = bagHtml(progress, { mapOn, skyTime });
+  if (el) el.innerHTML = bagHtml(progress, { mapOn, skyTime, hat: wornHat(progress) });
 }
 
 function syncBagButton() {
@@ -3404,7 +3404,7 @@ document.addEventListener('click', (e) => {
       return;
     case 'net-look':     // すがたを選んだ
       setMyLook(arg);
-      net?.setLook(myLook);
+      net?.setLook(myLook, wornHat(progress));
       renderOnlinePanel();
       return;
     case 'walk-enter':   // 散策部屋から島へ
@@ -3415,7 +3415,7 @@ document.addEventListener('click', (e) => {
     case 'walk-look-do':   // 歩きながらすがたを替えた
       setMyLook(arg);
       walk?.setLook(myLook);
-      net?.setLook(myLook);  // 散策部屋なら、他の人の画面も替わる
+      net?.setLook(myLook, wornHat(progress));  // 散策部屋なら、他の人の画面も替わる
       setWalkLooks(false);
       sfx.play('ui');
       return;
@@ -3439,6 +3439,20 @@ document.addEventListener('click', (e) => {
       return;
     case 'walk-shop': setWalkShop(true); return;
     case 'walk-shop-close': setWalkShop(false); return;
+    // かぶりもの。**自分の島にも、散策部屋の相手の画面にも**すぐ反映する
+    case 'wear-hat': {
+      const id = arg === 'none' ? null : arg;
+      progress = wearHat(progress, id);
+      saveProgress(progress);
+      const worn = wornHat(progress);
+      walk?.setHat(worn);
+      net?.setLook(myLook, worn);
+      renderBag();
+      sfx.play('ui');
+      const item = ITEM_BY_ID[worn];
+      walkNote(worn ? `${item?.icon ?? ''} ${item?.name ?? ''}をかぶった` : 'かぶりものをぬいだ');
+      return;
+    }
     case 'walk-quests': setWalkQuests(true); return;
     case 'walk-quests-close': setWalkQuests(false); return;
     case 'walk-bag': setWalkBag(true); return;
@@ -4008,7 +4022,9 @@ window.hexDebug = {
   walkJump: () => walk?.jump(),
   walkEmote: (id) => walk?.playEmote(id) ?? false,
   // すがた(E2E 用)。選び直すと次に島へ入ったときに反映される
-  setLook: (id) => { setMyLook(id); net?.setLook(myLook); return myLook; },
+  setLook: (id) => { setMyLook(id); net?.setLook(myLook, wornHat(progress)); return myLook; },
+  // かぶりもの(E2E 用)。いま着けているもの
+  getHat: () => wornHat(progress),
   getLook: () => myLook,
   // 釣り大会(E2E 用)
   getContest: () => contest,

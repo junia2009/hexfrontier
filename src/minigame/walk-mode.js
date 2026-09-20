@@ -216,7 +216,10 @@ export class WalkMode {
   // (回すとオンライン対戦で全員の乱数列がずれる)。
   // seat: 散策部屋での自分の席(1人で歩くときは null)。色分けに使う
   // look: すがた(species.js の番号)
-  constructor(board3d, state, fishSeed = Date.now() >>> 0, seat = null, look = DEFAULT_SPECIES) {
+  constructor(
+    board3d, state, fishSeed = Date.now() >>> 0, seat = null,
+    look = DEFAULT_SPECIES, hat = null,
+  ) {
     this.b = board3d;
     this.mode = state?.mode ?? null;   // どの島を歩いているか(掲示板の行き先表示に使う)
     // 島の地面。**丸太乗りの丸太はこの上に被せる**ので、外へ渡すのは
@@ -436,6 +439,7 @@ export class WalkMode {
       seat == null ? 0x2f6fd0 : WALK_COLORS[seat % WALK_COLORS.length],
       makeBlocker(this.obstacles),
       this.species,
+      hat,
     );
 
     // 散策部屋では席ごとに立ち位置をずらす(全員が重なって見えないように)
@@ -773,6 +777,11 @@ export class WalkMode {
   setLook(id) {
     this.species = speciesById(id);
     this.walker.setSpecies(this.species);
+  }
+
+  // かぶりもの(店で買う見た目の品)。持ち物の画面から選び直せる
+  setHat(id) {
+    this.walker.setHat(id ?? null);
   }
 
   setStick(x, y) {

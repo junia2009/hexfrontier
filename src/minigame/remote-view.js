@@ -7,7 +7,7 @@
 // 項目を足したときに「相手だけ足が交差する」ようなずれが起きない。
 
 import * as THREE from 'three';
-import { makeWalker, walkerHeight } from './body.js';
+import { makeWalker, setHat, walkerHeight } from './body.js';
 import { applyPose, plantFeet } from './walker.js';
 import {
   walkPose, airPose, tumblePose, fishPose, sitPose, emotePose,
@@ -208,14 +208,16 @@ export class RemoteView {
     e.tag.position.y = nameY(e.sp) - (1 - this.nameScale) * NAME_H * 0.5;
   }
 
-  _make(seat, name, look) {
+  _make(seat, name, look, hat = null) {
     const sp = speciesById(look ?? DEFAULT_SPECIES);
     const parts = makeWalker(WALK_COLORS[seat % WALK_COLORS.length], sp);
+    if (hat) setHat(parts, hat, sp);
     this.scene.add(parts.group);
     const tag = name ? makeNameTag(name, nameY(sp)) : null;
     if (tag) parts.group.add(tag);
     const e = {
       parts, tag, tagW: tag?.userData.w ?? 0, name: name ?? null, sp, look: sp.id,
+      hat: hat ?? null,
       phase: 0, spin: 0, t: 0, y: 0,
       rest: restBlend(),   // 止まったら足をそろえる(自分の体と同じ)
 
@@ -235,12 +237,18 @@ export class RemoteView {
     for (const p of people) {
       seen.add(p.seat);
       let e = this.people.get(p.seat);
-      if (!e) e = this._make(p.seat, p.name, p.look);
+      if (!e) e = this._make(p.seat, p.name, p.look, p.hat);
       // すがたを変えた/名簿が後から届いた。体ごと作り直す
       // (耳やしっぽは組み立て時に足しているので、後から差し替えられない)
       if (p.look && p.look !== e.look) {
         this._remove(p.seat, e);
-        e = this._make(p.seat, p.name ?? e.name, p.look);
+        e = this._make(p.seat, p.name ?? e.name, p.look, p.hat ?? e.hat);
+      }
+      // かぶりものは**帽子だけ載せ替える**(体は作り直さない)。
+      // null は「ぬいだ」なので、そのまま反映すること
+      if ((p.hat ?? null) !== e.hat) {
+        e.hat = p.hat ?? null;
+        setHat(e.parts, e.hat, e.sp);
       }
       // 名前は後から名簿が届くことがある
       if (p.name && p.name !== e.name) {
