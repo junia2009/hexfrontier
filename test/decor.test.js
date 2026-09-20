@@ -18,7 +18,7 @@ import {
 } from '../src/progress.js';
 import { createGame, MODE_IDS } from '../src/state.js';
 import {
-  DESK_CLEAR, SPOT_RADIUS, TABLE_CLEAR, boardPoint, fishingSpots, makeGround,
+  DESK_CLEAR, SPOT_RADIUS, TABLE_CLEAR, boardPoint, fishingSpots, hexCenter, makeGround,
   shopPoint, spawnPoint, watchPost,
 } from '../src/minigame/ground.js';
 import { RoomCore } from '../server/room-core.js';
@@ -101,6 +101,48 @@ test('飾り: 持てる数には上限がある(通信に乗る値なので)', (
 
 // **遊びの邪魔になる場所は断る。** ここが緩いと、受付や釣り場をベンチで
 // 塞いで、その島で何もできなくなる。
+// **掲示板は店とまったく同じ置きかた。** 広場のとなりのヘックスの中心
+// (数字トークンの円盤の上)に、広場を向いて建つ。
+//
+// 前は広場のふち(受付から 1.70)に立てていて、「位置が好きじゃない。
+// 店と同じ感じにして欲しい」と言われた。島に建つ物の置きかたが2通りあると、
+// それだけで作りが雑に見える ── ここが崩れたら、また2通りに戻っている。
+test('掲示板: 店と同じ「広場のとなりの数字の上」に建つ', () => {
+  for (const mode of MODE_IDS) {
+    for (const seed of [11, 42, 7]) {
+      const s = game(mode, seed);
+      const tag = `${mode}:${seed}`;
+      const home = spawnPoint(s);
+      const board = boardPoint(s);
+      const shop = shopPoint(s);
+      assert.ok(board, `${tag} 掲示板が建たない`);
+      assert.ok(shop, `${tag} 前提: 店が建つ`);
+      // いちばん近いヘックスの中心との差。**0 でないと円盤の上ではない**
+      const near = (p) => {
+        let best = null;
+        for (const hid of s.board.hexIds) {
+          const c = hexCenter(hid);
+          const d = Math.hypot(c.x - p.x, c.y - p.z);
+          if (!best || d < best.d) best = { hid, d };
+        }
+        return best;
+      };
+      const nb = near({ x: board.x, z: board.z });
+      const ns = near({ x: shop.x, z: shop.z });
+      assert.ok(nb.d < 1e-9, `${tag} ヘックスの中心に無い(${nb.d.toFixed(4)} ずれ)`);
+      assert.ok(ns.d < 1e-9, `${tag} 店がヘックスの中心に無い(前提が崩れた)`);
+      // **店と同じマスに重ねない**
+      assert.notEqual(nb.hid, ns.hid, `${tag} 店と同じヘックスに建った`);
+      // 広場のとなり(ヘックスの間隔は 1.73)。遠いと誰も読みに行かない
+      const d = Math.hypot(board.x - home.x, board.z - home.y);
+      assert.ok(d > 1.5 && d < 2.0, `${tag} 広場のとなりではない(${d.toFixed(2)})`);
+      // 読む面は広場のほう
+      const toHome = Math.atan2(home.x - board.x, home.y - board.z);
+      assert.ok(Math.abs(board.facing - toHome) < 1e-9, `${tag} 広場を向いていない`);
+    }
+  }
+});
+
 test('飾り: 受付・店・掲示板・櫓・釣り場・海には置けない', () => {
   for (const mode of MODE_IDS) {
     const s = game(mode);

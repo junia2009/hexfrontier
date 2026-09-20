@@ -411,7 +411,8 @@ export class WalkMode {
 
     // ---- 島の掲示板(日替わりの依頼)----
     //
-    // **受付と同じ広場に立てる**(ground.js の boardPoint)。店と同じ作法で、
+    // **店とまったく同じ置きかた**(ground.js の boardPoint)── 広場のとなりの
+    // ヘックスの中心、数字トークンの円盤の上に、広場を向いて建つ。
     // 歩いて行って読む ── 画面の上にボタンは置かない。
     const notice = boardPoint(state);
     this.boardAt = null;

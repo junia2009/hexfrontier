@@ -251,35 +251,39 @@ export function makeWalkGround(state) {
 
 // ---- 島の掲示板(日替わりの依頼)----
 //
-// **受付と同じ広場に立てる。** 依頼は「今日この島で何をするか」の掲示なので、
-// 島に降りた人が必ず通る受付のそばにある。店(屋台)と違って隣のヘックスへ
-// 出さないのは、毎日見るものだから ── 遠ければ誰も読みに行かない。
+// **店とまったく同じ置きかた**にする ── 広場のとなりのヘックスの中心、
+// つまり**数字トークンの円盤の上**に、広場を向いて建てる(plazaNeighbour)。
 //
-// 寸法の前後関係(どれも sc なので、縮尺を変えても崩れない):
-//   受付/卓の手の届く範囲 …… 0.50 / 0.56
-//   降り立つ輪            …… 0.62
-//   掲示板の立つ位置      …… 1.70  ← ここ
-//   掲示板の手の届く範囲  …… 0.42(1.70 − 0.42 = 1.28 > 0.56 で、
-//                                  受付のパネルと同時に開かない)
+// はじめは広場のふち(受付から 1.70)に立てていた ── 毎日見るものだから
+// 降り立ってすぐ読めるほうがよい、という理由で。**それが嫌だと言われた**
+// (「掲示板の位置が好きじゃない。広場に隣接するコマの数字の上に店はあると
+// 思う。同じ感じにして欲しい」)。島に建つ物の置きかたが2通りあると、
+// それだけで作りが雑に見える。
 //
-// **数字トークンの円盤(半径 0.33〜0.45 盤単位)より外に出すこと。**
-// 1.00(= 0.50 盤単位)に立てていたら、広場のまん中の円盤と重なって、
-// 読みに行くと足もとが円盤で埋まった。1.70(= 0.85 盤単位)は
-// ヘックスの内接円(0.866)の内側なので、必ず陸の上に立つ。
-export const BOARD_AWAY = sc(1.7);
+// 店のヘックスは skip で外すので、2つが同じ円盤に重なることはない。
+// 実測では、広場をはさんで店の反対がわ(店から 3.0)に建つ。
 export const BOARD_RADIUS = sc(0.16);   // ぶつかる大きさ
 export const BOARD_REACH = sc(0.42);    // この距離まで寄ると読める
-export const BOARD_CLEAR = sc(0.6);     // まわりを片付ける広さ
-// 立てる向き。**降り立つ輪の席(8等分)のちょうど間**に置く ──
-// 席の真上に立てると、島に降りた人が掲示板に埋まる。
+// まわりを片付ける広さ。**数字トークンの円盤(半径 0.33〜0.45 盤単位)より
+// 広く取る** ── 0.6(= 0.3 盤単位)だと円盤の上に木が残って、掲示板が
+// 藪の中に立っているように見えた(店は 1.05 で円盤ごと片付いている)。
+export const BOARD_CLEAR = sc(0.95);
+
+// **建てられるヘックスが無い島のための逃げ道。**(海だらけの島で、
+// 広場のとなりが店ひとつで埋まったとき)。広場のふちに立てる ── 昔の置き方。
+// 降り立つ輪の席(8等分)のちょうど間に置く(席の真上だと人が埋まる)。
+export const BOARD_AWAY = sc(1.7);
 const BOARD_ANGLE = Math.PI / 8;
 
 export function boardPoint(state) {
   if (!state?.board) return null;
   const home = spawnPoint(state);
+  // 店と同じ選びかたで、**店のヘックスを除いた**いちばん近いところ
+  const shop = plazaNeighbour(state, SHOP_CLEAR);
+  const hex = plazaNeighbour(state, BOARD_CLEAR, shop?.hid ?? null);
+  if (hex) return facingPlaza(state, hex);
   const x = home.x + Math.cos(BOARD_ANGLE) * BOARD_AWAY;
   const z = home.y + Math.sin(BOARD_ANGLE) * BOARD_AWAY;
-  // 読む面は広場のほう(受付から歩いてきた人の正面が表になる)
   return { x, z, facing: Math.atan2(home.x - x, home.y - z) };
 }
 
@@ -295,9 +299,6 @@ export function boardPoint(state) {
 export const SHOP_RADIUS = sc(0.34);   // ぶつかる大きさ(屋台の横幅の半分ほど)
 export const SHOP_REACH = sc(0.72);    // この距離まで寄ると店に入れる
 export const SHOP_CLEAR = sc(1.05);    // 屋台のまわりを片付ける広さ
-// 受付からこれだけ離すこと。広場(TABLE_CLEAR)と店の広場が重ならない距離。
-// 隣のヘックスの中心までは 1.73 あるので、実際はいつも隣に建つ。
-const SHOP_AWAY = TABLE_CLEAR + SHOP_CLEAR;
 
 // 屋台のまわりに置いてある物(裏の樽と木箱)。座標は屋台の局所(縮尺を
 // 掛ける前)で、+z が店の正面。**見た目(store.js)もぶつかる判定も
@@ -327,8 +328,16 @@ export function storeBlockers(shop, baseY = 0) {
   }));
 }
 
-export function shopPoint(state) {
-  if (!state?.board) return null;
+// 広場のとなりで、物を建ててよいヘックスを近い順に。
+// **店も掲示板もここから取る** ── 選びかたを別々に書くと、
+// 「広場のとなりの数字の上」という並びが片方だけ崩れる。
+//
+// clear は建てる物のまわりに要る広さ。受付の広場(TABLE_CLEAR)と重ならない
+// 距離まで離す ── 隣のヘックスの中心までは 1.73 あるので、実際はいつも隣に建つ。
+// skip は「もう何か建っているヘックス」。
+// 乱数は使わない ── 同じ島なら毎回同じ場所に建っていてほしい
+// (「あそこにある」が覚えられる)。
+function plazaNeighbour(state, clear, skip = null) {
   const home = spawnPoint(state);
   const ground = makeGround(state);
   const nest = nestHexOf(state);
@@ -336,20 +345,28 @@ export function shopPoint(state) {
   let best = null;
   for (const { hid, c } of landHexes(state)) {
     if (hid === nest) continue;                       // 竜の山には建てない
+    if (skip != null && hid === skip) continue;       // もう何か建っている
     if (!ground(c.x, c.y).ok) continue;
     const d = Math.hypot(c.x - home.x, c.y - home.y);
-    if (d < SHOP_AWAY) continue;                      // 受付の広場は避ける
-    // 櫓とも離す(射場を片付けた広場に屋台が建つと、狙う先が塞がる)
-    if (post && Math.hypot(c.x - post.x, c.y - post.z) < POST_CLEAR + SHOP_CLEAR) continue;
-    if (!best || d < best.d) best = { d, c };
+    if (d < TABLE_CLEAR + clear) continue;            // 受付の広場は避ける
+    // 櫓とも離す(射場を片付けた広場に物が建つと、狙う先が塞がる)
+    if (post && Math.hypot(c.x - post.x, c.y - post.z) < POST_CLEAR + clear) continue;
+    if (!best || d < best.d) best = { d, c, hid };
   }
-  if (!best) return null;
+  return best;
+}
+
+// 建てたヘックスの中心を、広場を向いた点にする
+function facingPlaza(state, hex) {
+  const home = spawnPoint(state);
+  return { x: hex.c.x, z: hex.c.y, facing: Math.atan2(home.x - hex.c.x, home.y - hex.c.y) };
+}
+
+export function shopPoint(state) {
+  if (!state?.board) return null;
+  const best = plazaNeighbour(state, SHOP_CLEAR);
   // 入口は広場のほう(歩いてきた人の正面に店番が立つ)
-  return {
-    x: best.c.x,
-    z: best.c.y,
-    facing: Math.atan2(home.x - best.c.x, home.y - best.c.y),
-  };
+  return best ? facingPlaza(state, best) : null;
 }
 
 // ---- 釣り場(港)----

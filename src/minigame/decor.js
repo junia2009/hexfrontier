@@ -100,9 +100,9 @@ export function whyCannotPlace(state, at, placed = []) {
   }
   const shop = shopPoint(state);
   if (shop && near(shop.x, shop.z, sc(0.9))) return '店の前には置けません';
-  // 掲示板は広場のふちに立っている(ground.js の BOARD_AWAY)。
-  // **広場の判定だけでは届かない** ── 卓の島でも広場 0.675 + 間隔 0.17 で
-  // ちょうど 0.845、掲示板は 0.85 なので、すり抜けて板の前に置けてしまう。
+  // 掲示板は広場のとなりのヘックスの中心に立っている(店と同じ置きかた。
+  // ground.js の boardPoint)。**広場の判定だけでは届かない** ──
+  // 広場から 1.73 離れているので、広場を避けるだけでは板の前に置けてしまう。
   const board = boardPoint(state);
   if (board && near(board.x, board.z, BOARD_RADIUS + DECOR_GAP + BOARD_REACH)) {
     return '掲示板の前には置けません';
