@@ -64,11 +64,12 @@ export class NetClient {
   // kind: 'game'(対戦)/ 'walk'(散策)。まだ無い部屋を作るときにだけ効く
   // look: 散策部屋での「すがた」。名前と同じく、繋いだときに一度だけ送る
   // hat: かぶりもの(店の品)。look と同じ扱い
-  connect(code, name, kind = 'game', look = null, hat = null) {
+  connect(code, name, kind = 'game', look = null, hat = null, decor = null) {
     this.code = code;
     this.name = name;
     this.look = look;
     this.hat = hat;
+    this.decor = decor;
     this.kind = kind === 'walk' ? 'walk' : 'game';
     this.closedByUs = false;
     this._open();
@@ -90,6 +91,7 @@ export class NetClient {
       ws.send(JSON.stringify({
         t: 'hello', clientId: clientId(), name: this.name,
         look: this.look ?? undefined, hat: this.hat ?? null,
+        decor: this.decor ?? undefined,
       }));
       clearInterval(this.pingTimer);
       this.pingTimer = setInterval(() => this.send({ t: 'ping' }), PING_MS);
@@ -188,6 +190,12 @@ export class NetClient {
     this.look = look;
     this.hat = hat ?? null;
     return this.send({ t: 'look', look, hat: this.hat });
+  }
+
+  // 島に置いた飾り。すがたと同じで、変わったときだけ送る
+  setDecor(decor) {
+    this.decor = decor ?? [];
+    return this.send({ t: 'decor', decor: this.decor });
   }
 
   // 釣り大会。do は 'enter' / 'leave' / 'start' / 'land'

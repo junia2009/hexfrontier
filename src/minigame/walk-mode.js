@@ -39,6 +39,8 @@ import { speciesById, DEFAULT_SPECIES } from './species.js';
 import { makeDesk } from './desk.js';
 import { makeStore } from './store.js';
 import { makeNoticeBoard } from './notice.js';
+import { makeDecor } from './decor-fx.js';
+import { DECOR_BY_ID, decorNear, visibleDecor } from './decor.js';
 import { meetFor } from './meets.js';
 import { makeTable } from './table.js';
 import { makeDragon } from '../render3d/board3d.js';
@@ -432,6 +434,13 @@ export class WalkMode {
       });
     }
 
+    // ここまでに集めた障害物が「島そのもの」。飾りは置いたり拾ったりで
+    // 増減するので、別に持って、変わるたびに当たり判定を組み直す(_rebuildBlocker)
+    this.baseObstacles = this.obstacles;
+    this.decor = [];          // [{ spec, fx }] 島に置いてある飾り
+    this.atDecor = null;      // 手の届くところにある飾り(拾える)
+    this.onDecor = null;      // それが変わったときに呼ぶ
+
     this.species = speciesById(look);
     this.walker = new Walker(
       board3d.scene,
@@ -784,6 +793,33 @@ export class WalkMode {
     this.walker.setHat(id ?? null);
   }
 
+  // ---- 島の飾り ----
+  //
+  // **並べ直しは丸ごと作り直す。** 置く/拾うはめったに起きないので、
+  // 差分を取るより、同じ1本の道を毎回通すほうが食い違わない。
+  // list は自分のぶんと、散策部屋の相手のぶんを合わせたもの(main.js)。
+  setDecor(list, state) {
+    for (const d of this.decor) d.fx.dispose();
+    this.decor = [];
+    for (const spec of visibleDecor(state, list)) {
+      const y = this.ground(spec.x, spec.z).y;
+      const fx = makeDecor(this.b.scene, { ...spec, facing: spec.f ?? 0 }, y);
+      if (fx) this.decor.push({ spec, fx });
+    }
+    this._rebuildBlocker();
+  }
+
+  // 島の障害物 + 飾り。飾りが増減したら組み直す
+  _rebuildBlocker() {
+    const extra = this.decor.map(({ spec }) => {
+      const item = DECOR_BY_ID[spec.id];
+      const y = this.ground(spec.x, spec.z).y;
+      return { x: spec.x, z: spec.z, r: item.r, h: y - TILE_TOP + item.h };
+    });
+    this.obstacles = [...this.baseObstacles, ...extra];
+    this.walker.motion.blockAt = makeBlocker(this.obstacles);
+  }
+
   setStick(x, y) {
     this.input.x = x;
     this.input.y = y;
@@ -982,6 +1018,9 @@ export class WalkMode {
     // 店番。夜はランタンが灯る(board3d が空の時刻を持っている)
     this.store?.update(dt, t, { near: this.atShop, night: this.b?.nightNow?.() ?? 0 });
     this.notice?.update(t, { near: this.atBoard });
+    // 石灯籠は夜だけ光る(board3d と同じ「いま夜か」を読む)
+    const night = this.b?.nightNow?.() ?? 0;
+    for (const d of this.decor) d.fx.update(night);
 
     if (this.fishing) {
       this._fishFrame(dt);
@@ -1032,6 +1071,17 @@ export class WalkMode {
     if (onShop !== this.atShop) {
       this.atShop = onShop;
       this.onShop?.(onShop);
+    }
+
+    // 手の届くところに飾りがあるか(拾えるかどうか)
+    const hit = r.grounded
+      ? decorNear(this.decor.map((d) => d.spec), { x: w.x, z: w.z })
+      : null;
+    const hitId = hit ? `${hit.id}:${hit.x.toFixed(3)},${hit.z.toFixed(3)}` : null;
+    if (hitId !== this._decorId) {
+      this._decorId = hitId;
+      this.atDecor = hit;
+      this.onDecor?.(hit);
     }
 
     // 掲示板の前に立ったら知らせる(立った/離れたときだけ)
@@ -1731,6 +1781,8 @@ export class WalkMode {
     this.desk?.dispose();
     this.store?.dispose();
     this.notice?.dispose();
+    for (const d of this.decor) d.fx.dispose();
+    this.decor = [];
     this.drum?.dispose();
     this.archeryFx?.dispose();
     this.walker.dispose();

@@ -12,6 +12,7 @@ import { totalCards } from '../src/rules/build.js';
 import { WALK_SEATS } from '../src/minigame/remote-st.js';
 import { cleanSpecies, DEFAULT_SPECIES } from '../src/minigame/species.js';
 import { cleanHat } from '../src/minigame/hats.js';
+import { DECOR_MAX, cleanDecorId } from '../src/minigame/decor.js';
 
 export const MAX_SEATS = 4;
 // 散策部屋(同じ島をみんなで歩く)は対戦の席数に縛られないので多めに取る。
@@ -78,6 +79,23 @@ function sanitizeName(name, fallback) {
   return s || fallback;
 }
 
+// 名簿に乗せる飾り。知らない品・数でない座標・多すぎるぶんは落とす。
+// **配る前にここを通す**(クライアントの sanitizeDecor と同じ役どころ)。
+function cleanDecor(list) {
+  if (!Array.isArray(list)) return [];
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const out = [];
+  for (const d of list) {
+    if (out.length >= DECOR_MAX) break;
+    const id = cleanDecorId(d?.id);
+    const x = num(d?.x);
+    const z = num(d?.z);
+    if (!id || x == null || z == null) continue;
+    out.push({ id, x, z, f: num(d?.f) ?? 0 });
+  }
+  return out;
+}
+
 export class RoomCore {
   // kind: 'game'(対戦)/ 'walk'(散策)。
   // 散策部屋は対戦を始めないので phase はずっと 'lobby' のまま。島は
@@ -127,7 +145,7 @@ export class RoomCore {
   // 参加(再接続なら元の席に戻る)
   // look: 散策部屋での「すがた」(species.js の番号)。名前と同じく
   // 変わらない値なので、位置とは別に名簿へ乗せる(毎フレーム送らない)。
-  join({ clientId, name, look, hat }) {
+  join({ clientId, name, look, hat, decor }) {
     if (!clientId) return { error: '不正な参加者です' };
     this.touch();
     const existing = this.seatOf(clientId);
@@ -136,6 +154,7 @@ export class RoomCore {
       if (name) this.seats[existing].name = sanitizeName(name, this.seats[existing].name);
       if (look != null) this.seats[existing].look = cleanSpecies(look);
       if (hat !== undefined) this.seats[existing].hat = cleanHat(hat);
+      if (decor !== undefined) this.seats[existing].decor = cleanDecor(decor);
       if (this.hostId == null) this.hostId = clientId;
       return { seat: existing, rejoined: true };
     }
@@ -149,6 +168,9 @@ export class RoomCore {
       // かぶりもの(店で買う見た目の品。hats.js)。すがたと同じ扱いで
       // 名簿に乗せる ── 毎フレーム送る値ではない
       hat: cleanHat(hat),
+      // 島に置いた飾り。**数も中身も必ず掃除する** ── そのまま名簿に乗せて
+      // 全員へ配るので、ここを通さないと1人が部屋じゅうを埋められる
+      decor: cleanDecor(decor),
       online: true,
     };
     if (this.hostId == null) this.hostId = clientId;
@@ -156,6 +178,15 @@ export class RoomCore {
   }
 
   // すがたを変える。島に入ったあとでも変えてよい(相手の画面で作り直される)
+  // 置いた飾りを配る。位置と違って変わらない値なので、名簿のほうに乗せる
+  setDecor(clientId, decor) {
+    const seat = this.seatOf(clientId);
+    if (seat < 0) return { error: '席がありません' };
+    this.seats[seat].decor = cleanDecor(decor);
+    this.touch();
+    return { seat, decor: this.seats[seat].decor };
+  }
+
   setLook(clientId, look, hat) {
     const seat = this.seatOf(clientId);
     if (seat < 0) return { error: '席がありません' };
@@ -335,6 +366,7 @@ export class RoomCore {
         name: s ? s.name : null,
         look: s ? (s.look ?? DEFAULT_SPECIES) : DEFAULT_SPECIES,
         hat: s ? (s.hat ?? null) : null,
+        decor: s ? (s.decor ?? []) : [],
         online: s ? s.online : false,
         occupied: !!s,
       })),

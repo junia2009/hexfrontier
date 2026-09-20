@@ -15,7 +15,8 @@ import {
   coinsForCatch, coinsForContest, coinsForFound, coinsForPastCatches, coinsForRaidRun,
 } from './rewards.js';
 import { dayIndex, questGain, questsFor } from './quests.js';
-import { isWear } from './shop.js';
+import { isWear, stockOf } from './shop.js';
+import { DECOR_MAX, STOCK_MAX, cleanDecorId } from './minigame/decor.js';
 
 const KEY = 'progress';
 export const PROGRESS_VERSION = 2;
@@ -47,6 +48,57 @@ export function emptyProgress() {
     quests: emptyQuests(),
     // いま身に着けているもの。買っただけでは着ない(持ち物から選ぶ)
     worn: { hat: null },
+    // まだ置いていない飾りの数。{ bench: 2, ... }(shop.js が増やす)
+    stock: {},
+    // 島に置いた飾り。**島の種類ごと**に持つ(decor.js のいちばん上)
+    decor: {},
+  };
+}
+
+// ---- 島の飾り ----
+//
+// 置いたものは `decor[島の種類]` の並び。**盤の座標で持つ**ので、
+// 同じ種類の島なら別の種の島へ行っても同じ場所に出る(decor.js)。
+//
+// 置く/拾うで `stock`(手持ちの数)と行き来する ── 拾ったものが消えると、
+// 買い直しになって「置き直すだけで金がかかる」になる。
+
+export function placedDecor(progress, mode) {
+  const list = progress?.decor?.[mode];
+  return Array.isArray(list) ? list : [];
+}
+
+// 置く。手持ちが無ければ何も変えない。
+export function placeDecor(progress, mode, id, at) {
+  if (stockOf(progress, id) <= 0) return { progress, ok: false, reason: '持っていません' };
+  const list = [...placedDecor(progress, mode), {
+    id, x: at.x, z: at.z, f: at.facing ?? 0,
+  }];
+  return {
+    progress: {
+      ...progress,
+      stock: { ...(progress.stock ?? {}), [id]: stockOf(progress, id) - 1 },
+      decor: { ...(progress.decor ?? {}), [mode]: list },
+    },
+    ok: true,
+    reason: null,
+  };
+}
+
+// 拾う。手持ちへ戻す(捨てるのではない)。
+export function takeDecor(progress, mode, index) {
+  const list = placedDecor(progress, mode);
+  const d = list[index];
+  if (!d) return { progress, ok: false, reason: 'そこには何もありません' };
+  return {
+    progress: {
+      ...progress,
+      stock: { ...(progress.stock ?? {}), [d.id]: stockOf(progress, d.id) + 1 },
+      decor: { ...(progress.decor ?? {}), [mode]: list.filter((_, i) => i !== index) },
+    },
+    ok: true,
+    reason: null,
+    id: d.id,
   };
 }
 
@@ -433,6 +485,8 @@ export function parseProgress(raw) {
       owned: sanitizeOwned(p?.owned),
       quests: sanitizeQuests(p?.quests),
       worn: sanitizeWorn(p?.worn, sanitizeOwned(p?.owned)),
+      stock: sanitizeStock(p?.stock),
+      decor: sanitizeDecor(p?.decor),
     };
   } catch {
     return emptyProgress();
@@ -455,6 +509,40 @@ function coinsOf(p) {
   if (v >= 2) return { coins: n(p.coins), coinsEarned: n(p.coinsEarned) };
   const back = coinsForPastCatches(p?.fish);
   return { coins: back, coinsEarned: back };
+}
+
+// 手持ちの飾りの数。知らない品と、数でないものは落とす
+function sanitizeStock(src) {
+  if (!src || typeof src !== 'object') return {};
+  const out = {};
+  for (const [id, v] of Object.entries(src)) {
+    if (!cleanDecorId(id)) continue;
+    const n = typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+    if (n) out[id] = Math.min(STOCK_MAX, n);
+  }
+  return out;
+}
+
+// 島に置いた飾り。**知らない島・知らない品・座標が数でないものは落とす。**
+// 上限を超えていたら先頭から切る(通信に乗る値なので、際限なく増やさない)。
+function sanitizeDecor(src) {
+  if (!src || typeof src !== 'object') return {};
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const out = {};
+  for (const [mode, list] of Object.entries(src)) {
+    if (!MODE_IDS.includes(mode) || !Array.isArray(list)) continue;
+    const kept = [];
+    for (const d of list) {
+      if (kept.length >= DECOR_MAX) break;
+      const id = cleanDecorId(d?.id);
+      const x = num(d?.x);
+      const z = num(d?.z);
+      if (!id || x == null || z == null) continue;
+      kept.push({ id, x, z, f: num(d?.f) ?? 0 });
+    }
+    if (kept.length) out[mode] = kept;
+  }
+  return out;
 }
 
 // 身に着けているもの。**持っていないものは外す** ── 保存を書き換えても

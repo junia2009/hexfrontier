@@ -11,11 +11,13 @@ import {
 } from './rules/road-building.js';
 import {
   addCatch, addContestResult, addRaidRun, addResult, clearProgress, currentTitle, loadProgress,
-  noteSeen, questBoard, resultOf, saveProgress, setTitle, wearHat, wornHat,
+  noteSeen, placeDecor, placedDecor, questBoard, resultOf, saveProgress, setTitle,
+  takeDecor, wearHat, wornHat,
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
 import { buyItem, ITEMS, ITEM_BY_ID, owns } from './shop.js';
+import { DECOR_BY_ID, placeSpot, whyCannotPlace } from './minigame/decor.js';
 import { bagHtml, fishbookHtml, questsHtml, storeHtml, recordsHtml } from './render/records.js';
 import { drawMinimap } from './render/minimap.js';
 import { contestCm } from './minigame/fish.js';
@@ -461,6 +463,8 @@ function onNetLobby(msg) {
 function onWalkLobby(msg) {
   walk?.setWalkerNames(msg.seats);
   renderContest();   // 名簿が変わると、順位表の名前とすがたも変わる
+  // 誰かが飾りを置いた/しまった。名簿に乗ってくるので島へ流し込み直す
+  syncDecor();
   if (!walk || !walkIsland) return;
   const mode = msg.settings?.mode ?? 'base';
   if (msg.seed === walkIsland.seed && mode === walkIsland.mode) return;
@@ -752,6 +756,10 @@ async function startWalk() {
   startLocalMeet();
   atDesk = false;
   applyOwned();   // 買ったものをこの島にも効かせる(投げ先・ランタン・時刻)
+  syncDecor();    // 置いてある飾りを島に出す(自分のぶん + 相手のぶん)
+  // 散策部屋なら、自分の置いたものを名簿に乗せる(島の種類ごとに違うので
+  // 繋いだときではなく、島に入ってから送る)
+  if (lobby) net?.setDecor(placedDecor(progress, state.mode));
   // **店は島の上にある。** 画面にボタンが無いので、最初の1回だけ場所を言う
   // (見取り図にも 🏪 の行が出る)。
   if (!shopHintShown && walk?.shopAt) {
@@ -782,6 +790,7 @@ async function startWalk() {
   walk.onSpot = onFishSpot;
   walk.onShop = onShopNear;
   walk.onBoard = onBoardNear;
+  walk.onDecor = onDecorNear;
   walk.onPost = onWatchPost;
   walk.onRaidEvent = (e) => {
     if (e.type === 'sink' || e.type === 'down') sfx.play('ui');
@@ -1426,7 +1435,60 @@ function renderShop() {
 // 使えないのでは意味がない。何も持っていない人にはボタンごと出さない。
 function renderBag() {
   const el = document.getElementById('walk-bag-body');
-  if (el) el.innerHTML = bagHtml(progress, { mapOn, skyTime, hat: wornHat(progress) });
+  if (!el) return;
+  el.innerHTML = bagHtml(progress, {
+    mapOn, skyTime, hat: wornHat(progress), canPlace: whyCannotPlaceHere(),
+  });
+}
+
+// ---- 島の飾り ----
+//
+// **置けるかどうかは、いま立っている場所で決まる。** 持ち物を開いた時点で
+// 判定して、置けないなら理由をボタンの上に出す(押してから断られるより、
+// 押す前に分かるほうがいい)。
+function decorSpot() {
+  if (!walk) return null;
+  const w = walk.walker;
+  return placeSpot({ x: w.pos.x, z: w.pos.z, facing: w.facing });
+}
+
+function whyCannotPlaceHere() {
+  if (!walk || !state) return '島を歩いている間だけ置けます';
+  const at = decorSpot();
+  return whyCannotPlace(state, at, placedDecor(progress, state.mode));
+}
+
+// 置いてあるもの一式(自分のぶん + 散策部屋の相手のぶん)を島へ流し込む
+function syncDecor() {
+  if (!walk || !state) return;
+  const mine = placedDecor(progress, state.mode);
+  walk.setDecor([...mine, ...peerDecor()], state);
+}
+
+// 相手の置いたもの。名簿(seats)に乗ってくる
+function peerDecor() {
+  const seats = online.kind === 'walk' ? (online.lobby?.seats ?? []) : [];
+  const me = net?.seat ?? null;
+  const out = [];
+  for (const s of seats) {
+    if (!s || s.seat === me) continue;
+    for (const d of s.decor ?? []) out.push(d);
+  }
+  return out;
+}
+
+// 飾りのそばに来た/離れた
+function onDecorNear(hit) {
+  updateDecorButton();
+  if (hit) {
+    const item = DECOR_BY_ID[hit.id];
+    walkNote(`${item?.icon ?? ''} ${item?.name ?? '飾り'} ── 🪄 を押すとしまえる`);
+  }
+}
+
+function updateDecorButton() {
+  const el = document.getElementById('walk-take');
+  el?.classList.toggle('on', !!walk?.atDecor && !walk?.isFishing);
 }
 
 function syncBagButton() {
@@ -3451,6 +3513,39 @@ document.addEventListener('click', (e) => {
       sfx.play('ui');
       const item = ITEM_BY_ID[worn];
       walkNote(worn ? `${item?.icon ?? ''} ${item?.name ?? ''}をかぶった` : 'かぶりものをぬいだ');
+      return;
+    }
+    // 飾りを置く。**いま立っている場所の少し前**に置いて、島へ流し込む
+    case 'decor-place': {
+      const why = whyCannotPlaceHere();
+      if (why) { walkNote(why); return; }
+      const r = placeDecor(progress, state.mode, arg, decorSpot());
+      if (!r.ok) { walkNote(r.reason ?? '置けません'); return; }
+      progress = r.progress;
+      saveProgress(progress);
+      syncDecor();
+      net?.setDecor(placedDecor(progress, state.mode));
+      renderBag();
+      sfx.play('ui');
+      walkNote(`${ITEM_BY_ID[arg]?.icon ?? ''} ${ITEM_BY_ID[arg]?.name ?? ''}を置いた`);
+      return;
+    }
+    // 目の前の飾りをしまう(手持ちへ戻す。捨てない)
+    case 'decor-take': {
+      const hit = walk?.atDecor;
+      if (!hit) { walkNote('しまえるものがそばにありません'); return; }
+      const mine = placedDecor(progress, state.mode);
+      const i = mine.findIndex((d) => d.id === hit.id && d.x === hit.x && d.z === hit.z);
+      if (i < 0) { walkNote('これは他の人が置いたものです'); return; }
+      const r = takeDecor(progress, state.mode, i);
+      if (!r.ok) { walkNote(r.reason ?? 'しまえません'); return; }
+      progress = r.progress;
+      saveProgress(progress);
+      syncDecor();
+      net?.setDecor(placedDecor(progress, state.mode));
+      renderBag();
+      sfx.play('ui');
+      walkNote(`${ITEM_BY_ID[r.id]?.icon ?? ''} ${ITEM_BY_ID[r.id]?.name ?? ''}をしまった`);
       return;
     }
     case 'walk-quests': setWalkQuests(true); return;

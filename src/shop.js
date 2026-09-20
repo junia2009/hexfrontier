@@ -28,6 +28,7 @@
 // 全て純粋関数。localStorage も画面も触らない。
 
 import { HATS } from './minigame/hats.js';
+import { DECOR, STOCK_MAX } from './minigame/decor.js';
 
 // ---- 道具(遊びかたが増える品)----
 const TOOLS = [
@@ -90,16 +91,44 @@ const WEARS = HATS.map((h) => ({
   note: '見た目だけの品です。釣りも大会も何も変わりません。',
 }));
 
-// 店に並ぶもの。**道具が先、かぶりものが後**(遊びが増える品を上に出す)
-export const ITEMS = [...TOOLS, ...WEARS];
+// ---- 島の飾り(買って島に置くもの)----
+//
+// **これだけは何度でも買える。** 1つ買うと1つ置ける ── ベンチを3つ
+// 並べたければ3つ買う。道具もかぶりものも「買い切り」なので、
+// **終わりの無い使い道**はここだけ。表は minigame/decor.js。
+const PLACEABLES = DECOR.map((d) => ({
+  id: d.id,
+  name: d.name,
+  icon: d.icon,
+  price: d.price,
+  kind: 'decor',
+  desc: d.desc,
+  note: '島のすきな場所に置けます。何個でも買えます。',
+}));
+
+// 店に並ぶもの。**道具が先、かぶりもの、飾りの順**(遊びが増える品を上に)
+export const ITEMS = [...TOOLS, ...WEARS, ...PLACEABLES];
 export const TOOL_IDS = TOOLS.map((i) => i.id);
 export const HAT_ITEMS = WEARS;
+export const DECOR_ITEMS = PLACEABLES;
 
 export const ITEM_BY_ID = Object.fromEntries(ITEMS.map((i) => [i.id, i]));
 
 // かぶりものかどうか。持ち物の画面が「かぶる/ぬぐ」を出すのに使う
 export function isWear(id) {
   return ITEM_BY_ID[id]?.kind === 'hat';
+}
+
+// 島に置く飾りかどうか。**これだけは何度でも買える**ので、
+// 「持っている/持っていない」ではなく「何個持っているか」で数える。
+export function isDecor(id) {
+  return ITEM_BY_ID[id]?.kind === 'decor';
+}
+
+// まだ置いていない手持ちの数
+export function stockOf(progress, id) {
+  const n = progress?.stock?.[id];
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
 // 値付けの根拠:
@@ -114,6 +143,8 @@ export function priceOf(id) {
 }
 
 export function owns(progress, id) {
+  // 飾りは「1つでも手元にあるか」。置いてしまったぶんは手元から減る
+  if (isDecor(id)) return stockOf(progress, id) > 0;
   return !!progress?.owned?.[id];
 }
 
@@ -121,7 +152,13 @@ export function owns(progress, id) {
 export function whyCannotBuy(progress, id) {
   const item = ITEM_BY_ID[id];
   if (!item) return 'その品は置いていません';
-  if (owns(progress, id)) return 'もう持っています';
+  // **飾りは「もう持っています」で断らない。** 何個でも買える品なので、
+  // ここで弾くと2つめが買えなくなる(置いたあとしか買えない、になる)
+  if (isDecor(id)) {
+    if (stockOf(progress, id) >= STOCK_MAX) return `持てるのは${STOCK_MAX}個までです`;
+  } else if (owns(progress, id)) {
+    return 'もう持っています';
+  }
   const have = progress?.coins ?? 0;
   if (have < item.price) return `あと${item.price - have}枚たりません`;
   return null;
@@ -135,14 +172,10 @@ export function buyItem(progress, id) {
   const reason = whyCannotBuy(progress, id);
   if (reason) return { progress, ok: false, reason };
   const item = ITEM_BY_ID[id];
-  return {
-    progress: {
-      ...progress,
-      // 使っても coinsEarned は減らさない(通算獲得の意味が消える)
-      coins: (progress.coins ?? 0) - item.price,
-      owned: { ...(progress.owned ?? {}), [id]: true },
-    },
-    ok: true,
-    reason: null,
-  };
+  // 使っても coinsEarned は減らさない(通算獲得の意味が消える)
+  const paid = { ...progress, coins: (progress.coins ?? 0) - item.price };
+  const next = isDecor(id)
+    ? { ...paid, stock: { ...(progress.stock ?? {}), [id]: stockOf(progress, id) + 1 } }
+    : { ...paid, owned: { ...(progress.owned ?? {}), [id]: true } };
+  return { progress: next, ok: true, reason: null };
 }

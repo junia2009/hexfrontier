@@ -228,6 +228,14 @@ export class RoomDO {
       return this.save();
     }
 
+    // 置いた飾り。名簿を配り直せば、みんなの島に出る
+    if (msg.t === 'decor') {
+      const res = room.setDecor(clientId, msg.decor);
+      if (res.error) return this.send(ws, { t: 'error', msg: res.error });
+      this.broadcastLobby();
+      return this.save();
+    }
+
     if (msg.t === 'settings') {
       const before = room.settings.mode;
       const res = room.setSettings(clientId, msg.settings);

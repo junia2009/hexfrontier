@@ -12,7 +12,9 @@ import {
 import { MODES, achievementCount, fishbookCount, summarize, winRate } from '../progress.js';
 import { FISH, isGated, placeLabel, portLabel } from '../minigame/fish.js';
 import { COIN_ICON, COIN_JP } from '../rewards.js';
-import { HAT_ITEMS, ITEMS, TOOL_IDS, isWear, owns, whyCannotBuy } from '../shop.js';
+import {
+  DECOR_ITEMS, HAT_ITEMS, ITEMS, TOOL_IDS, isDecor, isWear, owns, stockOf, whyCannotBuy,
+} from '../shop.js';
 import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
 import { dayLabel, questWhere } from '../quests.js';
 
@@ -252,11 +254,16 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
 // 売り物1つぶん。道具もかぶりものも同じ形で並べる
 function shopRows(list, progress) {
   return list.map((item) => {
-    const has = owns(progress, item.id);
+    // 飾りは**何個でも買える**ので「✓ 持っています」で終わらせない。
+    // いくつ手元にあるかを出して、買うボタンは出したままにする
+    const many = isDecor(item.id);
+    const has = !many && owns(progress, item.id);
     const why = has ? null : whyCannotBuy(progress, item.id);
+    const n = many ? stockOf(progress, item.id) : 0;
     const btn = has
       ? '<span class="shop-has">✓ 持っています</span>'
-      : `<button class="primary" data-act="shop-buy:${item.id}" ${why ? 'disabled' : ''}
+      : `${many && n ? `<span class="shop-n">手持ち ${n}</span>` : ''}
+        <button class="primary" data-act="shop-buy:${item.id}" ${why ? 'disabled' : ''}
           title="${why ?? ''}">${COIN_ICON} ${item.price} で買う</button>`;
     return `<div class="shop-row ${has ? 'has' : ''}">
       <div class="shop-head"><span class="shop-icon">${item.icon}</span>
@@ -279,6 +286,8 @@ export function shopHtml(progress) {
     ${shopRows(tools, progress)}
     <p class="shop-sec">👒 かぶりもの <small>見た目だけ。遊びは変わりません</small></p>
     ${shopRows(HAT_ITEMS, progress)}
+    <p class="shop-sec">🪵 島の飾り <small>島に置けます。何個でも買えます</small></p>
+    ${shopRows(DECOR_ITEMS, progress)}
     <p><small>遊びの結果で銀貨がたまります。売り物は増えていきます。</small></p>`;
 }
 
@@ -334,20 +343,35 @@ export function questsHtml(board, { now = Date.now(), here = null } = {}) {
 }
 
 // 持ち物。使い道のある品は、ここで使う
-export function bagHtml(progress, { mapOn = true, skyTime = 'live', hat = null } = {}) {
+export function bagHtml(
+  progress, { mapOn = true, skyTime = 'live', hat = null, canPlace = null } = {},
+) {
   const mine = ITEMS.filter((i) => owns(progress, i.id));
   if (!mine.length) return '<p>まだ何も持っていません。</p>';
   const rows = mine.map((item) => {
     const body = item.id === 'islandMap' ? mapSwitchHtml(mapOn)
       : item.id === 'skyGlass' ? skyTimesHtml(skyTime)
       : isWear(item.id) ? wearSwitchHtml(item, hat)
+      : isDecor(item.id) ? placeSwitchHtml(item, stockOf(progress, item.id), canPlace)
       : `<p><small>${item.note ?? ''}</small></p>`;
+    const n = isDecor(item.id) ? ` <span class="bag-n">×${stockOf(progress, item.id)}</span>` : '';
     return `<div class="bag-row">
-      <div class="shop-head"><span class="shop-icon">${item.icon}</span><b>${item.name}</b></div>
+      <div class="shop-head"><span class="shop-icon">${item.icon}</span><b>${item.name}</b>${n}</div>
       ${body}
     </div>`;
   }).join('');
   return rows;
+}
+
+// 島の飾り。**立っているところの少し前に置く** ── 携帯で置き場所を
+// つまんで動かすのは無理があるので、「置きたい所まで歩いて押す」にする。
+// canPlace が理由の文字列なら、そこには置けない(押せない)。
+function placeSwitchHtml(item, n, canPlace) {
+  if (!n) return '<p><small>もうありません。店で買えます。</small></p>';
+  const why = canPlace;
+  return `<p><small>${why ?? 'いま立っている場所の少し前に置きます。'}</small></p>
+    <div class="row end"><button class="primary" data-act="decor-place:${item.id}"
+      ${why ? 'disabled' : ''}>ここに置く</button></div>`;
 }
 
 // かぶりもの。**いま着けている1つだけ**を光らせる ── 2つ同時にはかぶれない
