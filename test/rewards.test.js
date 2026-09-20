@@ -144,28 +144,34 @@ test('銀貨: 足すと手持ちと通算の両方が増える。減らす方向
   }
 });
 
+// **手持ち = 遊びの稼ぎ + 掲示板の依頼の報酬。**
+// 依頼(quests.js)は日替わりなので、今日たまたま何が出ているかで額が動く
+// ── 時刻を固定したうえで、2つの合計として見る。
+// (r.coins だけと突き合わせていたら、依頼を足した日に落ちた)
+const AT = Date.UTC(2026, 8, 20, 3);
+
 test('銀貨: 釣ると増える。額は coinsForCatch と一致する', () => {
-  const r = addCatch(emptyProgress(), 'maguro', 150);
+  const r = addCatch(emptyProgress(), 'maguro', 150, AT);
   assert.equal(r.coins, coinsForCatch('maguro', 150), '返す額が違う');
-  assert.equal(r.progress.coins, r.coins, '手持ちに入っていない');
+  assert.equal(r.progress.coins, r.coins + r.questCoins, '手持ちに入っていない');
 });
 
 test('銀貨: 大会の二重申告では増えない', () => {
   const one = addContestResult(emptyProgress(), {
-    kind: 'fishing', won: true, score: 120, key: 'room#1',
+    kind: 'fishing', won: true, score: 120, key: 'room#1', at: AT,
   });
   assert.ok(one.coins > 0, '1回目で増えていない');
   const two = addContestResult(one.progress, {
-    kind: 'fishing', won: true, score: 120, key: 'room#1',
+    kind: 'fishing', won: true, score: 120, key: 'room#1', at: AT,
   });
   assert.equal(two.coins, 0, '同じ回で二度払っている');
   assert.equal(two.progress.coins, one.progress.coins, '手持ちが増えている');
 });
 
 test('銀貨: 櫓と、見つけたもの', () => {
-  const r = addRaidRun(emptyProgress(), { score: 150, wave: 3, shots: 40, hits: 30 });
+  const r = addRaidRun(emptyProgress(), { score: 150, wave: 3, shots: 40, hits: 30 }, AT);
   assert.equal(r.coins, coinsForRaidRun({ score: 150, shots: 40 }));
-  assert.equal(r.progress.coins, r.coins);
+  assert.equal(r.progress.coins, r.coins + r.questCoins);
 
   const first = noteSeen(emptyProgress(), 'nest');
   assert.ok(first.coins > 0, '初めて行ったのに払われない');

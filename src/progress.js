@@ -14,6 +14,7 @@ import {
 import {
   coinsForCatch, coinsForContest, coinsForFound, coinsForPastCatches, coinsForRaidRun,
 } from './rewards.js';
+import { dayIndex, questGain, questsFor } from './quests.js';
 
 const KEY = 'progress';
 export const PROGRESS_VERSION = 2;
@@ -41,8 +42,12 @@ export function emptyProgress() {
     coinsEarned: 0,
     // 買ったもの。{ id: true }。使い道は shop.js が持つ
     owned: {},
+    // 今日の依頼の進み具合。日が変わったら作り直す(quests.js)
+    quests: emptyQuests(),
   };
 }
+
+export const emptyQuests = () => ({ day: 0, n: {}, got: {} });
 
 // 銀貨を足す。手持ちと通算の両方が動く。**減らすのはここを通さない** ──
 // 使う側(まだ無い)は別の口を作る。ここを負の数で呼べるようにすると、
@@ -185,7 +190,11 @@ export function addCatch(progress, fishId, cm, now = Date.now()) {
     },
   };
   const coins = coinsForCatch(fishId, cm);
-  const next = { ...addCoins(progress, coins), fish, achievements: { ...progress.achievements } };
+  // 掲示板の依頼にも通す(quests.js)。達成ぶんの銀貨は quest 側で払う
+  const qr = noteQuest(progress, { type: 'catch', fishId, cm }, now);
+  const next = {
+    ...addCoins(qr.progress, coins), fish, achievements: { ...progress.achievements },
+  };
   const unlocked = [];
   for (const id of unlockedByFish({ fish })) {
     if (next.achievements[id]) continue;   // すでに持っている
@@ -194,7 +203,7 @@ export function addCatch(progress, fishId, cm, now = Date.now()) {
   }
   // ほかの入口と同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
-  return { progress: next, isNew, isRecord, unlocked, coins };
+  return { progress: next, isNew, isRecord, unlocked, coins, quests: qr.done, questCoins: qr.coins };
 }
 
 // ---- 釣り大会 ----
@@ -219,7 +228,12 @@ export function addContestResult(
   };
   const meets = { ...(progress.meets ?? {}), [kind]: meet };
   const coins = coinsForContest({ kind, entered: true, won, score, place, players });
-  const next = { ...addCoins(progress, coins), meets, achievements: { ...progress.achievements } };
+  // 掲示板へ。**二重に数えない仕掛け(上の key)の内側で呼ぶ** ──
+  // 外から呼ぶ形にすると、配り直された結果でもう一度払ってしまう
+  const qr = noteQuest(progress, { type: 'meet', kind, won: !!won }, at);
+  const next = {
+    ...addCoins(qr.progress, coins), meets, achievements: { ...progress.achievements },
+  };
   const unlocked = [];
   for (const id of unlockedByMeet({ kind, meet, meets })) {
     if (next.achievements[id]) continue; // すでに持っている
@@ -228,7 +242,7 @@ export function addContestResult(
   }
   // 対戦のほうと同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
-  return { progress: next, unlocked, coins };
+  return { progress: next, unlocked, coins, quests: qr.done, questCoins: qr.coins };
 }
 
 // ---- 蛮族を射る(ひとりの記録)----
@@ -259,7 +273,10 @@ export function addRaidRun(progress, { score = 0, wave = 1, shots = 0, hits = 0 
     hits: prev.hits + h,
   };
   const coins = coinsForRaidRun({ score: n(score), shots: s });
-  const next = { ...addCoins(progress, coins), raid, achievements: { ...progress.achievements } };
+  const qr = noteQuest(progress, { type: 'raid', score: n(score) }, at);
+  const next = {
+    ...addCoins(qr.progress, coins), raid, achievements: { ...progress.achievements },
+  };
   const unlocked = [];
   for (const id of unlockedByRaid({ raid })) {
     if (next.achievements[id]) continue; // すでに持っている
@@ -268,7 +285,7 @@ export function addRaidRun(progress, { score = 0, wave = 1, shots = 0, hits = 0 
   }
   // 対戦・大会と同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
-  return { progress: next, unlocked, coins };
+  return { progress: next, unlocked, coins, quests: qr.done, questCoins: qr.coins };
 }
 
 // ---- 島で見つけたもの ----
@@ -289,6 +306,58 @@ export function noteSeen(progress, id, at = Date.now()) {
   // 対戦・大会と同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
   return { progress: next, unlocked, coins };
+}
+
+// ---- 島の掲示板(日替わりの依頼)----
+//
+// 何が出ているかは quests.js(日付だけで決まる純粋な計算)。ここが持つのは
+// 「今日どこまで進んだか」だけ。
+//
+// **日が変わったら白紙に戻す。** 昨日の進みを持ち越すと、日をまたいで
+// 積んだ数で今日の依頼がいきなり終わる。
+
+function questsToday(progress, now) {
+  const day = dayIndex(now);
+  const q = progress?.quests;
+  if (!q || q.day !== day) return { day, n: {}, got: {} };
+  return { day, n: { ...q.n }, got: { ...q.got } };
+}
+
+// 掲示板に出す形。依頼そのもの + いまの進み + 済んだか。
+export function questBoard(progress, now = Date.now()) {
+  const st = questsToday(progress, now);
+  return questsFor(now).map((q) => ({
+    ...q,
+    at: Math.min(q.goal, st.n[q.id] ?? 0),
+    done: !!st.got[q.id],
+  }));
+}
+
+// 遊びの結果1つを掲示板に通す。達成した依頼があれば銀貨を払う。
+//
+// **呼ぶのは addCatch / addContestResult / addRaidRun の中から。** 画面側から
+// 別に呼ぶ形にすると、二重に数えない仕掛け(大会の key)をすり抜ける。
+export function noteQuest(progress, ev, now = Date.now()) {
+  const st = questsToday(progress, now);
+  const done = [];
+  let coins = 0;
+  let moved = st.day !== progress?.quests?.day;
+  for (const q of questsFor(now)) {
+    if (st.got[q.id]) continue;
+    const gain = questGain(q, ev);
+    if (!gain) continue;
+    const at = Math.min(q.goal, (st.n[q.id] ?? 0) + gain);
+    if (at === (st.n[q.id] ?? 0)) continue;
+    st.n[q.id] = at;
+    moved = true;
+    if (at >= q.goal) {
+      st.got[q.id] = true;
+      coins += q.reward;
+      done.push(q);
+    }
+  }
+  if (!moved) return { progress, done: [], coins: 0 };
+  return { progress: { ...addCoins(progress, coins), quests: st }, done, coins };
 }
 
 // 図鑑の埋まり具合。total は魚の総数(呼ぶ側が fish.js から渡す)。
@@ -340,6 +409,7 @@ export function parseProgress(raw) {
       raid: sanitizeRaid(p?.raid),
       ...coinsOf(p),
       owned: sanitizeOwned(p?.owned),
+      quests: sanitizeQuests(p?.quests),
     };
   } catch {
     return emptyProgress();
@@ -362,6 +432,23 @@ function coinsOf(p) {
   if (v >= 2) return { coins: n(p.coins), coinsEarned: n(p.coinsEarned) };
   const back = coinsForPastCatches(p?.fish);
   return { coins: back, coinsEarned: back };
+}
+
+// 今日の依頼の進み。**壊れていたら白紙**にしてよい ── その日のぶんしか
+// 意味がなく、実績や図鑑のように失うと痛いものではない。
+function sanitizeQuests(src) {
+  if (!src || typeof src !== 'object') return emptyQuests();
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+  const day = num(src.day);
+  if (!day) return emptyQuests();
+  const n = {};
+  for (const [id, v] of Object.entries(src.n ?? {})) {
+    const k = num(v);
+    if (k) n[id] = k;
+  }
+  const got = {};
+  for (const [id, v] of Object.entries(src.got ?? {})) if (v) got[id] = true;
+  return { day, n, got };
 }
 
 // 行った場所。値は「いつ行ったか」なので、数でないものは落とす

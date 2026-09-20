@@ -249,6 +249,40 @@ export function makeWalkGround(state) {
   };
 }
 
+// ---- 島の掲示板(日替わりの依頼)----
+//
+// **受付と同じ広場に立てる。** 依頼は「今日この島で何をするか」の掲示なので、
+// 島に降りた人が必ず通る受付のそばにある。店(屋台)と違って隣のヘックスへ
+// 出さないのは、毎日見るものだから ── 遠ければ誰も読みに行かない。
+//
+// 寸法の前後関係(どれも sc なので、縮尺を変えても崩れない):
+//   受付/卓の手の届く範囲 …… 0.50 / 0.56
+//   降り立つ輪            …… 0.62
+//   掲示板の立つ位置      …… 1.70  ← ここ
+//   掲示板の手の届く範囲  …… 0.42(1.70 − 0.42 = 1.28 > 0.56 で、
+//                                  受付のパネルと同時に開かない)
+//
+// **数字トークンの円盤(半径 0.33〜0.45 盤単位)より外に出すこと。**
+// 1.00(= 0.50 盤単位)に立てていたら、広場のまん中の円盤と重なって、
+// 読みに行くと足もとが円盤で埋まった。1.70(= 0.85 盤単位)は
+// ヘックスの内接円(0.866)の内側なので、必ず陸の上に立つ。
+export const BOARD_AWAY = sc(1.7);
+export const BOARD_RADIUS = sc(0.16);   // ぶつかる大きさ
+export const BOARD_REACH = sc(0.42);    // この距離まで寄ると読める
+export const BOARD_CLEAR = sc(0.6);     // まわりを片付ける広さ
+// 立てる向き。**降り立つ輪の席(8等分)のちょうど間**に置く ──
+// 席の真上に立てると、島に降りた人が掲示板に埋まる。
+const BOARD_ANGLE = Math.PI / 8;
+
+export function boardPoint(state) {
+  if (!state?.board) return null;
+  const home = spawnPoint(state);
+  const x = home.x + Math.cos(BOARD_ANGLE) * BOARD_AWAY;
+  const z = home.y + Math.sin(BOARD_ANGLE) * BOARD_AWAY;
+  // 読む面は広場のほう(受付から歩いてきた人の正面が表になる)
+  return { x, z, facing: Math.atan2(home.x - x, home.y - z) };
+}
+
 // ---- 島の店 ----
 //
 // **店は島の上に建っている。** 画面の上のボタンから開く形にしていたが、

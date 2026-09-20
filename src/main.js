@@ -11,12 +11,12 @@ import {
 } from './rules/road-building.js';
 import {
   addCatch, addContestResult, addRaidRun, addResult, clearProgress, currentTitle, loadProgress,
-  noteSeen, resultOf, saveProgress, setTitle,
+  noteSeen, questBoard, resultOf, saveProgress, setTitle,
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
 import { buyItem, ITEMS, ITEM_BY_ID, owns } from './shop.js';
-import { bagHtml, fishbookHtml, storeHtml, recordsHtml } from './render/records.js';
+import { bagHtml, fishbookHtml, questsHtml, storeHtml, recordsHtml } from './render/records.js';
 import { drawMinimap } from './render/minimap.js';
 import { contestCm } from './minigame/fish.js';
 import { skyTimeOf } from './minigame/daynight.js';
@@ -781,6 +781,7 @@ async function startWalk() {
   walk.onRespawn = noteLogFall;
   walk.onSpot = onFishSpot;
   walk.onShop = onShopNear;
+  walk.onBoard = onBoardNear;
   walk.onPost = onWatchPost;
   walk.onRaidEvent = (e) => {
     if (e.type === 'sink' || e.type === 'down') sfx.play('ui');
@@ -932,6 +933,7 @@ function noteRaidRun(r) {
     return;
   }
   if (res.coins) walkNote(`${COIN_ICON} +${res.coins} 島の銀貨`);
+  noteQuestsDone(res.quests, res.questCoins, res.coins ? 1400 : 0);
 }
 
 // 大会中の点をサーバーへ。合計を送るので、1通落ちても次で追いつく。
@@ -1114,6 +1116,27 @@ function onShopNear(near) {
   else if (walkShopOpen) setWalkShop(false);   // 離れたら閉じる
 }
 
+// 依頼を達成したことを伝える。**帯で出す** ── 掲示板まで戻らないと
+// 気づけないのでは、依頼を出した意味がない。
+// delay は、釣果の札など先に出ているものと重ねないための待ち。
+function noteQuestsDone(list, coins, delay = 0) {
+  if (!list?.length) return;
+  const text = list.length === 1
+    ? `📌 依頼を達成: ${list[0].icon} ${list[0].text} ${COIN_ICON} +${coins}`
+    : `📌 依頼を ${list.length} 件達成 ${COIN_ICON} +${coins}`;
+  if (delay) setTimeout(() => walkNote(text), delay);
+  else walkNote(text);
+  sfx.play('win');
+  if (walkQuestsOpen) renderQuests();
+}
+
+// 掲示板の前に立った/離れた。店とまったく同じ作法
+function onBoardNear(near) {
+  updateBoardButton();
+  if (near) walkNote('📌 島の掲示板 ── 📌 を押すと今日の依頼が読める');
+  else if (walkQuestsOpen) setWalkQuests(false);
+}
+
 function onFishSpot(spot) {
   if (!spot) { resetFishHud(); return; }
   setFishButton('ready');
@@ -1222,6 +1245,8 @@ function showCatch() {
     const a = achievementById(r.unlocked[0]);
     setTimeout(() => walkNote(`🎉 実績を解除: ${a?.icon ?? ''} ${a?.name ?? ''}`), 1400);
   }
+  // 実績より後ろに置く(同じ帯を取り合うので、重い知らせを先に出す)
+  noteQuestsDone(r.quests, r.questCoins, r.unlocked.length ? 2800 : 1400);
 }
 
 function showMiss() {
@@ -1412,6 +1437,29 @@ function syncBagButton() {
 // 店のボタン。屋台のそばに立っている間だけ出す(釣る・射ると同じ場所)
 function updateStoreButton() {
   document.getElementById('walk-store')?.classList.toggle('on', !!walk?.atShop && !walk?.isFishing);
+}
+
+// 掲示板のボタン。板の前に立っている間だけ出す
+function updateBoardButton() {
+  document.getElementById('walk-board')?.classList.toggle('on', !!walk?.atBoard && !walk?.isFishing);
+}
+
+// 今日の依頼。掲示板の前でだけ開く(quests.js が中身、progress が進み具合)
+function renderQuests() {
+  const el = document.getElementById('walk-quests-body');
+  if (el) el.innerHTML = questsHtml(questBoard(progress), { here: walk?.mode ?? settings.mode });
+}
+
+let walkQuestsOpen = false;
+function setWalkQuests(on) {
+  if (!walk) return;
+  walkQuestsOpen = !!on;
+  const el = document.getElementById('walk-quests');
+  if (walkQuestsOpen) renderQuests();
+  el?.classList.toggle('on', walkQuestsOpen);
+  if (walkQuestsOpen) { setWalkEmotes(false); setWalkLooks(false); setWalkGuide(false); setWalkBook(false); }
+  walk.setPaused(walkQuestsOpen);
+  if (walkQuestsOpen) walkStickHide();
 }
 
 let shopHintShown = false;   // 店の場所を教えるのは、ひと遊びにつき1回だけ
@@ -1673,6 +1721,8 @@ function noteContestResult(c) {
   meetUnlocked = r.unlocked;
   meetCoins = r.coins;
   if (r.unlocked.length) sfx.play('win');
+  // 大会の結果の札は別に出るので、そこに重ねず少し待ってから帯で出す
+  noteQuestsDone(r.quests, r.questCoins, 1600);
 }
 
 // 竜の巣まで登った。2度目からは何も起きない(noteSeen が見ている)。
@@ -3389,6 +3439,8 @@ document.addEventListener('click', (e) => {
       return;
     case 'walk-shop': setWalkShop(true); return;
     case 'walk-shop-close': setWalkShop(false); return;
+    case 'walk-quests': setWalkQuests(true); return;
+    case 'walk-quests-close': setWalkQuests(false); return;
     case 'walk-bag': setWalkBag(true); return;
     case 'walk-bag-close': setWalkBag(false); return;
     case 'shop-buy': {
@@ -3978,6 +4030,9 @@ window.hexDebug = {
   getFishing: () => (walk?.fishing ? walk.fishing.view() : null),
   fishReel: (on) => walk?.setReeling(on),
   fishBook: () => progress.fish ?? {},
+  // 島の掲示板(E2E 用)。今日の依頼と進み具合、手持ちの銀貨
+  getQuests: () => questBoard(progress),
+  getCoins: () => ({ coins: progress.coins ?? 0, earned: progress.coinsEarned ?? 0 }),
   hexCenter: (hid) => walk?.hexCenter(hid) ?? null,
   // 散策部屋(E2E 用): いま見えている他の人
   getWalkPeers: () => walk?.remote.sample() ?? [],

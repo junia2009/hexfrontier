@@ -14,6 +14,7 @@ import {
   spawnPoint, fishingSpots, spotNear, hexCenter, nestPoint, nestHexOf,
   watchPost, makeGround, makeWalkGround, postDeckTop, POST_RADIUS, POST_CLEAR, DESK_RADIUS, DESK_REACH, DESK_CLEAR,
   shopPoint, storeBlockers, SHOP_RADIUS, SHOP_REACH, SHOP_CLEAR,
+  boardPoint, BOARD_RADIUS, BOARD_REACH, BOARD_CLEAR,
   TABLE_RADIUS, TABLE_CLEAR, TABLE_REACH, tableSeats,
 } from './ground.js';
 import { Raid, ARCHERY_MODES, BOW_Y, rangeBlockers, reach as arrowReach } from './archery.js';
@@ -37,6 +38,7 @@ import { emoteById } from './emote.js';
 import { speciesById, DEFAULT_SPECIES } from './species.js';
 import { makeDesk } from './desk.js';
 import { makeStore } from './store.js';
+import { makeNoticeBoard } from './notice.js';
 import { meetFor } from './meets.js';
 import { makeTable } from './table.js';
 import { makeDragon } from '../render3d/board3d.js';
@@ -216,6 +218,7 @@ export class WalkMode {
   // look: すがた(species.js の番号)
   constructor(board3d, state, fishSeed = Date.now() >>> 0, seat = null, look = DEFAULT_SPECIES) {
     this.b = board3d;
+    this.mode = state?.mode ?? null;   // どの島を歩いているか(掲示板の行き先表示に使う)
     // 島の地面。**丸太乗りの丸太はこの上に被せる**ので、外へ渡すのは
     // 下の包み(this.ground)のほう ── 包みを1つ通しておけば、歩き・
     // 他の人の描画・カメラの高さまで、全部が同じ足場を見る。
@@ -399,6 +402,31 @@ export class WalkMode {
       // 裏の樽と木箱も忘れずに ── 見た目だけ置くとすり抜ける
       this.obstacles.push({ x: shop.x, z: shop.z, r: SHOP_RADIUS, h: shopY - TILE_TOP + sc(0.6) });
       this.obstacles.push(...storeBlockers(shop, shopY - TILE_TOP));
+    }
+
+    // ---- 島の掲示板(日替わりの依頼)----
+    //
+    // **受付と同じ広場に立てる**(ground.js の boardPoint)。店と同じ作法で、
+    // 歩いて行って読む ── 画面の上にボタンは置かない。
+    const notice = boardPoint(state);
+    this.boardAt = null;
+    this.notice = null;
+    this.atBoard = false;
+    this.onBoard = null;     // 掲示板の前に立った/離れた
+    if (notice) {
+      this.boardAt = { x: notice.x, z: notice.z };
+      const cut = clearAround(this.obstacles, this.boardAt, BOARD_CLEAR);
+      this.obstacles = cut.kept;
+      for (const o of cut.cleared) {
+        if (!o.obj) continue;
+        this.clearedObjs.push({ o: o.obj, vis: o.obj.visible });
+        o.obj.visible = false;
+      }
+      const noticeY = this.ground(notice.x, notice.z).y;
+      this.notice = makeNoticeBoard(board3d.scene, notice.x, notice.z, noticeY, notice.facing);
+      this.obstacles.push({
+        x: notice.x, z: notice.z, r: BOARD_RADIUS, h: noticeY - TILE_TOP + sc(0.8),
+      });
     }
 
     this.species = speciesById(look);
@@ -944,6 +972,7 @@ export class WalkMode {
     this.desk?.update?.(dt);
     // 店番。夜はランタンが灯る(board3d が空の時刻を持っている)
     this.store?.update(dt, t, { near: this.atShop, night: this.b?.nightNow?.() ?? 0 });
+    this.notice?.update(t, { near: this.atBoard });
 
     if (this.fishing) {
       this._fishFrame(dt);
@@ -994,6 +1023,14 @@ export class WalkMode {
     if (onShop !== this.atShop) {
       this.atShop = onShop;
       this.onShop?.(onShop);
+    }
+
+    // 掲示板の前に立ったら知らせる(立った/離れたときだけ)
+    const onBoard = !!this.boardAt && r.grounded
+      && Math.hypot(w.x - this.boardAt.x, w.z - this.boardAt.z) < BOARD_REACH;
+    if (onBoard !== this.atBoard) {
+      this.atBoard = onBoard;
+      this.onBoard?.(onBoard);
     }
 
     // 櫓のそばに来たら知らせる(入った/出たときだけ)。
@@ -1684,6 +1721,7 @@ export class WalkMode {
     this.setDragon(null);
     this.desk?.dispose();
     this.store?.dispose();
+    this.notice?.dispose();
     this.drum?.dispose();
     this.archeryFx?.dispose();
     this.walker.dispose();

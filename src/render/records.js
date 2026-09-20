@@ -14,6 +14,7 @@ import { FISH, isGated, placeLabel, portLabel } from '../minigame/fish.js';
 import { COIN_ICON, COIN_JP } from '../rewards.js';
 import { ITEMS, owns, whyCannotBuy } from '../shop.js';
 import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
+import { dayLabel, questWhere } from '../quests.js';
 
 const MODE_ICON = {
   base: '⬡', cak: '🏰', dragon: '🐉', fish: '🐟', sea: '⛵',
@@ -286,6 +287,39 @@ export function storeHtml(progress) {
   return `<p class="shop-greet"><span class="shop-face">🐻</span>
     <span><b>店主</b><small>${line}</small></span></p>
     ${shopHtml(progress)}`;
+}
+
+// ---- 島の掲示板(日替わりの依頼)----
+//
+// **今日の3本と、その進み具合。** 何が出るかは quests.js(日付だけで決まる)、
+// どこまで進んだかは progress.js の questBoard。ここは並べるだけ。
+//
+// 「あと少し」が目で分かるように、数(3/5)と帯の両方を出す ── 数だけだと
+// 掲示板の前で読み込まないと残りが分からない。
+export function questsHtml(board, { now = Date.now(), here = null } = {}) {
+  const left = board.filter((q) => !q.done);
+  const paid = board.filter((q) => q.done).reduce((s, q) => s + q.reward, 0);
+  const rows = board.map((q) => {
+    const where = questWhere(q);
+    // いまいる島でできるか。よその島の依頼には行き先を出す
+    const away = q.mode && here && q.mode !== here;
+    const pct = Math.round((q.at / q.goal) * 100);
+    const bar = q.done
+      ? '<span class="q-done">✓ 達成</span>'
+      : `<span class="q-bar"><i style="width:${pct}%"></i></span>
+         <small>${q.at}/${q.goal}${q.unit}</small>`;
+    return `<div class="q-row ${q.done ? 'has' : ''}">
+      <div class="shop-head"><span class="shop-icon">${q.icon}</span><b>${q.text}</b></div>
+      <div class="q-line">${bar}<span class="q-pay">${COIN_ICON} ${q.reward}</span></div>
+      ${where ? `<p><small>${away ? '➜ ' : ''}${where}</small></p>` : ''}
+    </div>`;
+  }).join('');
+  const foot = left.length
+    ? `<p><small>あと ${left.length} 件。明日 0 時に張り替わります。</small></p>`
+    : '<p><small>今日のぶんは全部おわりました。明日 0 時に新しい依頼が出ます。</small></p>';
+  return `<p class="q-head">${dayLabel(now)} の依頼
+    ${paid ? `<span class="q-got">${COIN_ICON} +${paid}</span>` : ''}</p>
+    ${rows}${foot}`;
 }
 
 // 持ち物。使い道のある品は、ここで使う
