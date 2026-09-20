@@ -1046,6 +1046,37 @@
   /* 沖を選んでいる間は光らせる(どちらへ投げるか、押す前に分かるように) */
   #walk-cast.deep { border-color: rgba(125, 200, 255, 0.7); background: rgba(24, 68, 110, 0.78); }
 
+  /* 飾りの下見。**画面の下の真ん中**に出す ── 左はスティック、右は
+     ジャンプなので、そこと取り合わない。歩きながら押せる高さに置く。 */
+  #walk-aim {
+    position: absolute; pointer-events: auto; display: none;
+    left: 50%; transform: translateX(-50%);
+    bottom: calc(98px + env(safe-area-inset-bottom));
+    flex-direction: column; align-items: center; gap: 6px;
+    padding: 8px 10px; border-radius: 14px;
+    border: 1px solid rgba(255, 217, 125, 0.45);
+    background: rgba(8, 22, 38, 0.74);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+  }
+  #walk-aim.on { display: flex; }
+  #walk-aim .aim-row { display: flex; gap: 6px; }
+  #walk-aim button {
+    min-width: 52px; min-height: 46px; padding: 4px 8px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+    font-size: 17px; line-height: 1;
+  }
+  #walk-aim button span { font-size: 9px; font-weight: 700; color: var(--dim); }
+  #walk-aim button:disabled { opacity: 0.35; }
+  #walk-aim .aim-row:last-child button { min-width: 104px; font-size: 13px; }
+  /* 置けない理由。**赤い見本と同じことを文字でも出す** ── 色だけだと
+     「なぜ駄目なのか」が分からない(広場なのか、飾りが近すぎるのか) */
+  #walk-aim .aim-why {
+    display: none; max-width: 240px; text-align: center;
+    font-size: 11.5px; font-weight: 700; color: #ffb86b;
+  }
+  #walk-aim.bad { border-color: rgba(216, 82, 60, 0.7); }
+  #walk-aim.bad .aim-why { display: block; }
+
   /* 島の店。屋台のそばでだけ出る。釣る・射ると同じ場所(同時には出ない) */
   #walk-store {
     position: absolute; pointer-events: auto; display: none;
@@ -2186,6 +2217,21 @@
     <button id="walk-board" type="button" data-act="walk-quests">📌<span>けいじ</span></button>
     <!-- 置いた飾りのそばで出る。押すと手持ちへ戻る -->
     <button id="walk-take" type="button" data-act="decor-take">🪄<span>しまう</span></button>
+    <!-- 飾りの下見。持ち物から「置く」を押すと出る。歩けば見本もついてくるので、
+         大まかには足で、細かくはここのボタンで決める(minigame/place.js) -->
+    <div id="walk-aim">
+      <div class="aim-why" id="walk-aim-why"></div>
+      <div class="aim-row">
+        <button type="button" data-act="decor-turn:-1" aria-label="左へ回す">↺</button>
+        <button type="button" data-act="decor-turn:1" aria-label="右へ回す">↻</button>
+        <button type="button" data-act="decor-near:-1" aria-label="近づける">－<span>ちかく</span></button>
+        <button type="button" data-act="decor-near:1" aria-label="遠ざける">＋<span>とおく</span></button>
+      </div>
+      <div class="aim-row">
+        <button type="button" data-act="decor-cancel">やめる</button>
+        <button type="button" class="primary" data-act="decor-put">ここに置く</button>
+      </div>
+    </div>
     <!-- 蛮族を射る。櫓のそばで出る。押している間だけ弓を引き、離すと放つ -->
     <div id="aim-bar"></div>
     <div id="aim-mark"><i></i></div>

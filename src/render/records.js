@@ -391,7 +391,7 @@ export function questsHtml(board, { now = Date.now(), here = null } = {}) {
 // **店と同じ棚で仕切る。** 買うときと使うときで並びが違うと、
 // さっき買ったものがどこにあるか分からなくなる(店は shopHtml)。
 export function bagHtml(
-  progress, { mapOn = true, skyTime = 'live', hat = null, canPlace = null } = {},
+  progress, { mapOn = true, skyTime = 'live', hat = null } = {},
 ) {
   const mine = ITEMS.filter((i) => owns(progress, i.id));
   if (!mine.length) return '<p>まだ何も持っていません。</p>';
@@ -399,7 +399,7 @@ export function bagHtml(
     const body = item.id === 'islandMap' ? mapSwitchHtml(mapOn)
       : item.id === 'skyGlass' ? skyTimesHtml(skyTime)
       : isWear(item.id) ? wearSwitchHtml(item, hat)
-      : isDecor(item.id) ? placeSwitchHtml(item, stockOf(progress, item.id), canPlace)
+      : isDecor(item.id) ? placeSwitchHtml(item, stockOf(progress, item.id))
       : `<p><small>${item.note ?? ''}</small></p>`;
     const n = isDecor(item.id) ? ` <span class="bag-n">×${stockOf(progress, item.id)}</span>` : '';
     return `<div class="bag-row">
@@ -415,15 +415,19 @@ export function bagHtml(
   }).join('');
 }
 
-// 島の飾り。**立っているところの少し前に置く** ── 携帯で置き場所を
-// つまんで動かすのは無理があるので、「置きたい所まで歩いて押す」にする。
-// canPlace が理由の文字列なら、そこには置けない(押せない)。
-function placeSwitchHtml(item, n, canPlace) {
+// 島の飾り。押すと**下見**に入る(すぐには置かない)。半透明の見本が出て、
+// 歩けばついてくる ── 大まかには足で、細かくは向きと近さのボタンで決める
+// (minigame/place.js)。前は「立っているところの 0.62 前」の一点しか
+// 選べず、並べようとすると足で踏み直すしかなかった。
+function placeSwitchHtml(item, n) {
   if (!n) return '<p><small>もうありません。店で買えます。</small></p>';
-  const why = canPlace;
-  return `<p><small>${why ?? 'いま立っている場所の少し前に置きます。'}</small></p>
-    <div class="row end"><button class="primary" data-act="decor-place:${item.id}"
-      ${why ? 'disabled' : ''}>ここに置く</button></div>`;
+  // **ここでは置かない。下見に入るだけ。** 置けるかどうかは下見のあいだに
+  // 見本の色で出る ── 持ち物を開いた時点の1点で断ると、少し動けば置ける
+  // 場所でも「置けません」と出たままになる(島は止まっているので動けない)。
+  return `<p><small>半透明の見本が出ます。歩いて場所を決めて、
+    向きと近さをととのえてから置きます。</small></p>
+    <div class="row end"><button class="primary"
+      data-act="decor-place:${item.id}">置く場所を決める</button></div>`;
 }
 
 // かぶりもの。**いま着けている1つだけ**を光らせる ── 2つ同時にはかぶれない

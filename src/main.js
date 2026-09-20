@@ -16,8 +16,9 @@ import {
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
-import { buyItem, cleanShelf, ITEMS, ITEM_BY_ID, owns } from './shop.js';
+import { buyItem, cleanShelf, ITEMS, ITEM_BY_ID, owns, stockOf } from './shop.js';
 import { DECOR_BY_ID, placeSpot, whyCannotPlace } from './minigame/decor.js';
+import { aimNudge, aimSpot, aimTurn, canNudge, newAim } from './minigame/place.js';
 import { bagHtml, fishbookHtml, questsHtml, storeHtml, recordsHtml } from './render/records.js';
 import { drawMinimap } from './render/minimap.js';
 import { contestCm } from './minigame/fish.js';
@@ -791,6 +792,7 @@ async function startWalk() {
   walk.onShop = onShopNear;
   walk.onBoard = onBoardNear;
   walk.onDecor = onDecorNear;
+  walk.onAim = updateAim;     // 下見の見本を毎コマ動かす
   walk.onPost = onWatchPost;
   walk.onRaidEvent = (e) => {
     if (e.type === 'sink' || e.type === 'down') sfx.play('ui');
@@ -825,6 +827,7 @@ async function startWalk() {
 
 function exitWalk() {
   stopLocalMeet();
+  endAim();
   if (walk?.isAiming) stopArchery();
   setWalkBook(false);
   setWalkGuide(false);
@@ -981,6 +984,7 @@ function onWatchPost(near) {
 }
 
 function startArchery() {
+  endAim();
   if (!walk || walk.isAiming) return;
   if (raidNet && raidOver) { walkNote('🏹 この回はここまで'); return; }
   // 乱数は**この遊び専用**。対戦の state.rng は回さない。
@@ -1441,7 +1445,7 @@ function renderBag() {
   const el = document.getElementById('walk-bag-body');
   if (!el) return;
   el.innerHTML = bagHtml(progress, {
-    mapOn, skyTime, hat: wornHat(progress), canPlace: whyCannotPlaceHere(),
+    mapOn, skyTime, hat: wornHat(progress),
   });
 }
 
@@ -1450,16 +1454,57 @@ function renderBag() {
 // **置けるかどうかは、いま立っている場所で決まる。** 持ち物を開いた時点で
 // 判定して、置けないなら理由をボタンの上に出す(押してから断られるより、
 // 押す前に分かるほうがいい)。
-function decorSpot() {
+//
+// 持ち物から押すと、すぐ置かずに**下見**に入る(aim)。半透明の見本が
+// 目の前に出て、歩けばついてくる。遠さと向きをボタンで刻んでから置く
+// ── 一点しか選べなかったのを直したもの(minigame/place.js)。
+let aim = null;          // { id, away, turn } 下見の途中。置く/やめるで消える
+
+function walkerAt() {
   if (!walk) return null;
   const w = walk.walker;
-  return placeSpot({ x: w.pos.x, z: w.pos.z, facing: w.facing });
+  return { x: w.pos.x, z: w.pos.z, facing: w.facing };
+}
+
+// いま見本が出ている場所。下見をしていなければ、今までと同じ「少し前」
+function decorSpot() {
+  const at = walkerAt();
+  if (!at) return null;
+  return aim ? aimSpot(aim, at) : placeSpot(at);
 }
 
 function whyCannotPlaceHere() {
   if (!walk || !state) return '島を歩いている間だけ置けます';
   const at = decorSpot();
   return whyCannotPlace(state, at, placedDecor(progress, state.mode));
+}
+
+// 下見のあいだ、毎コマ見本を動かす(歩くとついてくる)。
+// **置ける/置けないを色で出す** ── 文字だけだと、どこを直せばいいのか
+// 分からない。
+function updateAim() {
+  const bar = document.getElementById('walk-aim');
+  bar?.classList.toggle('on', !!aim && !!walk);
+  if (!aim || !walk) return;
+  const spot = decorSpot();
+  const why = whyCannotPlaceHere();
+  walk.moveGhost(spot, !why);
+  const note = document.getElementById('walk-aim-why');
+  if (note) note.textContent = why ?? '';
+  bar?.classList.toggle('bad', !!why);
+  const put = bar?.querySelector('[data-act="decor-put"]');
+  if (put) put.disabled = !!why;
+  for (const [act, d] of [['decor-near:-1', -1], ['decor-near:1', 1]]) {
+    const b = bar?.querySelector(`[data-act="${act}"]`);
+    if (b) b.disabled = !canNudge(aim, d);
+  }
+}
+
+// 下見をやめる(置いても、やめても通る)
+function endAim() {
+  aim = null;
+  walk?.clearGhost();
+  updateAim();
 }
 
 // 置いてあるもの一式(自分のぶん + 散策部屋の相手のぶん)を島へ流し込む
@@ -1519,6 +1564,7 @@ function renderQuests() {
 let walkQuestsOpen = false;
 function setWalkQuests(on) {
   if (!walk) return;
+  if (on) endAim();   // パネルを開くと島が止まる。下見は続けられない
   walkQuestsOpen = !!on;
   const el = document.getElementById('walk-quests');
   if (walkQuestsOpen) renderQuests();
@@ -1532,6 +1578,7 @@ let shopHintShown = false;   // 店の場所を教えるのは、ひと遊びに
 let walkShopOpen = false;
 function setWalkShop(on) {
   if (!walk) return;
+  if (on) endAim();   // パネルを開くと島が止まる。下見は続けられない
   walkShopOpen = !!on;
   const el = document.getElementById('walk-shop');
   if (walkShopOpen) renderShop();
@@ -1544,6 +1591,7 @@ function setWalkShop(on) {
 let walkBagOpen = false;
 function setWalkBag(on) {
   if (!walk) return;
+  if (on) endAim();   // パネルを開くと島が止まる。下見は続けられない
   walkBagOpen = !!on;
   const el = document.getElementById('walk-bag');
   if (walkBagOpen) renderBag();
@@ -1555,6 +1603,7 @@ function setWalkBag(on) {
 
 function setWalkBook(on) {
   if (!walk) return;
+  if (on) endAim();   // パネルを開くと島が止まる。下見は続けられない
   walkBookOpen = !!on;
   const el = document.getElementById('walk-book');
   if (walkBookOpen) {
@@ -1577,6 +1626,7 @@ function setWalkBook(on) {
 let walkGuideOpen = false;
 function setWalkGuide(on) {
   if (!walk) return;
+  if (on) endAim();   // パネルを開くと島が止まる。下見は続けられない
   walkGuideOpen = !!on;
   const el = document.getElementById('walk-guide');
   if (walkGuideOpen) {
@@ -3490,6 +3540,8 @@ document.addEventListener('click', (e) => {
       setWalkEmotes(false);
       return;
     case 'walk-exit':
+      // 飾りの下見をしていたら、まずそれをやめる(押し間違いで島から出さない)
+      if (aim) { endAim(); return; }
       // 図鑑やあそびかたを開いていたら、まずそれを閉じる
       if (walkBookOpen) { setWalkBook(false); return; }
       if (walkGuideOpen) { setWalkGuide(false); return; }
@@ -3519,19 +3571,38 @@ document.addEventListener('click', (e) => {
       walkNote(worn ? `${item?.icon ?? ''} ${item?.name ?? ''}をかぶった` : 'かぶりものをぬいだ');
       return;
     }
-    // 飾りを置く。**いま立っている場所の少し前**に置いて、島へ流し込む
+    // 持ち物から押したら、すぐ置かずに**下見**に入る。持ち物は閉じる
+    // ── 開いたままだと島が止まって、歩いて位置を決められない。
     case 'decor-place': {
+      if (stockOf(progress, arg) <= 0) { walkNote('もうありません'); return; }
+      aim = newAim(arg);
+      setWalkBag(false);
+      walk?.setGhost(arg);
+      updateAim();
+      sfx.play('ui');
+      walkNote(`${ITEM_BY_ID[arg]?.icon ?? ''} 置く場所を決めて「ここに置く」`);
+      return;
+    }
+    // 下見のあいだの手。遠さと向きを刻む
+    case 'decor-near': aim = aimNudge(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
+    case 'decor-turn': aim = aimTurn(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
+    case 'decor-cancel': endAim(); sfx.play('ui'); return;
+    // 決めた場所に置いて、島へ流し込む
+    case 'decor-put': {
+      if (!aim) return;
       const why = whyCannotPlaceHere();
       if (why) { walkNote(why); return; }
-      const r = placeDecor(progress, state.mode, arg, decorSpot());
+      const id = aim.id;
+      const r = placeDecor(progress, state.mode, id, decorSpot());
       if (!r.ok) { walkNote(r.reason ?? '置けません'); return; }
       progress = r.progress;
       saveProgress(progress);
+      endAim();
       syncDecor();
       net?.setDecor(placedDecor(progress, state.mode));
       renderBag();
       sfx.play('ui');
-      walkNote(`${ITEM_BY_ID[arg]?.icon ?? ''} ${ITEM_BY_ID[arg]?.name ?? ''}を置いた`);
+      walkNote(`${ITEM_BY_ID[id]?.icon ?? ''} ${ITEM_BY_ID[id]?.name ?? ''}を置いた`);
       return;
     }
     // 目の前の飾りをしまう(手持ちへ戻す。捨てない)

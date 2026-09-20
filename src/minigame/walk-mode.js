@@ -441,6 +441,10 @@ export class WalkMode {
     this.decor = [];          // [{ spec, fx }] 島に置いてある飾り
     this.atDecor = null;      // 手の届くところにある飾り(拾える)
     this.onDecor = null;      // それが変わったときに呼ぶ
+    this.ghost = null;        // 置く前の見本(半透明)。setGhost / moveGhost
+    this.ghostId = null;
+    this.ghostOk = null;
+    this.onAim = null;        // 見本を動かすときに呼ぶ(main.js)
 
     this.species = speciesById(look);
     this.walker = new Walker(
@@ -821,6 +825,59 @@ export class WalkMode {
     this.walker.motion.blockAt = makeBlocker(this.obstacles);
   }
 
+  // ---- 置く前の見本(半透明の下見)----
+  //
+  // **置く前に、どこへどう置かれるのかを見せる。** 押してから「そこじゃ
+  // なかった」だと、拾って置き直すことになる。置ける/置けないも色で出す
+  // ── 文字だけだと、画面のどこを直せばいいのか分からない。
+  //
+  // 当たり判定には**入れない**(_rebuildBlocker を呼ばない)。見本に
+  // ぶつかると、置きたい場所へ自分が近づけなくなる。
+  setGhost(id) {
+    if (this.ghostId === id) return;
+    this.clearGhost();
+    if (!id) return;
+    const fx = makeDecor(this.b.scene, { id, x: 0, z: 0, facing: 0 }, 0);
+    if (!fx) return;
+    fx.group.traverse((o) => {
+      if (!o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        m.transparent = true;
+        m.opacity = 0.45;
+        m.depthWrite = false;   // 半透明どうしが黒く抜けるのを避ける
+      }
+    });
+    this.ghost = fx;
+    this.ghostId = id;
+    this.ghostOk = null;
+  }
+
+  // 見本を動かす。ok が false なら赤く濁らせる(そこには置けない)
+  moveGhost(spot, ok = true) {
+    if (!this.ghost || !spot) return;
+    const g = this.ghost.group;
+    g.position.set(spot.x, this.ground(spot.x, spot.z).y, spot.z);
+    g.rotation.y = spot.facing ?? 0;
+    if (this.ghostOk === ok) return;       // 色は変わったときだけ塗り直す
+    this.ghostOk = ok;
+    g.traverse((o) => {
+      if (!o.material) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (!m.color) continue;
+        if (m.userData.baseColor == null) m.userData.baseColor = m.color.getHex();
+        m.color.setHex(ok ? m.userData.baseColor : 0xd8523c);
+        m.opacity = ok ? 0.45 : 0.32;
+      }
+    });
+  }
+
+  clearGhost() {
+    this.ghost?.dispose();
+    this.ghost = null;
+    this.ghostId = null;
+    this.ghostOk = null;
+  }
+
   setStick(x, y) {
     this.input.x = x;
     this.input.y = y;
@@ -1021,6 +1078,8 @@ export class WalkMode {
     // 石灯籠は夜だけ光る(board3d と同じ「いま夜か」を読む)
     const night = this.b?.nightNow?.() ?? 0;
     for (const d of this.decor) d.fx.update(night);
+    // 置く前の見本。**歩くとついてくる**ので毎コマ動かす(main.js が中身を持つ)
+    if (this.ghost) this.onAim?.();
 
     if (this.fishing) {
       this._fishFrame(dt);
@@ -1783,6 +1842,7 @@ export class WalkMode {
     this.notice?.dispose();
     for (const d of this.decor) d.fx.dispose();
     this.decor = [];
+    this.clearGhost();
     this.drum?.dispose();
     this.archeryFx?.dispose();
     this.walker.dispose();
