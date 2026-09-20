@@ -47,8 +47,10 @@ export function makeNoticeBoard(scene, x, z, groundY, facing = 0) {
     g.add(post);
   }
 
-  // 見出しの板。表だけ焼き込み(desk.js と同じ口)、裏と側面は木のまま
-  const face = makeSignFace(['島の掲示板', 'きょうの依頼']);
+  // 見出しの板。表だけ焼き込み(desk.js と同じ口)、裏と側面は木のまま。
+  // **板の実寸を渡す。** ここは 0.52×0.13 の横長(4:1)で、
+  // 渡さなかったころは 2:1 の canvas を引き伸ばしていて字が2倍に太っていた
+  const face = makeSignFace(['島の掲示板', 'きょうの依頼'], HALF * 2, HEAD_H);
   const head = new THREE.Mesh(
     new THREE.BoxGeometry(HALF * 2, HEAD_H, 0.03),
     [wood, wood, wood, wood, face, wood],

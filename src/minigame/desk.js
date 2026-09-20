@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { WALK_SCALE } from './scale.js';
+import { drawSign, signCanvasSize } from './sign-art.js';
 
 // 台の大きさ。棒人間の腰くらいに来る高さ(縮尺を掛ける前の素の値)
 const TOP_Y = 0.19;
@@ -25,22 +26,22 @@ const DEPTH = 0.10;
 // 文言は島ごとに違う(minigame/meets.js の sign)ので、外から受け取る。
 // BoxGeometry の UV は面ごとに「外から見て正しい向き」に張られているので、
 // 表裏どちらの面に貼っても鏡文字にはならない(自前で反転すると逆に鏡になる)。
-export function makeSignFace([big, small]) {
+//
+// **板の実寸(w×h)を必ず渡す。** canvas の縦横比を板に合わせないと、
+// そのぶん字が横(または縦)に伸びる ── 掲示板の見出し(4:1)に
+// 2:1 の canvas を貼っていて、字がちょうど2倍に伸びていた。
+// 描くのは sign-art.js(THREE も DOM も知らないのでテストできる)。
+export function makeSignFace([big, small], w, h) {
+  const size = signCanvasSize(w, h);
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 128;
-  const c = canvas.getContext('2d');
-  c.fillStyle = '#f0dcb4';
-  c.fillRect(0, 0, 256, 128);
-  c.fillStyle = '#5a3a1c';
-  c.font = 'bold 46px system-ui, sans-serif';
-  c.textAlign = 'center';
-  c.textBaseline = 'middle';
-  c.fillText(big, 128, 52);
-  c.font = 'bold 26px system-ui, sans-serif';
-  c.fillText(small, 128, 96);
+  canvas.width = size.w;
+  canvas.height = size.h;
+  drawSign(canvas.getContext('2d'), [big, small]);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
+  // 看板は斜めから見ることが多い。異方性フィルタが無いと、そこで一気に潰れる
+  // (three が端末の上限で頭打ちにしてくれるので、大きめを入れてよい)
+  tex.anisotropy = 8;
   return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 });
 }
 
@@ -82,8 +83,11 @@ export function makeDesk(scene, x, z, groundY, meet) {
   // 看板。無地の板だと「ただの台」に見えるので、文字を焼き込む。
   // 受付は島の真ん中に立っていて、どちらから来るか分からない。表裏の
   // 両面に貼って、反対側から来た人にも「何の台か」が読めるようにする。
-  const faces = [board, board, board, board, makeSignFace(meet.sign), makeSignFace(meet.sign)];
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.015), faces);
+  const SIGN_W = 0.24;
+  const SIGN_H = 0.12;
+  const faces = [board, board, board, board,
+    makeSignFace(meet.sign, SIGN_W, SIGN_H), makeSignFace(meet.sign, SIGN_W, SIGN_H)];
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(SIGN_W, SIGN_H, 0.015), faces);
   sign.position.set(-HALF + 0.12, 0.40, -DEPTH * 0.3);
   sign.castShadow = true;
   g.add(sign);

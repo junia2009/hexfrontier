@@ -141,8 +141,11 @@ export function makeTable(scene, x, z, groundY, meet, seats = 6) {
   pole.castShadow = true;
 
   // 表裏の両面に文字を焼き込む(どちらから来ても読める)
-  const faces = [board, board, board, board, makeSignFace(meet.sign), makeSignFace(meet.sign)];
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.13, 0.015), faces);
+  const SIGN_W = 0.26;
+  const SIGN_H = 0.13;
+  const faces = [board, board, board, board,
+    makeSignFace(meet.sign, SIGN_W, SIGN_H), makeSignFace(meet.sign, SIGN_W, SIGN_H)];
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(SIGN_W, SIGN_H, 0.015), faces);
   sign.position.set(0, SIGN_Y, 0);
   sign.castShadow = true;
 

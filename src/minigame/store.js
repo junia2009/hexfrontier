@@ -86,9 +86,11 @@ export function makeStore(scene, x, z, groundY, facing = 0) {
   g.add(awning);
 
   // 看板。受付と同じ作り方(canvas に焼く)で、両面から読める
-  const faceMat = makeSignFace(['島の店', 'なんでも屋']);
+  const SIGN_W = 0.30;
+  const SIGN_H = 0.14;
+  const faceMat = makeSignFace(['島の店', 'なんでも屋'], SIGN_W, SIGN_H);
   const sign = new THREE.Mesh(
-    new THREE.BoxGeometry(0.30, 0.14, 0.015),
+    new THREE.BoxGeometry(SIGN_W, SIGN_H, 0.015),
     [board, board, board, board, faceMat, faceMat],
   );
   sign.position.set(0, POST_H + 0.16, DEPTH / 2 + 0.02);
