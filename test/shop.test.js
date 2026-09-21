@@ -554,6 +554,22 @@ test('持ち物: 棚に1回で済む説明を、品ごとにくり返さない',
   assert.ok(open.includes(ITEM_BY_ID.bench.desc), '開いても長い説明が出ない');
 });
 
+// **ランタンは夜を明るくする道具でもある。** 光る苔をやめたので、夜の
+// 足もとはこれで見る。持ち物から灯す/消すを押せて、灯している間は
+// かぶりものと同じように札が光る。
+test('持ち物: ランタンは灯す/消すができて、灯していると光る', () => {
+  const p = { ...rich(), owned: { lantern: true } };
+  const lit = bagHtml(p, { lanternOn: true });
+  assert.match(lit, /walk-lantern-toggle[^>]*>消す/, '灯っているのに「消す」が無い');
+  assert.match(lit, /bag-item[^"]*worn/, '灯っているのに札が光らない');
+  const off = bagHtml(p, { lanternOn: false });
+  assert.match(off, /walk-lantern-toggle[^>]*>ともす/, '消えているのに「ともす」が無い');
+  assert.doesNotMatch(off, /bag-item[^"]*worn/, '消えているのに札が光っている');
+  // **何をするものか、札を見れば分かる**(夜釣りだけの品ではなくなった)
+  assert.match(ITEM_BY_ID.lantern.desc, /明る/, '明るくすることが説明に無い');
+  assert.match(ITEM_BY_ID.lantern.note, /大会/, '大会の間どうなるかが書いていない');
+});
+
 test('持ち物: 買った品だけが並ぶ', () => {
   const p = buyItem(rich(), 'deepRod').progress;
   const html = bagHtml(p);

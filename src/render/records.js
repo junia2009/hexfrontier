@@ -400,27 +400,31 @@ export function questsHtml(board, { now = Date.now(), here = null } = {}) {
 // 1品ぶん。右はしに「その品で何ができるか」のボタンを置く
 // (店の値段と同じ位置)。入りきらない操作は下の段へ。
 function bagItemHtml(item, progress, view, open) {
-  const { mapOn, skyTime, hat } = view;
+  const { mapOn, skyTime, hat, lanternOn } = view;
   const n = isDecor(item.id) ? stockOf(progress, item.id) : 0;
   const worn = isWear(item.id) && hat === item.id;
   // 右はしのボタン。押すとすぐ効く(説明を開かなくても使える)
   const act = item.id === 'islandMap'
     ? `<button class="${mapOn ? '' : 'primary'} bag-do" data-act="walk-map-toggle">${mapOn ? 'しまう' : '出す'}</button>`
-    : item.id === 'skyGlass'
-      ? `<button class="bag-do" data-act="bag-more:${item.id}">${skyTimeOf(skyTime).icon} ${skyTimeOf(skyTime).label}</button>`
-      : isWear(item.id)
-        ? `<button class="${worn ? '' : 'primary'} bag-do" data-act="wear-hat:${worn ? 'none' : item.id}">${worn ? 'ぬぐ' : 'かぶる'}</button>`
-        : isDecor(item.id)
-          ? `<button class="primary bag-do" data-act="decor-place:${item.id}" ${n ? '' : 'disabled'}>置く</button>`
-          : '';
+    : item.id === 'lantern'
+      ? `<button class="${lanternOn ? '' : 'primary'} bag-do" data-act="walk-lantern-toggle">${lanternOn ? '消す' : 'ともす'}</button>`
+      : item.id === 'skyGlass'
+        ? `<button class="bag-do" data-act="bag-more:${item.id}">${skyTimeOf(skyTime).icon} ${skyTimeOf(skyTime).label}</button>`
+        : isWear(item.id)
+          ? `<button class="${worn ? '' : 'primary'} bag-do" data-act="wear-hat:${worn ? 'none' : item.id}">${worn ? 'ぬぐ' : 'かぶる'}</button>`
+          : isDecor(item.id)
+            ? `<button class="primary bag-do" data-act="decor-place:${item.id}">置く</button>`
+            : '';
   // 砂時計だけは操作が5つあって1行に入らない。開いたときに下の段へ出す
   const wide = open && item.id === 'skyGlass' ? skyTimesHtml(skyTime) : '';
-  return `<div class="shop-item bag-item ${open ? 'open' : ''} ${worn ? 'worn' : ''}">
+  // 灯しているランタンも、かぶっている帽子と同じように札ごと光らせる
+  const lit = item.id === 'lantern' && lanternOn;
+  return `<div class="shop-item bag-item ${open ? 'open' : ''} ${worn || lit ? 'worn' : ''}">
     <div class="shop-line">
       <span class="shop-icon">${item.icon}</span>
       <button class="shop-name" data-act="bag-more:${item.id}"
         aria-expanded="${open ? 'true' : 'false'}">
-        <b>${item.name}${n ? ` <span class="shop-n">×${n}</span>` : ''}${worn ? ' <span class="bag-on">✓</span>' : ''}</b>
+        <b>${item.name}${n ? ` <span class="shop-n">×${n}</span>` : ''}${worn || lit ? ' <span class="bag-on">✓</span>' : ''}</b>
         ${open ? '' : `<small>${shortDesc(item)}</small>`}
       </button>
       ${act}
@@ -431,7 +435,8 @@ function bagItemHtml(item, progress, view, open) {
 }
 
 export function bagHtml(
-  progress, { mapOn = true, skyTime = 'live', hat = null, shelf = null, open = null } = {},
+  progress,
+  { mapOn = true, skyTime = 'live', hat = null, lanternOn = true, shelf = null, open = null } = {},
 ) {
   const got = bagShelves(progress);
   if (!got.length) return '<p>まだ何も持っていません。</p>';
@@ -439,7 +444,7 @@ export function bagHtml(
   const s = got.find((x) => x.id === now);
   const mine = s.items.filter((i) => owns(progress, i.id));
   const rows = mine
-    .map((i) => bagItemHtml(i, progress, { mapOn, skyTime, hat }, i.id === open))
+    .map((i) => bagItemHtml(i, progress, { mapOn, skyTime, hat, lanternOn }, i.id === open))
     .join('');
   // 棚が1つしか無ければ帯は出さない(選びようが無いものを置かない)
   const tabs = got.length < 2 ? '' : `<div class="seg shop-tabs">${got.map((x) => `<button

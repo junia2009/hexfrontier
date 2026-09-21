@@ -830,6 +830,7 @@ async function startWalk() {
 function exitWalk() {
   stopLocalMeet();
   endAim();
+  if (renderer3d) renderer3d.lanternLight = 0;   // 島を出たら消す(盤には効かせない)
   if (walk?.isAiming) stopArchery();
   setWalkBook(false);
   setWalkGuide(false);
@@ -1324,6 +1325,7 @@ let walkBookOpen = false;
 function applyOwned() {
   walk?.setOwned({ deepRod: owns(progress, 'deepRod'), lantern: owns(progress, 'lantern') });
   applySkyTime();
+  applyLantern();
   updateCastButton();
   syncBagButton();
   syncWalkMap();
@@ -1339,6 +1341,32 @@ function applySkyTime() {
   if (!renderer3d) return;
   const allowed = owns(progress, 'skyGlass') && !walk?.contestFishing && !contestLive();
   renderer3d.skyPhaseOverride = allowed ? skyTimeOf(skyTime).phase : null;
+}
+
+// ---- 夜釣りのランタン(夜を明るくする)----
+//
+// **光る苔のかわり。** 苔は勝手に光っている地面だったので、夜の足もとは
+// 見えるが、見たくない人も明るかった。買った道具で灯す形にした。
+//
+// **大会のあいだは消す。** 砂時計とまったく同じ理由で、夜の見えにくさで
+// 払った人だけが得をする形にしない(fishGates が釣りの品を閉じるのと同じ)。
+let lanternOn = lsGet('walkLantern') !== 'off';
+
+function applyLantern() {
+  if (!renderer3d) return;
+  const allowed = lanternOn && owns(progress, 'lantern')
+    && screen === 'walk' && !walk?.contestFishing && !contestLive();
+  renderer3d.lanternLight = allowed ? 1 : 0;
+}
+
+function toggleLantern() {
+  if (!owns(progress, 'lantern')) return;
+  lanternOn = !lanternOn;
+  lsSet('walkLantern', lanternOn ? 'on' : 'off');
+  applyLantern();
+  renderBag();
+  sfx.play('ui');
+  walkNote(lanternOn ? '🪔 ランタンをともした' : '🪔 ランタンを消した');
 }
 
 function setSkyTime(id) {
@@ -1450,7 +1478,8 @@ function renderBag() {
   const el = document.getElementById('walk-bag-body');
   if (!el) return;
   el.innerHTML = bagHtml(progress, {
-    mapOn, skyTime, hat: wornHat(progress), shelf: bagView.shelf, open: bagView.open,
+    mapOn, skyTime, hat: wornHat(progress), lanternOn,
+    shelf: bagView.shelf, open: bagView.open,
   });
 }
 
@@ -1656,6 +1685,7 @@ function applyContest(c) {
     c?.kind === 'fishing' && c.phase === 'running' && (c.entries ?? []).includes(mySeat()),
   );
   applySkyTime();
+  applyLantern();
   updateCastButton();
   // 竜の居場所は進行が決めている。走っている間だけ出す
   walk?.setDragon(c?.phase === 'running' && c.dragon ? c.dragon : null);
@@ -2726,6 +2756,7 @@ async function ensureRenderer3d() {
       renderer3d = new mod.Board3D(board3dWrap);
       attach3dInput();
       applySkyTime();   // 砂時計で時刻を選んでいれば、盤の空にも効かせる
+      applyLantern();
     } catch (e) {
       console.error('3D初期化に失敗:', e);
       renderer3dFailed = true;
@@ -3673,6 +3704,7 @@ document.addEventListener('click', (e) => {
     }
     case 'walk-sky-set': setSkyTime(arg); return;
     case 'walk-map-toggle': toggleWalkMap(); return;
+    case 'walk-lantern-toggle': toggleLantern(); return;
     case 'walk-cast': {
       if (!walk?.canCastDeep) return;
       const deep = walk.toggleCastDeep();
