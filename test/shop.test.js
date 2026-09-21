@@ -10,8 +10,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ITEMS, ITEM_BY_ID, SHELVES, SHELF_IDS, buyItem, buyableCount, cleanShelf, owns, priceOf,
-  shelfItems, shelfOf, shortDesc, soldOut, whyCannotBuy,
+  ITEMS, ITEM_BY_ID, SHELVES, SHELF_IDS, bagShelves, buyItem, buyableCount, cleanBagShelf,
+  cleanShelf, owns, priceOf, shelfItems, shelfOf, shortDesc, soldOut, whyCannotBuy,
 } from '../src/shop.js';
 import { emptyProgress, parseProgress } from '../src/progress.js';
 import {
@@ -20,6 +20,7 @@ import {
 import {
   bagHtml, fishbookHtml, mapSwitchHtml, shopHtml, skyTimesHtml, storeHtml,
 } from '../src/render/records.js';
+import { skyTimeOf } from '../src/minigame/daynight.js';
 import { fishCounts } from '../src/achievements.js';
 import { coinsForCatch } from '../src/rewards.js';
 
@@ -488,36 +489,69 @@ test('持ち物: かぶっているものだけ「ぬぐ」になる', () => {
   const p = {
     ...rich(9999), owned: { straw: true, crown: true }, worn: { hat: 'straw' },
   };
-  const html = bagHtml(p, { hat: 'straw' });
+  const html = bagHtml(p, { hat: 'straw', shelf: 'wear' });
   const row = (name) => html.slice(html.indexOf(name), html.indexOf(name) + 400);
   assert.match(row('麦わら帽子'), /wear-hat:none[^>]*>ぬぐ/, 'かぶっているのに「ぬぐ」が無い');
-  assert.match(row('麦わら帽子'), /いまかぶっています/);
+  assert.match(row('麦わら帽子'), /bag-on/, 'かぶっている印が無い');
   assert.match(row('王かんむり'), /wear-hat:crown[^>]*>かぶる/, 'かぶっていないのに「かぶる」が無い');
-  assert.doesNotMatch(row('王かんむり'), /いまかぶっています/, 'かぶっていないものが「かぶっている」');
+  assert.doesNotMatch(row('王かんむり'), /bag-on/, 'かぶっていないものに印が付いている');
   // 何もかぶっていなければ、どれも「かぶる」
-  const bare = bagHtml(p, { hat: null });
+  const bare = bagHtml(p, { hat: null, shelf: 'wear' });
   assert.equal((bare.match(/>ぬぐ</g) ?? []).length, 0, '素頭なのに「ぬぐ」が出ている');
 });
 
 // **買うときと使うときで並びを揃える。** 違うと、さっき買ったものが
 // どこにあるか分からなくなる。故障注入で「棚の振り分けをひっくり返しても
 // 誰も落ちない」と出たので足した。
-test('持ち物: 店と同じ棚で仕切る。持っていない棚の見出しは出さない', () => {
+test('持ち物: 棚は持っているぶんだけ。見ている棚の品だけ出る', () => {
   const p = { ...rich(9999), owned: { deepRod: true, crown: true }, stock: { bench: 1 } };
-  const html = bagHtml(p);
-  // 見出しは棚の順(道具 → かぶりもの → 飾り)。品はその見出しの下に来る
-  const at = (s) => html.indexOf(s);
-  assert.ok(at('道具') >= 0 && at('かぶりもの') >= 0 && at('島の飾り') >= 0, '見出しが無い');
-  assert.ok(at('道具') < at('深場の竿'), '道具が「道具」の見出しの上にある');
-  assert.ok(at('深場の竿') < at('かぶりもの'), '道具がかぶりものの棚に入っている');
-  assert.ok(at('かぶりもの') < at('王かんむり'), 'かぶりものが見出しの上にある');
-  assert.ok(at('王かんむり') < at('島の飾り'), 'かぶりものが飾りの棚に入っている');
-  assert.ok(at('島の飾り') < at('ベンチ'), '飾りが見出しの上にある');
-  // 持っていない棚の見出しは出さない(空の見出しは場所を食うだけ)
+  // 棚は3つとも出る(3つとも持っている)。中身は選んだ棚のものだけ
+  for (const [shelf, いる, いない] of [
+    ['tool', '深場の竿', ['王かんむり', 'ベンチ']],
+    ['wear', '王かんむり', ['深場の竿', 'ベンチ']],
+    ['decor', 'ベンチ', ['深場の竿', '王かんむり']],
+  ]) {
+    const html = bagHtml(p, { shelf });
+    assert.ok(html.includes(いる), `${shelf}: あるはずの品が無い`);
+    for (const x of いない) {
+      assert.equal(html.includes(x), false, `${shelf}: よその棚の ${x} が出ている`);
+    }
+    for (const t of ['tool', 'wear', 'decor']) {
+      assert.match(html, new RegExp(`bag-shelf:${t}`), `${shelf}: ${t} の棚へ行けない`);
+    }
+    assert.match(html, new RegExp(`class="sel" data-act="bag-shelf:${shelf}"`), '選んだ棚が光らない');
+  }
+  // **持っていない棚は出さない。** 押して「何も無い」と分かるだけ
   const only = bagHtml({ ...rich(), owned: { deepRod: true } });
-  assert.ok(only.includes('道具'), '持っている棚の見出しが無い');
-  assert.equal(only.includes('かぶりもの'), false, '何も持っていない棚の見出しが出ている');
-  assert.equal(only.includes('島の飾り'), false, '何も持っていない棚の見出しが出ている');
+  assert.ok(only.includes('深場の竿'));
+  assert.equal(only.includes('bag-shelf:wear'), false, '何も持っていない棚へ行ける');
+  assert.equal(only.includes('bag-shelf:decor'), false, '何も持っていない棚へ行ける');
+  // 棚が1つしか無ければ帯ごと出さない(選びようが無い)
+  assert.equal(only.includes('bag-shelf:tool'), false, '選びようが無いのに帯が出ている');
+  // 持っていない棚を選んでいたら、持っている棚に倒す(手放したあと)
+  assert.ok(bagHtml({ ...rich(), owned: { deepRod: true } }, { shelf: 'wear' })
+    .includes('深場の竿'), '空の棚を開いたまま固まった');
+});
+
+// **同じ説明を何度も出さない。** 前は飾り4品ぜんぶに「半透明の見本が…」、
+// かぶりもの4品ぜんぶに「見た目だけの品です」と書いてあった(実測 2.83画面)。
+test('持ち物: 棚に1回で済む説明を、品ごとにくり返さない', () => {
+  const p = {
+    ...rich(9999),
+    owned: { straw: true, flower: true, pointy: true, crown: true },
+    stock: { bench: 2, lamp: 1, flag: 1, planter: 1 },
+  };
+  for (const shelf of ['wear', 'decor']) {
+    const html = bagHtml(p, { shelf });
+    const note = SHELVES.find((s) => s.id === shelf).note;
+    assert.equal((html.match(new RegExp(note, 'g')) ?? []).length, 1,
+      `${shelf}: 棚の説明が1回ではない`);
+    // 品ごとの注意書きは、開いた1つにだけ出る
+    assert.equal((html.match(/shop-detail/g) ?? []).length, 0, '何も押していないのに開いている');
+  }
+  const open = bagHtml(p, { shelf: 'decor', open: 'bench' });
+  assert.equal((open.match(/shop-detail/g) ?? []).length, 1, '開いている札が1つではない');
+  assert.ok(open.includes(ITEM_BY_ID.bench.desc), '開いても長い説明が出ない');
 });
 
 test('持ち物: 買った品だけが並ぶ', () => {
@@ -531,10 +565,15 @@ test('持ち物: 買った品だけが並ぶ', () => {
 test('持ち物: 見取り図は地図の入り切り、砂時計は時刻を選ぶ口が出る', () => {
   const p = { ...rich(), owned: { islandMap: true, skyGlass: true } };
   const html = bagHtml(p, { mapOn: true, skyTime: 'night' });
-  assert.match(html, /walk-map-toggle/, '地図の栓が無い');
-  assert.match(html, /しまう/, '出ているのに「しまう」にならない');
-  assert.match(bagHtml(p, { mapOn: false }), /地図を出す/, 'しまってあるのに「出す」にならない');
-  assert.match(html, /walk-sky-set:noon/, '時刻を選ぶ口が無い');
+  // 地図は**押せばすぐ効く**(説明を開かなくてよい)
+  assert.match(html, /walk-map-toggle[^>]*>しまう/, '出ているのに「しまう」にならない');
+  assert.match(bagHtml(p, { mapOn: false }), /walk-map-toggle[^>]*>出す/, 'しまってあるのに「出す」にならない');
+  // 砂時計は**いま選んでいる時刻**を札に出す。押すと選び直せる
+  assert.match(html, /bag-more:skyGlass/, '砂時計を開く口が無い');
+  assert.ok(html.includes(skyTimeOf('night').label), 'いまの時刻が札に出ていない');
+  assert.equal(html.includes('walk-sky-set:noon'), false, '閉じているのに時刻の一覧が出ている');
+  const open = bagHtml(p, { skyTime: 'night', open: 'skyGlass' });
+  assert.match(open, /walk-sky-set:noon/, '開いても時刻を選べない');
   // いま選んでいる時刻が光る
   assert.match(skyTimesHtml('night'), /class="sel" data-act="walk-sky-set:night"/,
     '選んでいる時刻に印が付いていない');

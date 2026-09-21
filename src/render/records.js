@@ -13,8 +13,8 @@ import { MODES, achievementCount, fishbookCount, summarize, winRate } from '../p
 import { FISH, isGated, placeLabel, portLabel } from '../minigame/fish.js';
 import { COIN_ICON, COIN_JP } from '../rewards.js';
 import {
-  ITEMS, SHELVES, buyableCount, cleanShelf, isDecor, isWear, owns, shelfItems, shelfOf,
-  shortDesc, soldOut, stockOf, whyCannotBuy,
+  ITEMS, SHELVES, bagShelves, buyableCount, cleanBagShelf, cleanShelf, isDecor, isWear, owns,
+  shelfItems, shortDesc, soldOut, stockOf, whyCannotBuy,
 } from '../shop.js';
 import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
 import { dayLabel, questWhere } from '../quests.js';
@@ -388,63 +388,77 @@ export function questsHtml(board, { now = Date.now(), here = null } = {}) {
 
 // 持ち物。使い道のある品は、ここで使う。
 //
-// **店と同じ棚で仕切る。** 買うときと使うときで並びが違うと、
-// さっき買ったものがどこにあるか分からなくなる(店は shopHtml)。
+// **店とまったく同じ並べかたにする**(shopHtml)── 棚で仕切って、
+// 見ている棚だけ、札は1行、くわしい説明は押したときだけ。買うときと
+// 使うときで見え方が違うと、さっき買ったものがどこにあるか分からない。
+//
+// 前は品ぜんぶを縦に積んで、1品ごとに説明を丸ごと出していた。携帯で
+// **2.83画面ぶん**(実測)。しかも同じ文がくり返されていた ──
+// 飾り4品ぜんぶに「半透明の見本が出ます。歩いて場所を…」、かぶりもの
+// 4品ぜんぶに「見た目だけの品です。…」。**同じ説明は棚に1回**あればいい。
+
+// 1品ぶん。右はしに「その品で何ができるか」のボタンを置く
+// (店の値段と同じ位置)。入りきらない操作は下の段へ。
+function bagItemHtml(item, progress, view, open) {
+  const { mapOn, skyTime, hat } = view;
+  const n = isDecor(item.id) ? stockOf(progress, item.id) : 0;
+  const worn = isWear(item.id) && hat === item.id;
+  // 右はしのボタン。押すとすぐ効く(説明を開かなくても使える)
+  const act = item.id === 'islandMap'
+    ? `<button class="${mapOn ? '' : 'primary'} bag-do" data-act="walk-map-toggle">${mapOn ? 'しまう' : '出す'}</button>`
+    : item.id === 'skyGlass'
+      ? `<button class="bag-do" data-act="bag-more:${item.id}">${skyTimeOf(skyTime).icon} ${skyTimeOf(skyTime).label}</button>`
+      : isWear(item.id)
+        ? `<button class="${worn ? '' : 'primary'} bag-do" data-act="wear-hat:${worn ? 'none' : item.id}">${worn ? 'ぬぐ' : 'かぶる'}</button>`
+        : isDecor(item.id)
+          ? `<button class="primary bag-do" data-act="decor-place:${item.id}" ${n ? '' : 'disabled'}>置く</button>`
+          : '';
+  // 砂時計だけは操作が5つあって1行に入らない。開いたときに下の段へ出す
+  const wide = open && item.id === 'skyGlass' ? skyTimesHtml(skyTime) : '';
+  return `<div class="shop-item bag-item ${open ? 'open' : ''} ${worn ? 'worn' : ''}">
+    <div class="shop-line">
+      <span class="shop-icon">${item.icon}</span>
+      <button class="shop-name" data-act="bag-more:${item.id}"
+        aria-expanded="${open ? 'true' : 'false'}">
+        <b>${item.name}${n ? ` <span class="shop-n">×${n}</span>` : ''}${worn ? ' <span class="bag-on">✓</span>' : ''}</b>
+        ${open ? '' : `<small>${shortDesc(item)}</small>`}
+      </button>
+      ${act}
+    </div>
+    ${open ? `<div class="shop-detail"><p>${item.desc}</p>
+      ${item.note ? `<p><small>${item.note}</small></p>` : ''}${wide}</div>` : ''}
+  </div>`;
+}
+
 export function bagHtml(
-  progress, { mapOn = true, skyTime = 'live', hat = null } = {},
+  progress, { mapOn = true, skyTime = 'live', hat = null, shelf = null, open = null } = {},
 ) {
-  const mine = ITEMS.filter((i) => owns(progress, i.id));
-  if (!mine.length) return '<p>まだ何も持っていません。</p>';
-  const rowOf = (item) => {
-    const body = item.id === 'islandMap' ? mapSwitchHtml(mapOn)
-      : item.id === 'skyGlass' ? skyTimesHtml(skyTime)
-      : isWear(item.id) ? wearSwitchHtml(item, hat)
-      : isDecor(item.id) ? placeSwitchHtml(item, stockOf(progress, item.id))
-      : `<p><small>${item.note ?? ''}</small></p>`;
-    const n = isDecor(item.id) ? ` <span class="bag-n">×${stockOf(progress, item.id)}</span>` : '';
-    return `<div class="bag-row">
-      <div class="shop-head"><span class="shop-icon">${item.icon}</span><b>${item.name}</b>${n}</div>
-      ${body}
-    </div>`;
-  };
-  // 持っている棚だけ見出しを出す ── 空の見出しを並べても場所を食うだけ
-  return SHELVES.map((s) => {
-    const got = mine.filter((i) => shelfOf(i.id) === s.id);
-    if (!got.length) return '';
-    return `<p class="shop-sec">${s.icon} ${s.label}</p>${got.map(rowOf).join('')}`;
-  }).join('');
+  const got = bagShelves(progress);
+  if (!got.length) return '<p>まだ何も持っていません。</p>';
+  const now = cleanBagShelf(progress, shelf);
+  const s = got.find((x) => x.id === now);
+  const mine = s.items.filter((i) => owns(progress, i.id));
+  const rows = mine
+    .map((i) => bagItemHtml(i, progress, { mapOn, skyTime, hat }, i.id === open))
+    .join('');
+  // 棚が1つしか無ければ帯は出さない(選びようが無いものを置かない)
+  const tabs = got.length < 2 ? '' : `<div class="seg shop-tabs">${got.map((x) => `<button
+    class="${x.id === now ? 'sel' : ''}" data-act="bag-shelf:${x.id}">${x.icon} ${x.label}</button>`).join('')}</div>`;
+  return `<div class="shop-bar">${tabs}
+    <p class="bag-note"><span class="shop-what">${s.note}</span></p></div>
+    ${rows}
+    <p class="shop-foot"><small>札を押すとくわしい説明が出ます。</small></p>`;
 }
 
-// 島の飾り。押すと**下見**に入る(すぐには置かない)。半透明の見本が出て、
-// 歩けばついてくる ── 大まかには足で、細かくは向きと近さのボタンで決める
-// (minigame/place.js)。前は「立っているところの 0.62 前」の一点しか
-// 選べず、並べようとすると足で踏み直すしかなかった。
-function placeSwitchHtml(item, n) {
-  if (!n) return '<p><small>もうありません。店で買えます。</small></p>';
-  // **ここでは置かない。下見に入るだけ。** 置けるかどうかは下見のあいだに
-  // 見本の色で出る ── 持ち物を開いた時点の1点で断ると、少し動けば置ける
-  // 場所でも「置けません」と出たままになる(島は止まっているので動けない)。
-  return `<p><small>半透明の見本が出ます。歩いて場所を決めて、
-    向きと近さをととのえてから置きます。</small></p>
-    <div class="row end"><button class="primary"
-      data-act="decor-place:${item.id}">置く場所を決める</button></div>`;
-}
 
-// かぶりもの。**いま着けている1つだけ**を光らせる ── 2つ同時にはかぶれない
-// ので、選び直すと前のものは自然に外れる。
-function wearSwitchHtml(item, worn) {
-  const on = worn === item.id;
-  return `<p><small>${item.note ?? ''}${on ? ' いまかぶっています。' : ''}</small></p>
-    <div class="row end"><button class="${on ? '' : 'primary'}"
-      data-act="wear-hat:${on ? 'none' : item.id}">${on ? 'ぬぐ' : 'かぶる'}</button></div>`;
-}
 
 // 島の砂時計。選んだ時刻は光らせる(いまどれを選んでいるか分かるように)
 export function skyTimesHtml(skyTime = 'live') {
   const now = skyTimeOf(skyTime).id;
+  // **「大会の間は島の時刻に戻ります」はここに書かない。** 品の注意書き
+  // (shop.js の skyGlass の note)にもう書いてあって、持ち物では2つ並ぶ。
   return `<div class="bag-times">${SKY_TIMES.map((s) => `<button
-    class="${s.id === now ? 'sel' : ''}" data-act="walk-sky-set:${s.id}">${s.icon} ${s.label}</button>`).join('')}</div>
-    <p><small>大会の間は島の時刻に戻ります。</small></p>`;
+    class="${s.id === now ? 'sel' : ''}" data-act="walk-sky-set:${s.id}">${s.icon} ${s.label}</button>`).join('')}</div>`;
 }
 
 // ---- 島の見取り図(画面に出す地図の入り切り)----

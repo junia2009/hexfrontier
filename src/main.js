@@ -16,7 +16,9 @@ import {
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
-import { buyItem, cleanShelf, ITEMS, ITEM_BY_ID, owns, stockOf } from './shop.js';
+import {
+  buyItem, cleanBagShelf, cleanShelf, ITEMS, ITEM_BY_ID, owns, stockOf,
+} from './shop.js';
 import { DECOR_BY_ID, placeSpot, whyCannotPlace } from './minigame/decor.js';
 import { aimNudge, aimSpot, aimTurn, canNudge, newAim } from './minigame/place.js';
 import { bagHtml, fishbookHtml, questsHtml, storeHtml, recordsHtml } from './render/records.js';
@@ -1441,11 +1443,14 @@ function renderShop() {
 
 // 持ち物。島のどこでも開ける ── 見取り図も砂時計も、店の前まで戻らないと
 // 使えないのでは意味がない。何も持っていない人にはボタンごと出さない。
+// **どの棚を見ているか・どの品を開いているかは、ここが覚える**(店と同じ)。
+// 描き直すのは品を使うたびなので、描く側が覚えると毎回先頭に戻る。
+let bagView = { shelf: 'tool', open: null };
 function renderBag() {
   const el = document.getElementById('walk-bag-body');
   if (!el) return;
   el.innerHTML = bagHtml(progress, {
-    mapOn, skyTime, hat: wornHat(progress),
+    mapOn, skyTime, hat: wornHat(progress), shelf: bagView.shelf, open: bagView.open,
   });
 }
 
@@ -3626,6 +3631,17 @@ document.addEventListener('click', (e) => {
     case 'walk-quests': setWalkQuests(true); return;
     case 'walk-quests-close': setWalkQuests(false); return;
     case 'walk-bag': setWalkBag(true); return;
+    // 持ち物の棚と、くわしい説明の開け閉め(店の shop-shelf / shop-more と同じ)
+    case 'bag-shelf':
+      bagView = { shelf: cleanBagShelf(progress, arg), open: null };
+      renderBag();
+      sfx.play('ui');
+      return;
+    case 'bag-more':
+      bagView = { ...bagView, open: bagView.open === arg ? null : arg };
+      renderBag();
+      sfx.play('ui');
+      return;
     case 'walk-bag-close': setWalkBag(false); return;
     // 棚を選ぶ。開いていた説明は閉じる(別の棚の品を開いたままにしない)
     case 'shop-shelf':

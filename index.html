@@ -1521,9 +1521,19 @@
   .shop-greet .shop-face { font-size: 26px; line-height: 1; }
   .shop-greet b { display: block; font-size: 12px; color: var(--accent2); }
   .shop-greet small { font-size: 12.5px; line-height: 1.5; }
-  /* 持ち物。使える品は中に操作を置く(見取り図の一覧・時刻の選択) */
-  .bag-row { border-top: 1px solid var(--line); padding: 9px 2px; }
-  .bag-row:first-child { border-top: 0; }
+  /* 持ち物。**店の札(.shop-item)をそのまま使う** ── 買うときと使うときで
+     見え方が違うと、さっき買ったものがどこにあるか分からない。
+     違うのは右はしだけで、値段のかわりに「その品で何ができるか」のボタン。 */
+  /* 棚の説明。店の帯と同じ位置だが、こちらに手持ちの銀貨は出さない
+     (使うところなので、いくら持っているかは関わらない) */
+  .bag-note { display: flex; margin: 5px 0 0; }
+  .bag-do {
+    flex: 0 0 auto; min-height: 40px; padding: 8px 12px;
+    font-size: 12.5px; white-space: nowrap;
+  }
+  /* いまかぶっているもの。札ごと光らせる(どれを着けているか一目で分かる) */
+  .bag-item.worn { border-color: rgba(125, 220, 150, 0.5); background: rgba(70, 150, 90, 0.14); }
+  .bag-on { color: #9be3ae; }
   .bag-times { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .bag-times button { flex: 1 1 auto; min-width: 72px; min-height: 44px; font-size: 13px; }
   .bag-times button.sel { background: rgba(255, 217, 125, 0.28); border-color: rgba(255,217,125,0.6); }

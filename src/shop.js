@@ -182,6 +182,20 @@ export function buyableCount(progress, shelfId) {
   return shelf.items.filter((i) => !whyCannotBuy(progress, i.id)).length;
 }
 
+// 持ち物に出す棚。**持っている棚だけ。** 空の棚を並べても、押して
+// 「何も無い」と分かるだけで手間が増える。
+export function bagShelves(progress) {
+  return SHELVES.filter((s) => s.items.some((i) => owns(progress, i.id)));
+}
+
+// 持ち物でいま見ている棚。**持っていない棚を選んでいたら、持っている棚に倒す**
+// ── 棚をまたいで品を手放すと、開いた先が空になる。
+export function cleanBagShelf(progress, id) {
+  const got = bagShelves(progress);
+  if (!got.length) return null;
+  return got.some((s) => s.id === id) ? id : got[0].id;
+}
+
 // 札に出す短い説明。**desc をそのまま切って使う** ── 短い版を別に書くと、
 // 必ず片方だけ直されてずれる(値段と説明を hats.js と shop.js に別々に
 // 書かないのと同じ理由)。
