@@ -7,8 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  DECOR, DECOR_BY_ID, DECOR_GAP, DECOR_IDS, DECOR_MAX, STOCK_MAX,
-  cleanDecorId, decorNear, placeSpot, visibleDecor, whyCannotPlace,
+  DECOR, DECOR_BY_ID, DECOR_GAP, DECOR_IDS, DECOR_MAX, LAMP_FULL, STOCK_MAX,
+  cleanDecorId, decorNear, lampGlow, placeSpot, visibleDecor, whyCannotPlace,
 } from '../src/minigame/decor.js';
 import {
   DECOR_ITEMS, ITEM_BY_ID, buyItem, isDecor, isWear, owns, stockOf,
@@ -101,6 +101,33 @@ test('飾り: 持てる数には上限がある(通信に乗る値なので)', (
 
 // **遊びの邪魔になる場所は断る。** ここが緩いと、受付や釣り場をベンチで
 // 塞いで、その島で何もできなくなる。
+// **島を育てると夜が明ける。** 石灯籠を置いていくほど島ぜんぶが明るくなる
+// (「石灯籠を購入して島に置いていくにつれて、少しずつ明るくなる過程を
+//   ゲームとして再現したい」)。ここが崩れると、買っても夜が変わらない。
+test('石灯籠: 置いた数だけ夜が明るくなる', () => {
+  const lamps = (n) => Array.from({ length: n }, (_, i) => ({ id: 'lamp', x: i, z: 0 }));
+  assert.equal(lampGlow([]), 0, 'はじめの夜が暗くない');
+  assert.equal(lampGlow(lamps(LAMP_FULL)), 1, `${LAMP_FULL}個で満ちない`);
+  // **1つめから目に見えて効く。** 先細りにすると最後の1つが無駄になる
+  const step = lampGlow(lamps(1));
+  assert.ok(step > 0, '1つめが効いていない');
+  for (let n = 1; n <= LAMP_FULL; n += 1) {
+    assert.ok(Math.abs(lampGlow(lamps(n)) - step * n) < 1e-9,
+      `${n}個めの効きかたが揃っていない`);
+  }
+  // 上限を超えても 1 まで。明るさが際限なく上がると昼になる
+  assert.equal(lampGlow(lamps(LAMP_FULL + 20)), 1, '上限を超えた');
+  // **石灯籠だけ数える。** ベンチを並べても夜は明るくならない
+  const others = DECOR.filter((d) => d.id !== 'lamp')
+    .map((d, i) => ({ id: d.id, x: i, z: 0 }));
+  assert.equal(lampGlow(others), 0, `灯籠以外が数えられている(${others.map((o) => o.id)})`);
+  assert.equal(lampGlow([...others, ...lamps(2)]), step * 2, '混ざると数が狂う');
+  // 壊れた値でも落ちない
+  for (const bad of [null, undefined, [null], [{}], [{ id: 3 }]]) {
+    assert.equal(lampGlow(bad), 0, `${JSON.stringify(bad)} で落ちるか数えている`);
+  }
+});
+
 // **掲示板は店とまったく同じ置きかた。** 広場のとなりのヘックスの中心
 // (数字トークンの円盤の上)に、広場を向いて建つ。
 //

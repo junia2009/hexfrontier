@@ -852,19 +852,20 @@ function makeMerchant(colorHex) {
 // 周期と「夜の濃さ」は minigame/daynight.js が持つ ── 夜は遊びの判定
 // (夜釣り)にも使うので、THREE を読まないところに置いてある。
 // ここは色のパレットだけを持ち、t はあちらの NIGHT_KEYS と揃えること。
-// ---- 夜釣りのランタンの明かり ----
+// ---- 石灯籠がともす夜の明るさ ----
 //
 // **光る苔のかわり。** 苔は「勝手に光っている地面」で、夜の足もとを
-// 見せるためだけに島じゅうへ撒いてあった。それをやめて、買った道具で
-// 明るくする形にした ── 明るくしたい人だけが明るくできる。
+// 見せるためだけに島じゅうへ撒いてあった。それをやめて、**島に置いた
+// 石灯籠の数で夜が明るくなる**形にした ── 島を育てるほど夜が明ける。
+// 何個で満ちるかは minigame/decor.js の lampGlow が決める。
 //
-// 真夜中いっぱいに灯したときの足しぶん。数は実測で決める(下の値は
-// 「灯す前より明るいが、昼には見えない」ところ)。
-const LANTERN_SUN = 1.1;    // 月あかり(sunI 0.6)への足しぶん
-const LANTERN_HEMI = 0.8;   // 半球光(hemi 1.1)への足しぶん
-const LANTERN_TINT = new THREE.Color(0xffd9a0);   // 灯火の色
-const LANTERN_MIX = 0.55;   // 半球光をどれだけ灯火の色へ寄せるか
-const LANTERN_FOG = 0.16;   // 霧をどれだけ薄めるか
+// 下の値は灯籠が満ちた真夜中の足しぶん(実測で「暗い夜とはっきり違うが、
+// 昼には見えない」ところ)。
+const LAMP_SUN = 1.1;     // 月あかり(sunI 0.6)への足しぶん
+const LAMP_HEMI = 0.8;    // 半球光(hemi 1.1)への足しぶん
+const LAMP_TINT = new THREE.Color(0xffd9a0);   // 灯火の色
+const LAMP_MIX = 0.55;    // 半球光をどれだけ灯火の色へ寄せるか
+const LAMP_FOG = 0.16;    // 霧をどれだけ薄めるか
 
 const SKY_PHASES = [
   // t: サイクル内の位置, zenith: 天頂, horizon: 地平線,
@@ -1523,11 +1524,11 @@ export class Board3D {
     // (大会のあいだは main.js が null に戻す ── 夜の見えにくさで
     //  払った人だけが得をする形にしない)
     this.skyPhaseOverride = null;
-    // 夜釣りのランタンの明かり。0 で消灯、1 で全開。**夜にだけ効く**
-    // (_tickSky が night を掛ける)── 昼に足しても画面が白むだけ。
-    // 持ち主かどうか・大会中かどうかの判定は main.js が持つ
-    // (砂時計と同じ。夜の見えにくさで払った人だけが得をする形にしない)。
-    this.lanternLight = 0;
+    // 石灯籠でどれだけ夜が明るいか。0 で灯籠なし、1 で満ちた状態。
+    // **夜にだけ効く**(_tickSky が night を掛ける)── 昼に足しても
+    // 画面が白むだけ。何個置いてあるか・大会中かどうかの判定は main.js が
+    // 持つ(砂時計と同じ。夜の見えにくさで差が付く形にしない)。
+    this.nightGlow = 0;
 
     // ライティング
     this.hemi = new THREE.HemisphereLight(0xcfe3ff, 0x46617a, 1.05);
@@ -1943,25 +1944,25 @@ export class Board3D {
     this.hemi.color.copy(s.hemiC);
     this.hemi.groundColor.copy(s.hemiG);
 
-    // **ランタンを灯すと夜が明るくなる。** 光る苔をやめたので、夜の足もとは
-    // これで見る ── 苔は「勝手に光っている地面」だったが、ランタンは
-    // 自分で灯す道具なので、明るくしたい人だけが明るくできる。
+    // **石灯籠を置くほど夜が明るくなる。** 光る苔をやめたので、夜の足もとは
+    // これで見る ── 苔は勝手に光っている地面だったが、灯籠は自分で置いた
+    // ものなので、島を育てたぶんだけ夜が明ける。
     // night を掛けるので昼には効かない(夕暮れに向けて自然に消える)。
-    const lamp = this.lanternLight * s.night;
+    const lamp = this.nightGlow * s.night;
     if (lamp > 0) {
-      this.sun.intensity = s.sunI + LANTERN_SUN * lamp;
-      this.hemi.intensity = s.hemi + LANTERN_HEMI * lamp;
+      this.sun.intensity = s.sunI + LAMP_SUN * lamp;
+      this.hemi.intensity = s.hemi + LAMP_HEMI * lamp;
       // 灯火の色へ寄せる。**白く上げない** ── 明るさだけ足すと
       // 「夜なのに昼の色」になって、時間が飛んだように見える
-      this.hemi.color.lerp(LANTERN_TINT, LANTERN_MIX * lamp);
-      this.hemi.groundColor.lerp(LANTERN_TINT, LANTERN_MIX * lamp);
+      this.hemi.color.lerp(LAMP_TINT, LAMP_MIX * lamp);
+      this.hemi.groundColor.lerp(LAMP_TINT, LAMP_MIX * lamp);
     }
 
     // 霧・背景・海の縁も地平線の色へ寄せる(空との継ぎ目を消す)
     const fogCol = s.horizon.clone().lerp(s.zenith, 0.55);
-    // ランタンのぶんだけ霧も薄める(足もとだけ明るくて遠くが真っ黒だと、
+    // 灯籠のぶんだけ霧も薄める(足もとだけ明るくて遠くが真っ黒だと、
     // 明るくなったというより穴を掘ったように見える)
-    if (lamp > 0) fogCol.lerp(LANTERN_TINT, LANTERN_FOG * lamp);
+    if (lamp > 0) fogCol.lerp(LAMP_TINT, LAMP_FOG * lamp);
     this.scene.fog.color.copy(fogCol);
     this.scene.background.copy(fogCol);
     if (this.seaUniforms) this.seaUniforms.uBg.value.copy(fogCol);

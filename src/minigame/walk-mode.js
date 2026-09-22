@@ -814,6 +814,13 @@ export class WalkMode {
     this._rebuildBlocker();
   }
 
+  // いま島に出ている飾り(自分のぶん + 相手のぶん)。**陸でなくなったものは
+  // 含まない** ── setDecor が visibleDecor で絞ったあとの、本当に見えている
+  // ぶんだけ。夜の明るさはこれを数える(main.js の applyNightGlow)。
+  decorSpecs() {
+    return this.decor.map(({ spec }) => spec);
+  }
+
   // 島の障害物 + 飾り。飾りが増減したら組み直す
   _rebuildBlocker() {
     const extra = this.decor.map(({ spec }) => {
