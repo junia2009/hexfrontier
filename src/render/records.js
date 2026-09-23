@@ -19,7 +19,8 @@ import {
 import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
 import { dayLabel, questWhere } from '../quests.js';
 import { bandOf } from '../market.js';
-import { gearOf, slotOf } from '../gear.js';
+import { SLOTS, gearOf } from '../gear.js';
+import { gearSwatch } from './gear-swatch.js';
 
 const MODE_ICON = {
   base: '⬡', cak: '🏰', dragon: '🐉', fish: '🐟', sea: '⛵',
@@ -267,6 +268,16 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
 //   4. **買い切った品は1行に畳んで下へ送る**(shop.js の shelfItems)。
 //      上から順に「いま手が届くもの」が並ぶ。
 
+// 品の顔。**しつらえの品は見本を出す**(絵文字ではなく現物の色と形)──
+// 🌇 と ❄️ と 📜 が並んでいても、どんな盤になるかは分からない。
+// 見本を持たない品はこれまでどおり絵文字(gear-swatch.js は空を返す)
+function faceHtml(item) {
+  const sw = gearSwatch(item.id);
+  return sw
+    ? `<span class="shop-icon has-sw">${sw}</span>`
+    : `<span class="shop-icon">${item.icon}</span>`;
+}
+
 // 売り物1つぶん。**開いているものだけ**説明と注意書きを出す
 function shopItemHtml(item, progress, open) {
   // 飾りは**何個でも買える**ので「✓ 持っています」で終わらせない。
@@ -278,7 +289,7 @@ function shopItemHtml(item, progress, open) {
   // 買い切った品は絵と名前だけの1行に畳む(下へ送ってあるので邪魔にならない)
   if (done) {
     return `<div class="shop-item has">
-      <div class="shop-line"><span class="shop-icon">${item.icon}</span>
+      <div class="shop-line">${faceHtml(item)}
         <span class="shop-name"><b>${item.name}</b></span>
         <span class="shop-has">✓ 持っています</span></div>
     </div>`;
@@ -286,7 +297,7 @@ function shopItemHtml(item, progress, open) {
   const lack = why && why.startsWith('あと') ? `<span class="shop-lack">${why}</span>` : '';
   return `<div class="shop-item ${open ? 'open' : ''} ${why ? 'poor' : ''}">
     <div class="shop-line">
-      <span class="shop-icon">${item.icon}</span>
+      ${faceHtml(item)}
       <button class="shop-name" data-act="shop-more:${item.id}"
         aria-expanded="${open ? 'true' : 'false'}">
         <b>${item.name}${many && n ? ` <span class="shop-n">手持ち ${n}</span>` : ''}</b>
@@ -428,11 +439,14 @@ export function questsHtml(board, { now = Date.now(), here = null, market = [] }
 function bagItemHtml(item, progress, view, open) {
   const { mapOn, skyTime, hat } = view;
   const n = isDecor(item.id) ? stockOf(progress, item.id) : 0;
-  const slot = slotOf(item.id);
-  // いま着けている/使っているか。かぶりものと卓のしつらえで同じ印を出す
-  const worn = isWear(item.id)
-    ? hat === item.id
-    : !!slot && gearOf(progress, slot)?.id === item.id;
+  // いま着けているか(かぶりものだけ)。
+  //
+  // **卓のしつらえはここを通らない。** しつらえの棚は枠ごとのタイル
+  // (gearPanelHtml)に分けたので、この関数に来るのは道具・かぶりもの・
+  // 飾りだけ ── 前はここにも「つかう/もどす」の枝があったが、
+  // **誰も通らない道**になっていた(故障注入が2件すり抜けて気づいた。
+  // 到達しない行は、どんなテストでも捕まえられない)。
+  const worn = isWear(item.id) && hat === item.id;
   // 右はしのボタン。押すとすぐ効く(説明を開かなくても使える)
   const act = item.id === 'islandMap'
     ? `<button class="${mapOn ? '' : 'primary'} bag-do" data-act="walk-map-toggle">${mapOn ? 'しまう' : '出す'}</button>`
@@ -442,17 +456,12 @@ function bagItemHtml(item, progress, view, open) {
         ? `<button class="${worn ? '' : 'primary'} bag-do" data-act="wear-hat:${worn ? 'none' : item.id}">${worn ? 'ぬぐ' : 'かぶる'}</button>`
         : isDecor(item.id)
           ? `<button class="primary bag-do" data-act="decor-place:${item.id}">置く</button>`
-          // 卓のしつらえ。**使っているものを押すと既定に戻る**(ぬぐ と同じ)
-          // ── 既定の柄は店に無いので、ここに戻り道が無いと二度と戻せない
-          : slot
-            // (data-act は `名前:引数` の2つ割りなので、スロットは id から引く)
-            ? `<button class="${worn ? '' : 'primary'} bag-do" data-act="use-gear:${item.id}">${worn ? 'もどす' : 'つかう'}</button>`
-            : '';
+          : '';
   // 砂時計だけは操作が5つあって1行に入らない。開いたときに下の段へ出す
   const wide = open && item.id === 'skyGlass' ? skyTimesHtml(skyTime) : '';
   return `<div class="shop-item bag-item ${open ? 'open' : ''} ${worn ? 'worn' : ''}">
     <div class="shop-line">
-      <span class="shop-icon">${item.icon}</span>
+      ${faceHtml(item)}
       <button class="shop-name" data-act="bag-more:${item.id}"
         aria-expanded="${open ? 'true' : 'false'}">
         <b>${item.name}${n ? ` <span class="shop-n">×${n}</span>` : ''}${worn ? ' <span class="bag-on">✓</span>' : ''}</b>
@@ -465,6 +474,46 @@ function bagItemHtml(item, progress, view, open) {
   </div>`;
 }
 
+// ---- 卓のしつらえ(枠ごとに仕切る)----
+//
+// **12品を1本に積んでいた。** サイコロ4・灯り3・コマ4・盤4が仕切り無しに
+// 縦に並び、盤の柄はスクロールの外にいた ── どれが盤の話なのかは名前を
+// 読むまで分からず、「分かりにくすぎる」と言われた。枠ごとに仕切って、
+// 1枠を1行のタイルに畳む。
+//
+// **既定も並べる。** 前は「いつもの盤」が一覧に無く、戻すには
+// *いま使っている品をもう一度押す*しかなかった ── その戻り道は画面の
+// どこにも書いていない。既定をタイルにすれば、いま何を使っているかと
+// 戻り道が、同じ場所に同時に出る(隠しトグルは要らなくなる)。
+//
+// 説明は**選んでいるものの1行だけ**。12品ぶん並べると、また読めなくなる。
+function gearGroupHtml(slot, progress) {
+  const now = gearOf(progress, slot.id);
+  // 持っているものと既定だけ。**買っていない品は出さない**(持ち物は売り場ではない)
+  const mine = slot.items.filter((i) => i.price == null || owns(progress, i.id));
+  const tiles = mine.map((i) => {
+    const sel = i.id === now?.id;
+    return `<button class="gear-tile ${sel ? 'sel' : ''}" data-act="use-gear:${i.id}"
+      aria-pressed="${sel ? 'true' : 'false'}">
+      ${gearSwatch(i.id) || `<span class="gear-emoji">${i.icon}</span>`}
+      <span class="gear-cap">${i.name}</span></button>`;
+  }).join('');
+  // 枠に既定しか無いときだけ、どこで増やせるかを書く
+  const none = mine.length < 2
+    ? '<p class="gear-none"><small>この枠の品は、島の店で買えます。</small></p>' : '';
+  return `<div class="gear-group">
+    <p class="gear-head"><b>${slot.icon} ${slot.label}</b><small>${slot.note}</small></p>
+    <div class="gear-tiles">${tiles}</div>${none}
+    <p class="gear-now">いま: ${now?.desc ?? ''}</p>
+  </div>`;
+}
+
+// 卓のしつらえの一式。**持ち物と対戦の支度の両方から、同じものを出す**
+// ── 盤が見える場所の近くで選べないと、押しても何が起きたか分からない
+export function gearPanelHtml(progress) {
+  return SLOTS.map((s) => gearGroupHtml(s, progress)).join('');
+}
+
 export function bagHtml(
   progress,
   { mapOn = true, skyTime = 'live', hat = null, shelf = null, open = null } = {},
@@ -474,16 +523,20 @@ export function bagHtml(
   const now = cleanBagShelf(progress, shelf);
   const s = got.find((x) => x.id === now);
   const mine = s.items.filter((i) => owns(progress, i.id));
-  const rows = mine
-    .map((i) => bagItemHtml(i, progress, { mapOn, skyTime, hat }, i.id === open))
-    .join('');
+  // 卓のしつらえだけ組み立てが違う(枠ごとのタイル)。ほかの棚は1品1行のまま
+  const gear = now === 'gear';
+  const rows = gear
+    ? gearPanelHtml(progress)
+    : mine.map((i) => bagItemHtml(i, progress, { mapOn, skyTime, hat }, i.id === open)).join('');
   // 棚が1つしか無ければ帯は出さない(選びようが無いものを置かない)
   const tabs = got.length < 2 ? '' : `<div class="seg shop-tabs">${got.map((x) => `<button
     class="${x.id === now ? 'sel' : ''}" data-act="bag-shelf:${x.id}">${x.icon} ${x.label}</button>`).join('')}</div>`;
   return `<div class="shop-bar">${tabs}
     <p class="bag-note"><span class="shop-what">${s.note}</span></p></div>
     ${rows}
-    <p class="shop-foot"><small>札を押すとくわしい説明が出ます。</small></p>`;
+    <p class="shop-foot"><small>${gear
+      ? '選ぶとすぐ切り替わります。対戦の盤で使う見た目です。'
+      : '札を押すとくわしい説明が出ます。'}</small></p>`;
 }
 
 

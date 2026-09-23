@@ -14,7 +14,7 @@ import {
   noteSeen, placeDecor, placedDecor, questBoard, resultOf, saveProgress, setTitle,
   takeDecor, useGear, wearHat, wornHat,
 } from './progress.js';
-import { gearOf, slotOf } from './gear.js';
+import { SLOT_IDS, gearOf, slotOf } from './gear.js';
 import {
   GRANT, addCoins as adminCoins, dropAll as adminDropAll, emptyGate,
   grantAll as adminGrantAll, tapGate, tapsLeft,
@@ -27,7 +27,9 @@ import {
 } from './shop.js';
 import { DECOR_BY_ID, lampGlow, placeSpot, whyCannotPlace } from './minigame/decor.js';
 import { aimNudge, aimSide, aimSpot, aimTurn, canNudge, canSide, newAim } from './minigame/place.js';
-import { bagHtml, fishbookHtml, questsHtml, storeHtml, recordsHtml } from './render/records.js';
+import {
+  bagHtml, fishbookHtml, gearPanelHtml, questsHtml, storeHtml, recordsHtml,
+} from './render/records.js';
 import { drawMinimap } from './render/minimap.js';
 import { contestCm } from './minigame/fish.js';
 import { skyTimeOf } from './minigame/daynight.js';
@@ -214,11 +216,34 @@ function renderSelectPanel() {
     <div class="srow"><span>BGM</span>${seg('set-bgm', [['on', '🔊 オン'], ['off', '🔇 オフ']], settings.bgm ? 'on' : 'off')}</div>
     <div class="srow"><span>効果音</span>${seg('set-sfx', [['on', '🔔 オン'], ['off', '🔕 オフ']], settings.sfx ? 'on' : 'off')}</div>
     <div class="srow"><span>シード</span><input id="seed-input" inputmode="numeric" placeholder="空欄でランダム" value="${settings.seed}"></div>
+    <div class="srow"><span>見た目</span>
+      <button class="gear-open" data-act="goto-gear">${gearLine(progress)}</button></div>
     <div class="row end">
       <button data-act="goto-rules:setup">❔ 選択肢の説明</button>
       <button data-act="goto-title">← タイトル</button>
       <button class="primary" data-act="start-game">ゲーム開始</button>
     </div>`;
+}
+
+// 支度の画面に出す1行。**いま何を使っているかを、開かずに見せる。**
+// 「卓のしつらえ ›」だけだと、中に何があるのか・いま何なのかが分からない
+function gearLine(p) {
+  return `${SLOT_IDS.map((s) => gearOf(p, s)?.icon ?? '').join(' ')} 卓のしつらえ ›`;
+}
+
+// 卓のしつらえの画面。中身は持ち物の棚と同じ組み立てを使う
+// (買う場所と使う場所で見え方が違うと、さっき買ったものを見失う)
+function renderGearPanel() {
+  const panel = document.getElementById('gear-panel');
+  if (!panel || screen !== 'gear') return;
+  setHTML(panel, `
+    <h3>🎲 卓のしつらえ</h3>
+    <div class="net-note">対戦の盤で使う見た目です。勝ち負けは変わりません。
+      品は島の店で買えます。</div>
+    ${gearPanelHtml(progress)}
+    <div class="row end">
+      <button class="primary" data-act="goto-select">← ゲーム設定へ</button>
+    </div>`);
 }
 
 // ひとりで島を歩くときの島えらび。
@@ -2980,6 +3005,7 @@ function refresh() {
   renderRulesPanel();
   renderOnlinePanel();
   renderRecordsPanel();
+  renderGearPanel();
   // タイトル画面の読み込み状態表示
   const note = document.getElementById('load-note');
   if (note) {
@@ -3629,6 +3655,7 @@ document.addEventListener('click', (e) => {
 
     // ---- 画面フロー ----
     case 'goto-select': setScreen('select'); return;
+    case 'goto-gear': setScreen('gear'); return;
     case 'goto-title':
       if (isOnline()) leaveNet(true);
       else setScreen('title');
@@ -3741,16 +3768,18 @@ document.addEventListener('click', (e) => {
       walkNote(worn ? `${item?.icon ?? ''} ${item?.name ?? ''}をかぶった` : 'かぶりものをぬいだ');
       return;
     }
-    // 卓のしつらえ。**使っているものをもう一度押すと既定に戻る**
-    // (かぶりものの「ぬぐ」と同じ。既定の柄は店に無いので戻り道はここだけ)
+    // 卓のしつらえ。**素直に選ぶだけ**にした。
+    // 前は「使っているものをもう一度押すと既定に戻る」隠しトグルだったが、
+    // 既定(いつもの盤など)をタイルとして並べたので戻り道が画面に出ている
+    // ── 隠しトグルは残しておくと「選んだのに外れた」にしかならない。
     case 'use-gear': {
       const slot = slotOf(arg);
       if (!slot) return;
-      const now = gearOf(progress, slot)?.id ?? null;
-      progress = useGear(progress, slot, now === arg ? null : arg);
+      progress = useGear(progress, slot, arg);
       saveProgress(progress);
       applyGear();
       renderBag();
+      renderGearPanel();
       // コマの柄は盤を描き直さないと変わらない(2D は輪郭、3D はメッシュ)
       if (ui) refresh();
       sfx.play('ui');
