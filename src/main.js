@@ -232,18 +232,34 @@ function gearLine(p) {
 }
 
 // 卓のしつらえの画面。中身は持ち物の棚と同じ組み立てを使う
-// (買う場所と使う場所で見え方が違うと、さっき買ったものを見失う)
+// (買う場所と使う場所で見え方が違うと、さっき買ったものを見失う)。
+//
+// **流すのは .panel-scroll の中だけ。** `.rules-panel` は `overflow: hidden`
+// なので、中身を直に置くと画面に入りきらないぶんへ届かなくなる ── 実機で
+// **戻るボタンごと画面の外に出て、詰んだ**(手元の 390×844 では最後まで
+// 見えていて気づけなかった)。見出しと戻る口はパネルに直接置いて、
+// いつでも見えるようにする(戦績の画面と同じ形)。
 function renderGearPanel() {
   const panel = document.getElementById('gear-panel');
   if (!panel || screen !== 'gear') return;
+
+  // 品を選ぶたびに丸ごと作り直すので、そのままだと巻き位置が先頭に戻る。
+  // 盤の柄はいちばん下にあるので、**選ぶたびにサイコロまで飛ばされる**
+  const keep = panel.querySelector('.panel-scroll')?.scrollTop ?? 0;
+
   setHTML(panel, `
     <h3>🎲 卓のしつらえ</h3>
-    <div class="net-note">対戦の盤で使う見た目です。勝ち負けは変わりません。
-      品は島の店で買えます。</div>
-    ${gearPanelHtml(progress)}
-    <div class="row end">
+    <div class="panel-scroll">
+      <div class="net-note">対戦の盤で使う見た目です。勝ち負けは変わりません。
+        品は島の店で買えます。</div>
+      ${gearPanelHtml(progress)}
+    </div>
+    <div class="row end rules-close">
       <button class="primary" data-act="goto-select">← ゲーム設定へ</button>
     </div>`);
+
+  const after = panel.querySelector('.panel-scroll');
+  if (after) after.scrollTop = keep;   // 行き過ぎはブラウザが丸めてくれる
 }
 
 // ひとりで島を歩くときの島えらび。
