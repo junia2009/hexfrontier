@@ -202,6 +202,152 @@ export const PIECES = [
   },
 ];
 
+// ---- 盤 ----
+//
+// **地形の色を、全部まとめて同じだけずらす。** 地形ごとに別々の色を持たせる
+// のではなく、色相・彩度・明度への1つの変換にしてある ── 理由は3つめの
+// 線引き(情報量を変えない):
+//
+//   - 地形ごとに自由な色を持てると、森と牧草地を同じ緑にする柄が作れる。
+//     **同じだけずらすなら、地形どうしの隔たりはおおむね保たれる。**
+//   - 「おおむね」で済ませない。**どれだけ隔たっているかを測って**、
+//     いちばん近い2つの地形の差と、数字トークンとのコントラストの両方に
+//     下限を置く(test/gear.test.js)。彩度を落としすぎた柄はそこで落ちる。
+//   - 色は2D盤・3D盤・地表の3か所に散っているが、**変換は1本**なので
+//     3か所が食い違わない。
+//
+// h は色相のずらし(度)、s は彩度の倍率、l は明度の倍率。
+export const BOARDS = [
+  {
+    id: 'board-classic',
+    name: 'いつもの盤',
+    icon: '⬡',
+    desc: 'はじめから使っている盤の色。',
+    shift: null,
+  },
+  {
+    id: 'board-dusk',
+    name: '夕暮れの盤',
+    icon: '🌇',
+    price: 300,
+    desc: '夕日に焼けた色合い。畑と丘に赤みが差します。',
+    shift: { h: -12, s: 1.02, l: 0.93 },
+  },
+  {
+    id: 'board-frost',
+    name: '霜の盤',
+    icon: '❄️',
+    price: 360,
+    desc: '霜の降りた朝の色。全体が青みがかって、少し浅くなります。',
+    shift: { h: 25, s: 0.8, l: 0.97 },
+  },
+  {
+    id: 'board-sepia',
+    name: '古地図の盤',
+    icon: '📜',
+    price: 420,
+    desc: '古い海図のように褪せた色。地形の隔たりはそのまま。',
+    shift: { h: -10, s: 0.5, l: 0.95 },
+  },
+];
+
+// **どれも一度は測って決めた。** 思いついた柄をそのまま置いてはいない:
+//
+//   - はじめ「雪の盤」(明るくする)を入れたが、**テストに弾かれた**。
+//     砂漠 #ecdcae はもともと数字トークンの円盤 #f2ecd8 に近く(既定でも
+//     隔たり 79.9 しかない)、明るくすると必ず溶ける ── 1.16 倍で 28.8 まで
+//     落ちた。明度を下げても 55.6 止まりで、**明るくする方向では直らない**。
+//     青みに寄せる「霜の盤」に作り替えた(86.9)。
+//   - **暗くする方向の柄も全部落ちた。** 「深緑」「宵」を試したが、
+//     暗くすると畑と金(航海者たちの黄金地)が詰まって、地形どうしの
+//     隔たりが下限(既定の 80% = 26.9)を割る ── 26.2 と 24.9。
+//     **盤を暗くしたい人には「卓の灯り」を消す道がある**ので、ここは諦めた。
+//   - 残った3つの実測値(地形どうし / トークンとの隔たり。既定は 33.6 / 79.9):
+//     夕暮れ 32.9 / 142.7、霜 33.1 / 86.9、古地図 30.3 / 110.7。
+
+// ---- 色をずらす(2D盤・3D盤・地表が同じ1本を使う)----
+//
+// 入口も出口も 0xRRGGBB の数。**文字列と数を混ぜない** ── 2D盤は '#rrggbb'、
+// 3D盤は 0x… で色を持っているので、片方に合わせると必ず取り違える。
+// 呼ぶ側が自分の形に直す(hexToNum / numToHex)。
+
+// **ここの比較の境目は、故障注入では捕まらない。** 8件が生き残ったので
+// 1つずつ確かめたが、全部**等価変異**だった ── HSL と RGB の変換は
+// 区分関数で、どのつなぎ目でも両側の式が同じ値になる:
+//
+//   - `l > 0.5`: l = 0.5 なら max+min = 1 なので 2-max-min も 1。同じ式。
+//   - `l < 0.5`(hslToRgb の q): l = 0.5 なら両側とも 0.5 + 0.5s。
+//   - `g < b`: g = b なら色相は 0 か 1 で、どちらも同じ色(下で % 1 する)。
+//   - hue2rgb の 0 / 1 / 1/6 / 1/2 / 2/3: どの境目でも両側が同じ値を返す
+//     (1/6 なら p + (q-p) = q、2/3 なら p + 0 = p、というふうに)。
+//
+// **捕まえようとすると「この境目でこの値」と書くことになるが、それは
+// 値が変わらないことを確かめているだけ**で、テストとして意味がない。
+// 代わりに、往復と素通し(変換しない shift)をテストで押さえてある。
+function rgbToHsl(n) {
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return [h, s, l];
+}
+
+function hue2rgb(p, q, t0) {
+  let t = t0;
+  if (t < 0) t += 1;
+  if (t > 1) t -= 1;
+  if (t < 1 / 6) return p + (q - p) * 6 * t;
+  if (t < 1 / 2) return q;
+  if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+  return p;
+}
+
+function hslToRgb(h, s, l) {
+  let r;
+  let g;
+  let b;
+  if (s === 0) {
+    r = l; g = l; b = l;
+  } else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  const to = (v) => Math.max(0, Math.min(255, Math.round(v * 255)));
+  return (to(r) << 16) | (to(g) << 8) | to(b);
+}
+
+// 1色ぶん。shift が無ければそのまま返す(既定の盤は1バイトも変わらない)
+export function tintColor(num, shift) {
+  if (!shift) return num;
+  const [h, s, l] = rgbToHsl(num);
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  return hslToRgb(
+    (((h + (shift.h ?? 0) / 360) % 1) + 1) % 1,
+    clamp01(s * (shift.s ?? 1)),
+    clamp01(l * (shift.l ?? 1)),
+  );
+}
+
+export const hexToNum = (hex) => parseInt(String(hex).replace('#', ''), 16);
+export const numToHex = (num) => `#${(num >>> 0).toString(16).padStart(6, '0')}`;
+
+// 2D盤は '#rrggbb' で色を持っているので、そのまま渡せる口も出す
+export function tintHex(hex, shift) {
+  return shift ? numToHex(tintColor(hexToNum(hex), shift)) : hex;
+}
+
 // ---- スロット ----
 //
 // 1つのスロットには**1つだけ着けられる**(かぶりものと同じ)。
@@ -232,6 +378,13 @@ export const SLOTS = [
     label: 'コマ',
     note: '屋根の形と質感だけ。席の色も大きさも変わりません',
     items: PIECES,
+  },
+  {
+    id: 'board',
+    icon: '⬡',
+    label: '盤',
+    note: '地形の色合いが変わります。数字も地形も同じだけ読めます',
+    items: BOARDS,
   },
 ];
 

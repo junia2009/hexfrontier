@@ -9,10 +9,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  DICE, GEAR, GEAR_BY_ID, GEAR_FOR_SALE, LIGHTS, PIECES, ROOF_SHAPES, SLOTS, SLOT_IDS,
+  BOARDS, DICE, GEAR, GEAR_BY_ID, GEAR_FOR_SALE, LIGHTS, PIECES, ROOF_SHAPES, SLOTS, SLOT_IDS,
+  hexToNum, numToHex, tintHex,
   defaultGear, gearOf, isDefaultGear, isGear, slotOf,
 } from '../src/gear.js';
 import { ITEMS, ITEM_BY_ID, SHELF_BY_ID, buyItem, owns } from '../src/shop.js';
+import { TERRAIN_STYLE } from '../src/render/board-render.js';
 import { emptyProgress, parseProgress, useGear } from '../src/progress.js';
 
 // 明るさとコントラスト比(WCAG の式)。目が地の上で読めるかを測る
@@ -112,6 +114,7 @@ test('しつらえ: 柄はつやだけを変える。出目にも規則にも触
     'face', 'edge', 'pip', 'finish',   // サイコロ
     'glow',                             // 卓の灯り(夜の明るさ。昼には効かない)
     'roof',                             // コマ(屋根の形の名前。寸法は持たない)
+    'shift',                            // 盤(色相・彩度・明度のずらし)
   ]);
   for (const g of GEAR) {
     for (const k of Object.keys(g)) {
@@ -176,6 +179,117 @@ test('しつらえ: 屋根の形は全部使われている。名前がだぶら
     assert.ok(used.has(r), `${r} の屋根を使う柄が無い(描く側だけにある形)`);
   }
   assert.equal(new Set(ROOF_SHAPES).size, ROOF_SHAPES.length);
+});
+
+// ---- 盤 ----
+//
+// **いちばん測る値打ちがあるのはここ。** 地形の色をまとめてずらすので、
+// 彩度を落としすぎれば森と牧草地が同じ緑になり、明度を上げすぎれば
+// 数字トークンが地形に溶ける ── どちらも「情報量を変えない」に反する。
+// 目で見て「まあ読めるな」で済ませず、数で下限を置く。
+
+// 盤にある地形の色(2D盤の TERRAIN_STYLE の上側。3D も同系統)。
+// **ここは board-render.js の写しではなく、測るための見本** ── 写しを
+// 置くと本体を変えたときに気づかないので、下のテストが本体と突き合わせる。
+const TERRAIN_SAMPLE = {
+  forest: '#4a8a58',
+  pasture: '#a4cf62',
+  field: '#f0cd58',
+  hill: '#cd7d4c',
+  mountain: '#a3aebc',
+  desert: '#ecdcae',
+  lake: '#4fb6d8',
+  sea: '#2a7fb5',
+  gold: '#f2d06b',
+};
+
+// 数字トークンの円盤(クリーム)と数字(黒)。盤の柄では変えない
+const TOKEN_FACE = '#f2ecd8';
+
+// 2色の隔たり。RGB の距離(0〜441)。**人の見えかたに近い重みを掛ける**
+function colorDist(a, b) {
+  const [x, y] = [hexToNum(a), hexToNum(b)];
+  const dr = ((x >> 16) & 255) - ((y >> 16) & 255);
+  const dg = ((x >> 8) & 255) - ((y >> 8) & 255);
+  const db = (x & 255) - (y & 255);
+  return Math.sqrt(2 * dr * dr + 4 * dg * dg + 3 * db * db);
+}
+
+// 既定の盤でいちばん近い2つの地形の隔たり。ここを下回らせない
+function closestPair(shift) {
+  const keys = Object.keys(TERRAIN_SAMPLE);
+  let min = Infinity;
+  let pair = null;
+  for (let i = 0; i < keys.length; i += 1) {
+    for (let j = i + 1; j < keys.length; j += 1) {
+      const d = colorDist(
+        tintHex(TERRAIN_SAMPLE[keys[i]], shift),
+        tintHex(TERRAIN_SAMPLE[keys[j]], shift),
+      );
+      if (d < min) { min = d; pair = [keys[i], keys[j]]; }
+    }
+  }
+  return { min, pair };
+}
+
+test('盤の柄: 地形どうしの見分けが、既定より大きく落ちない', () => {
+  const base = closestPair(null);
+  // **下限は既定の 80%。** 「絶対値で◯以上」にすると、既定がぎりぎりだった
+  // ときに既定だけ通って柄が落ちる ── 比べる相手は既定にする
+  const floor = base.min * 0.8;
+  for (const b of BOARDS) {
+    const got = closestPair(b.shift);
+    assert.ok(got.min >= floor,
+      `${b.name}: いちばん近い ${got.pair?.join('と')} が ${got.min.toFixed(1)}`
+      + `(既定は ${base.pair?.join('と')} の ${base.min.toFixed(1)}、下限 ${floor.toFixed(1)})`);
+  }
+});
+
+test('盤の柄: どの柄でも、数字トークンが地形から浮く', () => {
+  // 円盤が地形に溶けると数字が読めない。**全部の地形について**見る
+  const base = Math.min(...Object.values(TERRAIN_SAMPLE)
+    .map((t) => colorDist(TOKEN_FACE, t)));
+  const floor = base * 0.8;
+  for (const b of BOARDS) {
+    for (const [name, col] of Object.entries(TERRAIN_SAMPLE)) {
+      const d = colorDist(TOKEN_FACE, tintHex(col, b.shift));
+      assert.ok(d >= floor,
+        `${b.name}: ${name} の上で円盤が ${d.toFixed(1)}(既定の最小 ${base.toFixed(1)}、下限 ${floor.toFixed(1)})`);
+    }
+  }
+});
+
+test('盤の柄: 見本の色が本体とそろっている', () => {
+  // 上の2つは見本の色で測っている。**本体を変えたら見本も直す** ──
+  // ここが無いと、本体だけ変わって「測っていない色」を測り続ける
+  for (const [name, col] of Object.entries(TERRAIN_SAMPLE)) {
+    assert.equal(TERRAIN_STYLE[name]?.top, col, `${name} の色が本体と違う`);
+  }
+  assert.equal(
+    Object.keys(TERRAIN_SAMPLE).length, Object.keys(TERRAIN_STYLE).length,
+    '地形の数が本体と合わない(足した地形を見本に入れ忘れている)',
+  );
+});
+
+test('盤の柄: 既定は1バイトも変えない', () => {
+  assert.equal(defaultGear('board').shift, null);
+  for (const col of Object.values(TERRAIN_SAMPLE)) {
+    assert.equal(tintHex(col, null), col);
+  }
+});
+
+test('盤の柄: 色の変換は往復しても壊れない', () => {
+  for (const col of Object.values(TERRAIN_SAMPLE)) {
+    assert.equal(numToHex(hexToNum(col)), col, `${col} の行き帰りでずれた`);
+    // 何も動かさない変換は元のまま(丸めで1ずつずれていかない)
+    assert.equal(tintHex(col, { h: 0, s: 1, l: 1 }), col, `${col} が素通しで変わった`);
+  }
+  // 端の色でも範囲から出ない
+  for (const col of ['#000000', '#ffffff', '#ff0000']) {
+    for (const b of BOARDS) {
+      assert.match(tintHex(col, b.shift), /^#[0-9a-f]{6}$/, `${col} / ${b.name}`);
+    }
+  }
 });
 
 // ---- 選ぶ ----

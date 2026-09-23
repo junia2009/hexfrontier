@@ -18,6 +18,7 @@ import { BARBARIAN_TRACK_LENGTH as BARB_TRACK } from '../rules/cak/barbarians.js
 import {
   TILE_TOP, SEA_Y, CAP_PARAMS, CAP_N, capCorners, capVertexHeight, capHeight, coordHash, boardScale,
 } from '../terrain.js';
+import { tintColor } from '../gear.js';
 // 構図を取り直すかどうかの判断は、描画から切り離して試せるようにしてある
 import { isPortrait, needsRefit } from '../view-fit.js';
 // 描画ループで例外が出たときの共通の出口
@@ -466,7 +467,7 @@ function makeDune() {
 //
 // 起伏の表(CAP_PARAMS)と高さの式は terrain.js にある。
 // **歩く側(minigame/ground.js)が同じものを読んで、その上に立つ。**
-function makeTerrainCap(hid, terrain) {
+function makeTerrainCap(hid, terrain, shift = null) {
   const prm = CAP_PARAMS[terrain];
   if (!prm) return null;
   const c = hexCenterOf(hid);
@@ -475,7 +476,9 @@ function makeTerrainCap(hid, terrain) {
   const N = CAP_N;
   const positions = [];
   const colors = [];
-  const base = new THREE.Color(prm.tint);
+  // 地表の色も盤の柄でずらす(gear.js)。タイルの側面だけ変えると、
+  // 上から見たときに柄が効いていないように見える
+  const base = new THREE.Color(tintColor(prm.tint, shift));
   const heightAt = (x, z, t) => capVertexHeight(hid, terrain, x, z, t);
   const pushVert = (x, z, t) => {
     positions.push(x, heightAt(x, z, t), z);
@@ -1579,6 +1582,8 @@ export class Board3D {
     this.diceSkin = null;
     // コマの柄(gear.js)。屋根の形と質感だけ ── 席の色も胴の寸法も変えない
     this.pieceSkin = null;
+    // 盤の柄(gear.js)。地形の色をまとめてずらす変換を持つ
+    this.boardSkin = null;
 
     // ライティング
     this.hemi = new THREE.HemisphereLight(0xcfe3ff, 0x46617a, 1.05);
@@ -1979,6 +1984,16 @@ export class Board3D {
     this.pieceSkin = skin?.id ? skin : null;
   }
 
+  // 盤の柄。**静的レイヤー(海・地形)を組み直さないと変わらない** ──
+  // 変わったときだけ作り直す(毎回だと盤を描くたびに地表を張り直す)。
+  setBoardSkin(skin) {
+    const next = skin?.shift ? skin : null;
+    if ((this.boardSkin?.id ?? null) === (next?.id ?? null)) return false;
+    this.boardSkin = next;
+    this.gameKey = null;   // 次の setGame で静的レイヤーを組み直させる
+    return true;
+  }
+
   nightNow(now = Date.now()) {
     return nightAt(this.skyPhaseOverride ?? skyPhase(now));
   }
@@ -2339,7 +2354,9 @@ export class Board3D {
 
   setGame(state) {
     // board.version は発明家(数字トークン交換)で進む
-    const key = `${state.seed}:${state.mode}:${state.board.version ?? 0}`;
+    // 盤の柄も鍵に入れる ── 入れないと、柄を変えても静的レイヤー
+    // (海・地形・地表)が古い色のまま使い回される
+    const key = `${state.seed}:${state.mode}:${state.board.version ?? 0}:${this.boardSkin?.id ?? 'default'}`;
     if (this.gameKey === key) return;
     this.gameKey = key;
     // 盤の広がり(カメラの引き具合と、トークンの大きさに使う)。
@@ -2411,7 +2428,9 @@ export class Board3D {
       beach.receiveShadow = true;
       this.staticGroup.add(beach);
 
-      const tile = new THREE.Mesh(GEO.tile, mat(TERRAIN_COLORS[hex.terrain]));
+      // 盤の柄(gear.js の board)。タイルの側面と地表を同じ変換でずらす
+      const shift = this.boardSkin?.shift ?? null;
+      const tile = new THREE.Mesh(GEO.tile, mat(tintColor(TERRAIN_COLORS[hex.terrain], shift)));
       tile.position.set(c.x, 0.06, c.y);
       tile.receiveShadow = true;
       tile.castShadow = true;
@@ -2423,7 +2442,7 @@ export class Board3D {
       hexPicker.userData = { kind: 'hex', id: hid };
       this.pickGroup.add(hexPicker);
 
-      const cap = makeTerrainCap(hid, hex.terrain);
+      const cap = makeTerrainCap(hid, hex.terrain, shift);
       if (cap) this.staticGroup.add(cap);
       decorateHex(this.staticGroup, hid, hex.terrain);
 

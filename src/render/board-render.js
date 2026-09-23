@@ -4,11 +4,12 @@
 // 動的レイヤー(盗賊・道・建物・ハイライト)を毎回上描きする。
 
 import { LAYOUT, PIPS, LAKE_NUMBERS, boardVertexIds } from '../rules/board.js';
+import { tintHex } from '../gear.js';
 
 export const PLAYER_COLORS = ['#e04848', '#3d7dd8', '#f0973c', '#9d5fd8'];
 export const PLAYER_COLORS_DARK = ['#9c2626', '#22508f', '#b3651a', '#6a3a99'];
 
-const TERRAIN_STYLE = {
+export const TERRAIN_STYLE = {
   forest:   { top: '#4a8a58', bottom: '#2f6340' },
   pasture:  { top: '#a4cf62', bottom: '#7fb244' },
   field:    { top: '#f0cd58', bottom: '#d9a92f' },
@@ -379,8 +380,10 @@ function drawHexTile(ctx, view, hid, terrain) {
   const [cx, cy] = toPixel(view, c.x, c.y);
   const st = TERRAIN_STYLE[terrain];
   const g = ctx.createLinearGradient(cx, cy - view.scale, cx, cy + view.scale);
-  g.addColorStop(0, st.top);
-  g.addColorStop(1, st.bottom);
+  // 盤の柄(gear.js の board)。**色の変換は1本**なので、2D盤・3D盤・地表が
+  // 食い違わない。既定(shift = null)なら 1バイトも変わらない
+  g.addColorStop(0, tintHex(st.top, boardShift));
+  g.addColorStop(1, tintHex(st.bottom, boardShift));
   hexPath(ctx, view, hid, 0.985);
   ctx.fillStyle = g;
   ctx.fill();
@@ -569,7 +572,7 @@ let staticCache = { key: null, canvas: null };
 
 function getStaticLayer(state, width, height, dpr) {
   // board.version は発明家(数字トークン交換)で進む
-  const key = `${state.seed}:${state.board.version ?? 0}:${width}x${height}@${dpr}`;
+  const key = `${state.seed}:${state.board.version ?? 0}:${width}x${height}@${dpr}:${boardShiftKey}`;
   if (staticCache.key === key) return staticCache.canvas;
 
   const off = document.createElement('canvas');
@@ -881,6 +884,16 @@ function drawRoad(ctx, view, eid, pid, alpha = 1) {
 let pieceRoof = 'cone';
 export function setPieceRoof(roof) {
   pieceRoof = roof ?? 'cone';
+}
+
+// 盤の柄(gear.js の board)。地形の色をまとめてずらす変換。
+// **静的レイヤーのキャッシュ鍵に入れること** ── 海と地形は1枚に焼いて
+// 使い回しているので、鍵に入れないと柄を変えても古い絵が出たままになる。
+let boardShift = null;
+let boardShiftKey = 'default';
+export function setBoardShift(shift, id = 'default') {
+  boardShift = shift ?? null;
+  boardShiftKey = id;
 }
 
 function drawBuilding(ctx, view, vid, pid, type) {

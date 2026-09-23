@@ -44,7 +44,7 @@ import {
   PROGRESS_CARDS, diplomatMovable, diplomatDestinations,
   deserterKnights, deserterSpots,
 } from './rules/cak/progress-cards.js';
-import { drawBoard, hexCenterOf, setPieceRoof, toPixel, PLAYER_COLORS } from './render/board-render.js';
+import { drawBoard, hexCenterOf, setBoardShift, setPieceRoof, toPixel, PLAYER_COLORS } from './render/board-render.js';
 import { avatarSvg } from './render/avatars.js';
 import { renderHUD, RES_ICON, COM_ICON, setHumanSeat, setPlayerTitle } from './render/hud-render.js';
 import { rulesHtml } from './render/rules-content.js';
@@ -1372,6 +1372,11 @@ function applyGear() {
   const piece = gearOf(progress, 'piece');
   setPieceRoof(piece?.roof);
   renderer3d?.setPieceSkin(piece);
+  // 盤の柄。2D も 3D も静的レイヤーを焼いて使い回しているので、
+  // **柄を鍵に入れて**組み直させる(入れないと古い色のまま残る)
+  const board = gearOf(progress, 'board');
+  setBoardShift(board?.shift, board?.id);
+  renderer3d?.setBoardSkin(board);
   applyNightGlow();   // 卓の灯りも「しつらえ」のひとつ
 }
 
