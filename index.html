@@ -123,9 +123,12 @@
 
   /* ---------- ダイス ---------- */
   #dice { padding: 6px 12px 10px; display: flex; gap: 8px; align-items: center; }
+  /* サイコロの柄(gear.js)。既定の色をここに書いておき、買った柄は
+     main.js の applyGear が :root の変数に流し込む ── 2D盤と3D盤の両方に
+     効かせないと、見る向きを変えただけで買った柄が消える */
   .die {
     width: 34px; height: 34px;
-    background: linear-gradient(145deg, #ffffff, #d9d9d2);
+    background: linear-gradient(145deg, var(--die-face, #ffffff), var(--die-edge, #d9d9d2));
     border-radius: 8px;
     box-shadow: inset 0 -2px 3px rgba(0,0,0,0.2), 0 3px 6px rgba(0,0,0,0.45);
     display: inline-grid;
@@ -135,7 +138,7 @@
   }
   .die.empty { opacity: 0.25; animation: none; }
   .die i { border-radius: 50%; }
-  .die i.on { background: #22242a; box-shadow: inset 0 1px 1px rgba(0,0,0,0.6); }
+  .die i.on { background: var(--die-pip, #22242a); box-shadow: inset 0 1px 1px rgba(0,0,0,0.6); }
   @keyframes diceIn {
     0% { transform: rotate(-160deg) scale(0.3); opacity: 0; }
     100% { transform: rotate(0) scale(1); opacity: 1; }

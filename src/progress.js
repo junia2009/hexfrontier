@@ -17,6 +17,7 @@ import {
 import { marketRate } from './market.js';
 import { dayIndex, questGain, questsFor } from './quests.js';
 import { isWear, stockOf } from './shop.js';
+import { GEAR_BY_ID, SLOT_IDS } from './gear.js';
 import { DECOR_MAX, STOCK_MAX, cleanDecorId } from './minigame/decor.js';
 
 const KEY = 'progress';
@@ -47,8 +48,10 @@ export function emptyProgress() {
     owned: {},
     // 今日の依頼の進み具合。日が変わったら作り直す(quests.js)
     quests: emptyQuests(),
-    // いま身に着けているもの。買っただけでは着ない(持ち物から選ぶ)
-    worn: { hat: null },
+    // いま身に着けている/使っているもの。買っただけでは着ない(持ち物から選ぶ)。
+    // hat はかぶりもの、それ以外は卓のしつらえのスロット(gear.js の SLOTS)。
+    // null は「既定のまま」── スロットごとに1つだけ。
+    worn: { hat: null, ...Object.fromEntries(SLOT_IDS.map((s) => [s, null])) },
     // まだ置いていない飾りの数。{ bench: 2, ... }(shop.js が増やす)
     stock: {},
     // 島に置いた飾り。**島の種類ごと**に持つ(decor.js のいちばん上)
@@ -114,6 +117,21 @@ export function wearHat(progress, id) {
   const next = id == null ? null : (progress?.owned?.[id] && isWear(id) ? id : null);
   if ((progress?.worn?.hat ?? null) === next) return progress;
   return { ...progress, worn: { ...(progress?.worn ?? {}), hat: next } };
+}
+
+// 卓のしつらえを選ぶ。**かぶりものとまったく同じ扱い** ── 買ってあるものの
+// 中から1つ、スロットごとに選ぶ。既定(値段の付いていないもの)はいつでも
+// 選べるので、買ったあとでも元の見た目に戻せる。
+// 知らない id とスロット違いは null(既定)に倒す。
+export function useGear(progress, slot, id) {
+  if (!SLOT_IDS.includes(slot)) return progress;
+  const g = GEAR_BY_ID[id];
+  const ok = g && g.slot === slot && (g.price == null || progress?.owned?.[g.id]);
+  // 既定を選んだときは null で持つ ── 既定の id を書き換えても、
+  // 保存に古い id が残って「持っていない柄を着けている」にならない
+  const next = ok && g.price != null ? g.id : null;
+  if ((progress?.worn?.[slot] ?? null) === next) return progress;
+  return { ...progress, worn: { ...(progress?.worn ?? {}), [slot]: next } };
 }
 
 export function wornHat(progress) {
@@ -556,7 +574,14 @@ function sanitizeDecor(src) {
 // 買わずにかぶれないように、読み込みの時点で落とす。
 function sanitizeWorn(src, owned) {
   const id = typeof src?.hat === 'string' ? src.hat : null;
-  return { hat: id && owned[id] && isWear(id) ? id : null };
+  const out = { hat: id && owned[id] && isWear(id) ? id : null };
+  // 卓のしつらえ。**既定は買っていなくても選べる**(値段が付いていない)
+  for (const slot of SLOT_IDS) {
+    const g = GEAR_BY_ID[typeof src?.[slot] === 'string' ? src[slot] : null];
+    const ok = g && g.slot === slot && (g.price == null || owned[g.id]);
+    out[slot] = ok ? g.id : null;
+  }
+  return out;
 }
 
 // 今日の依頼の進み。**壊れていたら白紙**にしてよい ── その日のぶんしか

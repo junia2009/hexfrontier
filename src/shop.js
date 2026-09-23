@@ -25,10 +25,16 @@
 // 買い切ったあとの銀貨の行き先になる。道具5品(1220枚)だけだと、
 // 1〜2時間で全部買えてそこで銀貨が死ぬ。
 //
+// **6つめは「卓のしつらえ」。** カタン本編の盤で使う見た目の品(gear.js)。
+// 5つめ(見た目は別枠)を島の外へ広げたもので、線引きはもう3本ある ──
+// 自分の画面だけ・席の色は変えない・盤から読み取れる情報量を変えない。
+// くわしくは gear.js のいちばん上。
+//
 // 全て純粋関数。localStorage も画面も触らない。
 
 import { HATS } from './minigame/hats.js';
 import { DECOR, STOCK_MAX } from './minigame/decor.js';
+import { GEAR_FOR_SALE, SLOT_BY_ID } from './gear.js';
 
 // ---- 道具(遊びかたが増える品)----
 const TOOLS = [
@@ -106,8 +112,25 @@ const PLACEABLES = DECOR.map((d) => ({
   note: '島のすきな場所に置けます。何個でも買えます。',
 }));
 
-// 店に並ぶもの。**道具が先、かぶりもの、飾りの順**(遊びが増える品を上に)
-export const ITEMS = [...TOOLS, ...WEARS, ...PLACEABLES];
+// ---- 卓のしつらえ(カタン本編の盤で使う見た目の品)----
+//
+// 表は gear.js(描く側も同じ表を読む)。**島の外へ出す、はじめての品** ──
+// 稼いだ銀貨の行き先が島の中にしか無いのは狭い。
+// 線引き(席の色を変えない・情報量を変えない・自分の画面だけ)は
+// gear.js のいちばん上に書いてある。
+const TABLEWARE = GEAR_FOR_SALE.map((g) => ({
+  id: g.id,
+  name: g.name,
+  icon: g.icon,
+  price: g.price,
+  kind: 'gear',
+  desc: g.desc,
+  note: SLOT_BY_ID[g.slot]?.note ?? '見た目だけの品です。',
+}));
+
+// 店に並ぶもの。**道具が先、かぶりもの、飾り、卓のしつらえの順**
+// (遊びが増える品を上に)
+export const ITEMS = [...TOOLS, ...WEARS, ...PLACEABLES, ...TABLEWARE];
 export const TOOL_IDS = TOOLS.map((i) => i.id);
 export const HAT_ITEMS = WEARS;
 export const DECOR_ITEMS = PLACEABLES;
@@ -145,6 +168,13 @@ export const SHELVES = [
     label: '島の飾り',
     note: '島に置けます。何個でも買えます',
     items: PLACEABLES,
+  },
+  {
+    id: 'gear',
+    icon: '🎲',
+    label: '卓のしつらえ',
+    note: '対戦の盤で使う見た目。勝ち負けは変わりません',
+    items: TABLEWARE,
   },
 ];
 

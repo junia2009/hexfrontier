@@ -19,6 +19,7 @@ import {
 import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
 import { dayLabel, questWhere } from '../quests.js';
 import { bandOf } from '../market.js';
+import { gearOf, slotOf } from '../gear.js';
 
 const MODE_ICON = {
   base: '⬡', cak: '🏰', dragon: '🐉', fish: '🐟', sea: '⛵',
@@ -427,7 +428,11 @@ export function questsHtml(board, { now = Date.now(), here = null, market = [] }
 function bagItemHtml(item, progress, view, open) {
   const { mapOn, skyTime, hat } = view;
   const n = isDecor(item.id) ? stockOf(progress, item.id) : 0;
-  const worn = isWear(item.id) && hat === item.id;
+  const slot = slotOf(item.id);
+  // いま着けている/使っているか。かぶりものと卓のしつらえで同じ印を出す
+  const worn = isWear(item.id)
+    ? hat === item.id
+    : !!slot && gearOf(progress, slot)?.id === item.id;
   // 右はしのボタン。押すとすぐ効く(説明を開かなくても使える)
   const act = item.id === 'islandMap'
     ? `<button class="${mapOn ? '' : 'primary'} bag-do" data-act="walk-map-toggle">${mapOn ? 'しまう' : '出す'}</button>`
@@ -437,7 +442,12 @@ function bagItemHtml(item, progress, view, open) {
         ? `<button class="${worn ? '' : 'primary'} bag-do" data-act="wear-hat:${worn ? 'none' : item.id}">${worn ? 'ぬぐ' : 'かぶる'}</button>`
         : isDecor(item.id)
           ? `<button class="primary bag-do" data-act="decor-place:${item.id}">置く</button>`
-          : '';
+          // 卓のしつらえ。**使っているものを押すと既定に戻る**(ぬぐ と同じ)
+          // ── 既定の柄は店に無いので、ここに戻り道が無いと二度と戻せない
+          : slot
+            // (data-act は `名前:引数` の2つ割りなので、スロットは id から引く)
+            ? `<button class="${worn ? '' : 'primary'} bag-do" data-act="use-gear:${item.id}">${worn ? 'もどす' : 'つかう'}</button>`
+            : '';
   // 砂時計だけは操作が5つあって1行に入らない。開いたときに下の段へ出す
   const wide = open && item.id === 'skyGlass' ? skyTimesHtml(skyTime) : '';
   return `<div class="shop-item bag-item ${open ? 'open' : ''} ${worn ? 'worn' : ''}">

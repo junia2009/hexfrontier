@@ -1388,9 +1388,10 @@ function eventFaceTexture(face) {
   return tex;
 }
 
-function dieMaterials(faceTextures) {
+function dieMaterials(faceTextures, finish = {}) {
+  const { roughness = 0.35, metalness = 0 } = finish;
   return faceTextures.map(
-    (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35 }),
+    (tex) => new THREE.MeshStandardMaterial({ map: tex, roughness, metalness }),
   );
 }
 
@@ -1409,21 +1410,33 @@ const EVENT_AXES = { ship: 'py', trade: 'ny', politics: 'pz', science: 'nz' };
 
 const DIE_SIZE = 0.52;
 const DIE_GEO = new THREE.BoxGeometry(DIE_SIZE, DIE_SIZE, DIE_SIZE);
-let DIE_MATS = null;
-function getDieMats() {
-  if (!DIE_MATS) {
+const DIE_MATS = {};
+// 柄ごとに焼いて覚えておく(振るたびに作り直すと、ロールのたびに canvas を
+// 6枚描くことになる)。**柄の id で引く** ── 既定は null。
+//
+// **都市と騎士の赤・黄・イベントダイスは、どの柄でも色を変えない。**
+// あの3つは色そのものが規則(どちらが赤か・イベントは何か)なので、
+// 塗り替えると盤から読み取れることが変わる(gear.js の3つめ)。
+// **変わるのはつやだけ** ── 金の柄なら赤いダイスも金属のつやになるが、
+// 赤は赤のまま。
+function getDieMats(skin = null) {
+  const key = skin?.id ?? 'default';
+  if (!DIE_MATS[key]) {
     const order = [3, 4, 1, 6, 2, 5];
-    DIE_MATS = {
-      plain: dieMaterials(order.map((n) => diePipTexture(n))),
-      red: dieMaterials(order.map((n) => diePipTexture(n, '#c8403c', '#ffffff'))),
-      yellow: dieMaterials(order.map((n) => diePipTexture(n, '#e8c34a', '#2a2416'))),
+    const face = skin?.face ?? '#f5f2e8';
+    const pip = skin?.pip ?? '#22242a';
+    const finish = skin?.finish;
+    DIE_MATS[key] = {
+      plain: dieMaterials(order.map((n) => diePipTexture(n, face, pip)), finish),
+      red: dieMaterials(order.map((n) => diePipTexture(n, '#c8403c', '#ffffff')), finish),
+      yellow: dieMaterials(order.map((n) => diePipTexture(n, '#e8c34a', '#2a2416')), finish),
       event: dieMaterials([
         eventFaceTexture('ship'), eventFaceTexture('ship'), eventFaceTexture('ship'),
         eventFaceTexture('trade'), eventFaceTexture('politics'), eventFaceTexture('science'),
-      ]),
+      ], finish),
     };
   }
-  return DIE_MATS;
+  return DIE_MATS[key];
 }
 
 function easeOutBack(k) {
@@ -1529,6 +1542,9 @@ export class Board3D {
     // 画面が白むだけ。何個置いてあるか・大会中かどうかの判定は main.js が
     // 持つ(砂時計と同じ。夜の見えにくさで差が付く形にしない)。
     this.nightGlow = 0;
+    // サイコロの柄(gear.js)。null で既定。**盤の state には入れない** ──
+    // 自分の画面だけの話で、相手には届かない(gear.js の1つめ)
+    this.diceSkin = null;
 
     // ライティング
     this.hemi = new THREE.HemisphereLight(0xcfe3ff, 0x46617a, 1.05);
@@ -1688,7 +1704,7 @@ export class Board3D {
 
   // ロール演出: カメラ手前の海にダイスが転がり落ちる
   rollDice(values, eventFace = null) {
-    const mats = getDieMats();
+    const mats = getDieMats(this.diceSkin);
     this.diceGroup.clear();
     this.diceAnims = [];
 
@@ -1916,6 +1932,13 @@ export class Board3D {
   // いまの夜の濃さ(0=昼、1=真夜中)。**時刻を止めているならその時刻で**。
   // 夜釣りの判定(walk-mode.js)がここを見る ── 空の絵と判定が同じ値を
   // 通るので、「星が出ているのに夜の魚が来ない」が起きない。
+  // サイコロの柄を差し替える。**すでに転がっているダイスは塗り直さない**
+  // ── 振っている最中に色が変わると、出目が変わったように見える。
+  // 次に振ったぶんから effect する。
+  setDiceSkin(skin) {
+    this.diceSkin = skin?.id ? skin : null;
+  }
+
   nightNow(now = Date.now()) {
     return nightAt(this.skyPhaseOverride ?? skyPhase(now));
   }

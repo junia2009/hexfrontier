@@ -12,8 +12,9 @@ import {
 import {
   addCatch, addContestResult, addRaidRun, addResult, clearProgress, currentTitle, loadProgress,
   noteSeen, placeDecor, placedDecor, questBoard, resultOf, saveProgress, setTitle,
-  takeDecor, wearHat, wornHat,
+  takeDecor, useGear, wearHat, wornHat,
 } from './progress.js';
+import { gearOf, slotOf } from './gear.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
 import { bandOf, marketBoard } from './market.js';
@@ -1340,6 +1341,25 @@ function applyOwned() {
   updateCastButton();
   syncBagButton();
   syncWalkMap();
+}
+
+// ---- 卓のしつらえ(gear.js)----
+//
+// **自分の画面だけを塗り替える。** state にも部屋の名簿にも乗せない
+// ── 乗せた瞬間に「相手の盤を見にくくする品」が作れてしまう(gear.js の1つめ)。
+//
+// 2D盤と3D盤の**両方**に効かせる。片方だけだと、見る向きを変えただけで
+// 買った柄が消える。2D は CSS の変数に流し込み(サイコロは CSS の点)、
+// 3D は renderer に渡してテクスチャを焼き直させる。
+function applyGear() {
+  const dice = gearOf(progress, 'dice');
+  if (dice) {
+    const css = document.documentElement.style;
+    css.setProperty('--die-face', dice.face);
+    css.setProperty('--die-edge', dice.edge);
+    css.setProperty('--die-pip', dice.pip);
+  }
+  if (renderer3d) renderer3d.setDiceSkin(dice);
 }
 
 // ---- 島の砂時計(空の時刻を選ぶ)----
@@ -2780,6 +2800,7 @@ async function ensureRenderer3d() {
       attach3dInput();
       applySkyTime();   // 砂時計で時刻を選んでいれば、盤の空にも効かせる
       applyNightGlow();
+      applyGear();      // 3D は作り直されるので、柄も入れ直す
     } catch (e) {
       console.error('3D初期化に失敗:', e);
       renderer3dFailed = true;
@@ -3630,6 +3651,21 @@ document.addEventListener('click', (e) => {
       walkNote(worn ? `${item?.icon ?? ''} ${item?.name ?? ''}をかぶった` : 'かぶりものをぬいだ');
       return;
     }
+    // 卓のしつらえ。**使っているものをもう一度押すと既定に戻る**
+    // (かぶりものの「ぬぐ」と同じ。既定の柄は店に無いので戻り道はここだけ)
+    case 'use-gear': {
+      const slot = slotOf(arg);
+      if (!slot) return;
+      const now = gearOf(progress, slot)?.id ?? null;
+      progress = useGear(progress, slot, now === arg ? null : arg);
+      saveProgress(progress);
+      applyGear();
+      renderBag();
+      sfx.play('ui');
+      const g = gearOf(progress, slot);
+      walkNote(`${g?.icon ?? ''} ${g?.name ?? ''}にした`);
+      return;
+    }
     // 持ち物から押したら、すぐ置かずに**下見**に入る。持ち物は閉じる
     // ── 開いたままだと島が止まって、歩いて位置を決められない。
     case 'decor-place': {
@@ -3783,6 +3819,7 @@ document.addEventListener('click', (e) => {
     case 'records-clear-do':
       clearProgress();
       progress = loadProgress();
+      applyGear();   // 買った柄も消えるので、既定の見た目に戻す
       recordsView = { tab: 'stats', selected: null, confirmingClear: false };
       refresh();
       return;
@@ -4372,6 +4409,7 @@ if ('serviceWorker' in navigator) {
 document.body.dataset.screen = screen;
 showTitleBoard();
 syncBgmButtons();
+applyGear();   // 買ってある柄を最初から使う(2D盤の CSS 変数もここで入る)
 refresh();
 if (viewMode === '3d') ensureRenderer3d().then(() => state && refresh());
 

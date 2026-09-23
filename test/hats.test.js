@@ -101,14 +101,19 @@ test('かぶりもの: 持っていないものはかぶれない。保存を書
   assert.equal(wornHat(q), null, '道具をかぶった');
   // 保存を直に書き換えた場合も、読み込みで落ちる
   const forged = JSON.stringify({ ...emptyProgress(), v: 2, worn: { hat: 'crown' } });
-  assert.deepEqual(parseProgress(forged).worn, { hat: null });
+  // worn は卓のしつらえのスロットも持つ(gear.js)ので、帽子の欄だけを見る
+  // ── 丸ごと比べると、スロットを足すたびにここが落ちる
+  assert.equal(parseProgress(forged).worn.hat, null);
   // 持っていれば残る
   const ok = buyItem(rich(), 'flower').progress;
   const kept = parseProgress(JSON.stringify(wearHat(ok, 'flower')));
   assert.equal(wornHat(kept), 'flower', '持っているのに外れた');
   // 壊れた値でも落ちない
   for (const bad of [null, 3, 'x', { hat: 7 }, { hat: {} }]) {
-    assert.deepEqual(parseProgress(JSON.stringify({ v: 2, worn: bad })).worn, { hat: null });
+    const w = parseProgress(JSON.stringify({ v: 2, worn: bad })).worn;
+    assert.equal(w.hat, null, `${JSON.stringify(bad)}`);
+    // どの欄も「何も着けていない」に倒れていること(卓のしつらえも同じ)
+    for (const v of Object.values(w)) assert.equal(v, null);
   }
 });
 
