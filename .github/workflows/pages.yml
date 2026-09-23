@@ -52,7 +52,10 @@ jobs:
         run: |
           BUILD="$(git rev-parse --short HEAD) $(date -u +%m/%d\ %H:%M)"
           sed -i "s|ver. BUILD_ID|ver. ${BUILD} UTC|" index.html
-          grep -o 'id="build-tag">[^<]*' index.html
+          # 属性が増えても一致するように [^>]* を挟む。**閉じ山かっこ直前に
+          # 決め打ちすると、id のあとに属性を1つ足しただけで deploy が落ちる**
+          # ── 実際、管理者の隠し口で data-act を足したときに落とした。
+          grep -o 'id="build-tag"[^>]*>[^<]*' index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -68,7 +71,7 @@ jobs:
           echo "確認先: $URL"
           for i in 1 2 3 4 5 6; do
             TAG=$(curl -fsS --max-time 15 "$URL?_=$(date +%s)" 2>/dev/null \
-                  | grep -o 'id="build-tag">[^<]*' | head -1 || true)
+                  | grep -o 'id="build-tag"[^>]*>[^<]*' | head -1 || true)
             echo "  ($i) ${TAG:-取得できず}"
             case "$TAG" in
               *BUILD_ID*) sleep 10 ;;
