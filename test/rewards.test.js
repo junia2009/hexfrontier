@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {
   COIN_ICON, ENTRY_COIN, RATE, SOLO_RAID_RATE, TIER_COIN, WIN_COIN,
   coinsForCatch, coinsForContest, coinsForFound, coinsForPastCatches, coinsForRaidRun,
+  coinsForSale,
 } from '../src/rewards.js';
 import { FISH, FISH_BY_ID } from '../src/minigame/fish.js';
 import {
@@ -150,9 +151,12 @@ test('銀貨: 足すと手持ちと通算の両方が増える。減らす方向
 // (r.coins だけと突き合わせていたら、依頼を足した日に落ちた)
 const AT = Date.UTC(2026, 8, 20, 3);
 
-test('銀貨: 釣ると増える。額は coinsForCatch と一致する', () => {
+// **釣った1匹は「その日の値」で売れる**(market.js)。素の値
+// (coinsForCatch)ではなく coinsForSale と突き合わせる ── ここを素の値の
+// ままにすると、相場が効いていない日にだけ通るテストになる。
+test('銀貨: 釣ると増える。額は coinsForSale と一致する', () => {
   const r = addCatch(emptyProgress(), 'maguro', 150, AT);
-  assert.equal(r.coins, coinsForCatch('maguro', 150), '返す額が違う');
+  assert.equal(r.coins, coinsForSale('maguro', 150, AT), '返す額が違う');
   assert.equal(r.progress.coins, r.coins + r.questCoins, '手持ちに入っていない');
 });
 

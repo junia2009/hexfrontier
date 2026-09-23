@@ -18,6 +18,7 @@ import {
 } from '../shop.js';
 import { SKY_TIMES, skyTimeOf } from '../minigame/daynight.js';
 import { dayLabel, questWhere } from '../quests.js';
+import { bandOf } from '../market.js';
 
 const MODE_ICON = {
   base: '⬡', cak: '🏰', dragon: '🐉', fish: '🐟', sea: '⛵',
@@ -360,7 +361,31 @@ export function storeHtml(progress, view = {}) {
 //
 // 「あと少し」が目で分かるように、数(3/5)と帯の両方を出す ── 数だけだと
 // 掲示板の前で読み込まないと残りが分からない。
-export function questsHtml(board, { now = Date.now(), here = null } = {}) {
+
+// きょうの相場(market.js)。**掲示板の主役は依頼**なので、依頼の下に
+// 数行だけ添える。値そのもの(何枚になるか)は魚の大きさで変わるから
+// 出せない ── 出せるのは「今日はこれが高い」という順番だけ。
+//
+// 釣れない魚は呼び出し側で落としてある(marketBoard の gates)。
+export function marketHtml(rows) {
+  if (!rows?.length) return '';
+  const list = rows.map((r) => {
+    const b = bandOf(r.rate);
+    // ぬしは港が決まっている。**どこへ行けばいいかまで出す** ── 名前だけ
+    // 出しても、どの桟橋に立てばいいかが分からない(図鑑を開き直すことになる)
+    const at = r.at ? `<small class="mk-at">${portLabel(r.at)}</small>` : '';
+    // 倍率はそのまま出す(×1.4)。「40%高い」は読むのに一手かかる
+    return `<div class="mk-row">
+      <span class="shop-icon">${r.icon}</span><b>${r.name}</b>${at}
+      <span class="mk-band ${b.up ? 'up' : ''}">${b.icon}<i>${b.label}</i></span>
+      <span class="mk-rate">×${r.rate.toFixed(1)}</span>
+    </div>`;
+  }).join('');
+  return `<p class="q-head mk-head">きょうの相場</p>${list}
+    <p><small>魚の種類ごとに、今日の買い取り値が上下します。釣った瞬間にこの値で売れます。</small></p>`;
+}
+
+export function questsHtml(board, { now = Date.now(), here = null, market = [] } = {}) {
   const left = board.filter((q) => !q.done);
   const paid = board.filter((q) => q.done).reduce((s, q) => s + q.reward, 0);
   const rows = board.map((q) => {
@@ -383,7 +408,7 @@ export function questsHtml(board, { now = Date.now(), here = null } = {}) {
     : '<p><small>今日のぶんは全部おわりました。明日 0 時に新しい依頼が出ます。</small></p>';
   return `<p class="q-head">${dayLabel(now)} の依頼
     ${paid ? `<span class="q-got">${COIN_ICON} +${paid}</span>` : ''}</p>
-    ${rows}${foot}`;
+    ${rows}${foot}${marketHtml(market)}`;
 }
 
 // 持ち物。使い道のある品は、ここで使う。

@@ -9,6 +9,7 @@
 // 全て純粋関数。progress も state も触らない ── 数を返すだけ。
 
 import { FISH_BY_ID, sizeRatio } from './minigame/fish.js';
+import { marketRate } from './market.js';
 
 export const COIN_ICON = '🪙';
 export const COIN_JP = '島の銀貨';
@@ -73,6 +74,22 @@ export function coinsForCatch(fishId, cm) {
   const base = TIER_COIN[fish.tier] ?? 0;
   if (!base) return 0;
   return Math.max(1, Math.round(base * (1 + sizeRatio(fish, clean(cm)))));
+}
+
+// ---- その日の値で売る ----
+//
+// 素の値(coinsForCatch)に、その日のその魚の倍率を掛けたもの。
+// **釣った瞬間の額はこちらを使う**(progress.js の addCatch)。
+//
+// 素の値のほうも残してある。さかのぼりの換算(下の coinsForPastCatches)は
+// 「いつアプリを開いたか」で変わってはいけないので、相場を掛けない。
+//
+// ガラクタが相場に乗らないのは market.js 側の決めごと(倍率が必ず 1.0)。
+// **1枚は必ず出す** ── 安値の日に「釣れたのに 0 枚」にはしない。
+export function coinsForSale(fishId, cm, now = Date.now()) {
+  const base = coinsForCatch(fishId, cm);
+  if (!base) return 0;
+  return Math.max(1, Math.round(base * marketRate(fishId, now)));
 }
 
 // ---- 大会に出た ----

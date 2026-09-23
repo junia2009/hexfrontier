@@ -920,6 +920,29 @@
   .q-bar i { display: block; height: 100%; background: #ffd97d; }
   .q-done { flex: 1; color: #9be3ae; font-weight: 700; }
   .q-pay { color: #ffd97d; font-weight: 700; white-space: nowrap; }
+  /* きょうの相場。依頼より軽く見せる(主役は依頼) ── 枠は付けず、
+     1行1匹の表にする。名前を伸ばして、右はしに倍率をそろえる */
+  .mk-head { margin-top: 14px; }
+  .mk-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 2px; border-bottom: 1px solid rgba(255,255,255,0.09);
+  }
+  .mk-row b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; }
+  /* ぬしの港。**名前より先に縮める** ── flex-shrink は基準の幅に比例するので、
+     短いほうが残ってしまう(320px で「アカエイ」が「ア…」になり、
+     「土の港」だけが残った)。明示的に先に縮める側を決める */
+  .mk-at { flex: 0 6 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; opacity: 0.6; }
+  .mk-band { font-size: 12px; opacity: 0.85; white-space: nowrap; }
+  .mk-band i { font-style: normal; margin-left: 3px; }
+  .mk-band.up { color: #ffd97d; opacity: 1; }
+  /* 狭い画面では呼びかたの字を落とす(絵と倍率は残る)。
+     **魚の名前を削るくらいならこちらを削る** ── 何が高いかが分からなくなる */
+  @media (max-width: 360px) {
+    .mk-band i { display: none; }
+  }
+  .mk-rate { color: #ffd97d; font-weight: 700; white-space: nowrap; }
   /* あそびかた(島を歩く中から開く)。図鑑と同じ扱い。
      **pointer-events: auto を忘れない** ── #walk-hud は none なので、
      付けないと「見えるのに押せない・スクロールもできない」板になる。 */
@@ -1555,6 +1578,12 @@
     font-size: 15px; font-weight: 700; margin-top: 4px;
     color: #ffd45e; font-variant-numeric: tabular-nums;
   }
+  /* 相場の呼びかた。**銀貨の額と同じ行に置く** ── 別の行にすると
+     「何に対して付いたのか」が離れて、実績の帯と見分けがつかない */
+  #fish-result .fr-band {
+    font-size: 11.5px; font-weight: 700; opacity: 0.85; color: #cfe6ff;
+  }
+  #fish-result .fr-band.up { color: #ffd45e; opacity: 1; }
   #fish-result .fr-tag {
     display: inline-block; margin-top: 8px; padding: 3px 10px; border-radius: 999px;
     font-size: 11.5px; font-weight: 800;

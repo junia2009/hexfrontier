@@ -16,6 +16,7 @@ import {
 } from './progress.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
+import { bandOf, marketBoard } from './market.js';
 import {
   buyItem, cleanBagShelf, cleanShelf, ITEMS, ITEM_BY_ID, owns, stockOf,
 } from './shop.js';
@@ -1244,7 +1245,17 @@ function showCatch() {
     : r.isRecord ? '<span class="fr-tag best">自己最高!</span>' : '';
   // 売った値は釣果の札に一緒に出す。あとから帯で出すと、
   // 何に対して付いたのか分からなくなる
-  const sold = r.coins ? `<div class="fr-coin">${COIN_ICON} +${r.coins}</div>` : '';
+  // 相場が動いている日は、値のうしろに呼びかたを添える(market.js の帯)。
+  // **平年なみの帯は出さない**(帯の flat)── 毎回出ると読み飛ばすように
+  // なって、高値の日に気づけなくなる。「×1.0 のときだけ」で消したつもりが
+  // 0.9 でも「〜 平年なみ」が出ていた(実機)。
+  const b = bandOf(r.rate);
+  const band = b.flat ? null : b;
+  const sold = r.coins
+    ? `<div class="fr-coin">${COIN_ICON} +${r.coins}${
+      band ? ` <span class="fr-band ${band.up ? 'up' : ''}">${band.icon} ${band.label}</span>` : ''
+    }</div>`
+    : '';
   // どこで釣れたものかを添える。沖と夜は買って開いた場所なので、
   // 「いつもと違うものが来た」が札の上でも分かるようにする
   const place = f.fish.deep && f.fish.night ? '🌙 夜の沖'
@@ -1587,7 +1598,19 @@ function updateBoardButton() {
 // 今日の依頼。掲示板の前でだけ開く(quests.js が中身、progress が進み具合)
 function renderQuests() {
   const el = document.getElementById('walk-quests-body');
-  if (el) el.innerHTML = questsHtml(questBoard(progress), { here: walk?.mode ?? settings.mode });
+  if (!el) return;
+  // 相場は**持っている道具で釣れる魚だけ**出す(market.js)。深場の竿を
+  // 持っていない人に「シーラカンスが高値」と言っても行きようがない。
+  // 「いま沖へ投げているか」ではなく「開けるか」で見る ── 掲示板は
+  // これから何を狙うかを決める場所なので、今この瞬間の投げ先ではない。
+  const gates = { deep: owns(progress, 'deepRod'), night: owns(progress, 'lantern') };
+  // ぬしは港の種類が決まっているので、**いまの島にある港だけ**渡す
+  // (島は歩くたびに作り直される。無い港のぬしを勧めても行きようがない)
+  const ports = walk?.spots?.map((s) => s.type) ?? null;
+  el.innerHTML = questsHtml(questBoard(progress), {
+    here: walk?.mode ?? settings.mode,
+    market: marketBoard(Date.now(), gates, ports),
+  });
 }
 
 let walkQuestsOpen = false;

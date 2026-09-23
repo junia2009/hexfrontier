@@ -12,8 +12,9 @@ import {
   unlockedByRaid, unlockedBySeen,
 } from './achievements.js';
 import {
-  coinsForCatch, coinsForContest, coinsForFound, coinsForPastCatches, coinsForRaidRun,
+  coinsForContest, coinsForFound, coinsForPastCatches, coinsForRaidRun, coinsForSale,
 } from './rewards.js';
+import { marketRate } from './market.js';
 import { dayIndex, questGain, questsFor } from './quests.js';
 import { isWear, stockOf } from './shop.js';
 import { DECOR_MAX, STOCK_MAX, cleanDecorId } from './minigame/decor.js';
@@ -263,7 +264,10 @@ export function addCatch(progress, fishId, cm, now = Date.now()) {
       at: isRecord ? now : prev.at,
     },
   };
-  const coins = coinsForCatch(fishId, cm);
+  // **その日の相場で売る**(market.js)。倍率も返して、釣果の札に出す
+  // ── 額だけ変えて黙っていると「さっきより少ない」が不具合に見える。
+  const coins = coinsForSale(fishId, cm, now);
+  const rate = marketRate(fishId, now);
   // 掲示板の依頼にも通す(quests.js)。達成ぶんの銀貨は quest 側で払う
   const qr = noteQuest(progress, { type: 'catch', fishId, cm }, now);
   const next = {
@@ -277,7 +281,10 @@ export function addCatch(progress, fishId, cm, now = Date.now()) {
   }
   // ほかの入口と同じで、初めて取ったらその称号を自動で名乗らせる
   if (next.title == null && unlocked.length) next.title = unlocked[0];
-  return { progress: next, isNew, isRecord, unlocked, coins, quests: qr.done, questCoins: qr.coins };
+  return {
+    progress: next, isNew, isRecord, unlocked, coins, rate,
+    quests: qr.done, questCoins: qr.coins,
+  };
 }
 
 // ---- 釣り大会 ----
