@@ -15,6 +15,10 @@ import {
   takeDecor, useGear, wearHat, wornHat,
 } from './progress.js';
 import { gearOf, slotOf } from './gear.js';
+import {
+  GRANT, addCoins as adminCoins, dropAll as adminDropAll, emptyGate,
+  grantAll as adminGrantAll, tapGate, tapsLeft,
+} from './admin.js';
 import { achievementById } from './achievements.js';
 import { COIN_ICON } from './rewards.js';
 import { bandOf, marketBoard } from './market.js';
@@ -1348,6 +1352,67 @@ function applyOwned() {
   updateCastButton();
   syncBagButton();
   syncWalkMap();
+}
+
+// ---- 管理者の隠し口(admin.js)----
+//
+// **作る側が店を試すためのもの。** 版の表示を続けて7回叩くと開く。
+// 出荷物に入れてよい理由(配れる中身がもともと勝ち負けに効かない)は
+// admin.js のいちばん上にある。
+let adminGate = emptyGate();
+
+function adminTap() {
+  const r = tapGate(adminGate, Date.now());
+  adminGate = r.gate;
+  const tag = document.getElementById('build-tag');
+  // 近づいたら版の表示を光らせる。**無言だと壊れたのかと思う**
+  tag?.classList.toggle('adm-near', !r.open && tapsLeft(adminGate) <= 3);
+  if (!r.open) return;
+  tag?.classList.remove('adm-near');
+  sfx.play('win');
+  setAdmin(true);
+}
+
+function setAdmin(on) {
+  const el = document.getElementById('admin');
+  if (on) renderAdmin();
+  el?.classList.toggle('on', !!on);
+}
+
+function renderAdmin() {
+  const el = document.getElementById('admin-body');
+  if (!el) return;
+  const owned = ITEMS.filter((i) => owns(progress, i.id)).length;
+  setHTML(el, `
+    <div class="adm-row"><b>${COIN_ICON} 手持ち</b>
+      <span>${progress.coins ?? 0} 枚(通算 ${progress.coinsEarned ?? 0})</span></div>
+    <div class="adm-row"><b>🛍 持っている品</b><span>${owned} / ${ITEMS.length}</span></div>
+    <div class="adm-row"><b>銀貨を足す</b>
+      <button class="primary" data-act="admin-coins">+${GRANT}</button></div>
+    <div class="adm-row"><b>店の品を全部持つ</b>
+      <button class="primary" data-act="admin-all">そろえる</button></div>
+    <div class="adm-row"><b class="adm-warn">買った品を手放す</b>
+      <button data-act="admin-drop">${adminDropAsk ? '本当に手放す' : '手放す'}</button></div>
+    <p class="adm-note">「手放す」は買い物まわりだけ消します(持ち物・飾りの手持ち・
+      島に置いた飾り・着けているもの)。戦績も図鑑も実績も残ります。</p>
+    <p class="adm-note">ここは検証用の口です。配れるのは見た目の品と、
+      大会では閉じる道具だけ ── 勝ち負けにも実績にも効きません。</p>`);
+}
+
+let adminDropAsk = false;
+
+// 配ったあとの後始末。**買った品は島の遊びにも盤にも効く**ので、
+// 開いている画面をまとめて入れ直す ── ここを忘れると、店で買ったのに
+// 島の道具が増えない・柄が変わらない、が起きる。
+function afterAdmin(note) {
+  applyGear();
+  applyOwned();
+  syncDecor();
+  renderAdmin();
+  renderBag();
+  sfx.play('ui');
+  if (screen === 'walk') walkNote(note);
+  if (ui) refresh();
 }
 
 // ---- 卓のしつらえ(gear.js)----
@@ -3849,6 +3914,27 @@ document.addEventListener('click', (e) => {
       applyGear();   // 買った柄も消えるので、既定の見た目に戻す
       recordsView = { tab: 'stats', selected: null, confirmingClear: false };
       refresh();
+      return;
+    // ---- 管理者の隠し口(admin.js)----
+    case 'admin-tap': adminTap(); return;
+    case 'admin-close': setAdmin(false); adminDropAsk = false; return;
+    case 'admin-coins':
+      progress = adminCoins(progress);
+      saveProgress(progress);
+      afterAdmin(`${COIN_ICON} 銀貨を ${GRANT} 足した`);
+      return;
+    case 'admin-all':
+      progress = adminGrantAll(progress);
+      saveProgress(progress);
+      afterAdmin('🛍 店の品を全部持った');
+      return;
+    // 手放すのは戻せないので、**2回押させる**(記録を消すと同じ作法)
+    case 'admin-drop':
+      if (!adminDropAsk) { adminDropAsk = true; renderAdmin(); return; }
+      adminDropAsk = false;
+      progress = adminDropAll(progress);
+      saveProgress(progress);
+      afterAdmin('↩️ 買った品を手放した');
       return;
     case 'demo': startDemo(arg, screen === 'rules' ? 'rules' : 'title'); return;
     case 'reload-app': location.reload(); return;

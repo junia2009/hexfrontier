@@ -15,7 +15,7 @@
 // (登録側は updateViaCache: 'none' で HTTP キャッシュを介さず sw.js を確認する)
 
 // >>> precache:generated (scripts/gen-precache.mjs で生成。手で編集しない)
-const PRECACHE_VERSION = 'c5324f4f9db5';
+const PRECACHE_VERSION = 'a5b7dcc73cf5';
 const PRECACHE = [
   './',
   './icons/apple-touch-icon.png',
@@ -25,6 +25,7 @@ const PRECACHE = [
   './manifest.webmanifest',
   './src/achievements.js',
   './src/actions.js',
+  './src/admin.js',
   './src/ai/cpu-player.js',
   './src/ai/evaluator.js',
   './src/ai/legal-moves.js',

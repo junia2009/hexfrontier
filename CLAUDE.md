@@ -54,6 +54,15 @@ npm run deploy:server         # Cloudflare へ手動デプロイ(要ログイン
    あそびかたデモ(`src/demo/`)の台本が実物の手を出しているので、ここが落ちたら
    デモも一緒に直す(`window.hexDebug.startDemo('setup'|'basic'|'cak')` で再生できる)。
 
+## 店の検証を速くする(管理者の隠し口)
+
+**タイトル画面の版の表示(右下の `ver. …`)を、3秒以内に続けて7回叩く。**
+銀貨を 2500 足す / 店の品を全部持つ / 買った品を手放す、の3つが出る
+(`src/admin.js`。設計は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#管理者の隠し口-adminjs))。
+
+E2E からは `src/admin.js` を直接 import して `grantAll(progress)` を
+`saveProgress` するのが速い(`addInitScript` で localStorage に書くのでもよい)。
+
 ## Playwright E2E レシピ
 
 ヘッドレス Chromium はプリインストール済み。**`playwright install` は実行しない**。

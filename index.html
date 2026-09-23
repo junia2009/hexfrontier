@@ -905,6 +905,26 @@
   #walk-book.on { display: flex; }
   #walk-book .select-panel, #walk-bag .select-panel { max-height: 88dvh; }
 
+  /* 管理者の隠し口(admin.js)。**どの画面の上にも出す**ので position は
+     fixed、z-index は HUD(15)より上。タイトル画面から開くため */
+  #admin {
+    position: fixed; inset: 0; z-index: 40;
+    display: none; align-items: center; justify-content: center;
+    padding: 12px;
+    background: rgba(6, 18, 32, 0.82);
+  }
+  #admin.on { display: flex; }
+  #admin .select-panel { max-height: 88dvh; }
+  #admin .adm-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 2px; border-bottom: 1px solid rgba(255,255,255,0.09);
+  }
+  #admin .adm-row b { flex: 1; min-width: 0; }
+  #admin .adm-warn { color: #ffb86b; font-weight: 700; }
+  #admin .adm-note { color: var(--dim); font-size: 12px; }
+  /* 隠し口を叩いている最中の合図。無言だと壊れたのかと思う */
+  #build-tag.adm-near { color: var(--accent2); opacity: 1; }
+
   /* ---------- 島の掲示板(日替わりの依頼) ---------- */
   .q-head { margin: 0 0 8px; font-weight: 700; }
   .q-head .q-got { margin-left: 8px; color: #ffd97d; font-weight: 700; }
@@ -2203,7 +2223,10 @@
         </div>
         <!-- 版の表示。デプロイ時に BUILD_ID がコミットの短縮SHAへ置換される。
              「手元の端末が最新版か」を目視で確認できるようにするため。 -->
-        <div id="build-tag">ver. BUILD_ID</div>
+        <!-- 版の表示。デプロイ時に BUILD_ID がコミットの短縮SHAへ置換される。
+             **ここが管理者の隠し口**(admin.js)── 続けて7回叩くと開く。
+             Android の開発者向けオプションと同じ作法で、まちがって開かない。 -->
+        <div id="build-tag" data-act="admin-tap">ver. BUILD_ID</div>
       </div>
     </div>
   </div>
@@ -2371,6 +2394,18 @@
       </div>
     </div>
     <div class="demo-end"></div>
+  </div>
+  <!-- 管理者の隠し口(admin.js)。版の表示を続けて7回叩くと開く。
+       **出荷物に入れてよい理由**は admin.js のいちばん上に書いてある
+       ── 配れる中身がもともと勝ち負けに効かないため。 -->
+  <div id="admin">
+    <div class="select-panel rules-panel">
+      <h3>🛠 管理者</h3>
+      <div id="admin-body" class="panel-scroll"></div>
+      <div class="row end rules-close">
+        <button class="primary" data-act="admin-close">とじる</button>
+      </div>
+    </div>
   </div>
   <script type="importmap">
   {
