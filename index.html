@@ -1090,6 +1090,9 @@
   }
   #walk-aim button span { font-size: 9px; font-weight: 700; color: var(--dim); }
   #walk-aim button:disabled { opacity: 0.35; }
+  /* 回す2つは、動かす4つと同じ幅にそろえる ── 2つだけ細いと、
+     どの段も同じ道具に見えなくなる(4×52 と 2×107 で幅が合う) */
+  #walk-aim .aim-turn button { min-width: 107px; }
   #walk-aim .aim-row:last-child button { min-width: 104px; font-size: 13px; }
   /* 置けない理由。**赤い見本と同じことを文字でも出す** ── 色だけだと
      「なぜ駄目なのか」が分からない(広場なのか、飾りが近すぎるのか) */
@@ -2260,11 +2263,15 @@
          大まかには足で、細かくはここのボタンで決める(minigame/place.js) -->
     <div id="walk-aim">
       <div class="aim-why" id="walk-aim-why"></div>
-      <div class="aim-row">
-        <button type="button" data-act="decor-turn:-1" aria-label="左へ回す">↺</button>
-        <button type="button" data-act="decor-turn:1" aria-label="右へ回す">↻</button>
-        <button type="button" data-act="decor-near:-1" aria-label="近づける">－<span>ちかく</span></button>
-        <button type="button" data-act="decor-near:1" aria-label="遠ざける">＋<span>とおく</span></button>
+      <div class="aim-row aim-move">
+        <button type="button" data-act="decor-side:-1" aria-label="左へずらす">◀<span>ひだり</span></button>
+        <button type="button" data-act="decor-near:1" aria-label="遠ざける">▲<span>とおく</span></button>
+        <button type="button" data-act="decor-near:-1" aria-label="近づける">▼<span>ちかく</span></button>
+        <button type="button" data-act="decor-side:1" aria-label="右へずらす">▶<span>みぎ</span></button>
+      </div>
+      <div class="aim-row aim-turn">
+        <button type="button" data-act="decor-turn:-1" aria-label="左へ回す">↺<span>まわす</span></button>
+        <button type="button" data-act="decor-turn:1" aria-label="右へ回す">↻<span>まわす</span></button>
       </div>
       <div class="aim-row">
         <button type="button" data-act="decor-cancel">やめる</button>

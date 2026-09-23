@@ -8,10 +8,16 @@
 // 自分が立ち位置を細かく踏み直すしかなかった(「物設置をもっと接点細かく
 // 選べるようにしたい」)。
 //
-// 下見のあいだに動かせるのは2つ:
-//   - **遠さ**(自分の正面にどれだけ離すか)…… 近い/遠い を押して刻む
-//   - **向き**(飾りそのものの回転)………………… ◀/▶ を押して刻む
+// 下見のあいだに動かせるのは3つ:
+//   - **遠さ**(自分の正面にどれだけ離すか)…… ちかく/とおく を押して刻む
+//   - **横**(正面と直角に、左右どれだけずらすか)… ひだり/みぎ を押して刻む
+//   - **向き**(飾りそのものの回転)………………… ↺/↻ を押して刻む
 // 歩けば見本もついてくるので、**大まかには足で、細かくはボタンで**決まる。
+//
+// **横は後から足した。** はじめは遠さと向きだけで、横へずらすには
+// 自分が体ごと横に踏み直すしかなかった ── 前後は正面を向いたまま刻めるのに、
+// 横だけ足で踏み直すので、同じ細かさで合わせられない
+// (「前後ろはとてもやりやすいが、横の微調整がやりにくい」)。
 
 import { s as sc } from './scale.js';
 import { PLACE_AHEAD } from './decor.js';
@@ -26,23 +32,53 @@ export const NEAR_MAX = sc(1.1);
 // はじめ sc(0.12) にしていたら旗の太さとちょうど同じで、テストが落ちた。
 export const NEAR_STEP = sc(0.06);
 
+// 横の帯。正面と直角に、左右へどれだけずらせるか(0 が正面)。
+// 前後の帯(0.36〜1.1)と同じくらいの幅を左右に取る ── 隣に1つ並べる、
+// くらいまで届けばよく、それ以上は足で歩いたほうが速い。
+export const SIDE_MAX = sc(0.8);
+// **刻みは前後とまったく同じ。** 片方だけ粗いと、そちらの軸だけ
+// 合わせられない ── 細かく置けるようにした意味が半分になる。
+export const SIDE_STEP = NEAR_STEP;
+
 // 向きの刻み。15度(ひとまわり24通り)。これより細かくすると、
 // 押した回数と見た目が結びつかなくなる
 export const TURN_STEP = Math.PI / 12;
 export const TURN_STEPS = Math.round((Math.PI * 2) / TURN_STEP);
 
-// 下見のはじまり。**遠さも向きも、今までと同じ置き場所から始める** ──
+// 下見のはじまり。**遠さも横も向きも、今までと同じ置き場所から始める** ──
 // 何も触らずに「置く」を押した人には、今までとまったく同じ場所に置かれる。
 export function newAim(id) {
-  return { id, away: PLACE_AHEAD, turn: 0 };
+  return { id, away: PLACE_AHEAD, side: 0, turn: 0 };
 }
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
+// 動かせる軸。[いちばん近い/小さい, いちばん遠い/大きい, 1回ぶんの刻み]
+//
+// **帯の決まりを軸ごとに書き分けない。** 前後と横で同じ刻みかたをするので、
+// 別々に書くと、片方だけ直して食い違う(刻みを変えたときに必ず起きる)。
+const AXES = {
+  away: [NEAR_MIN, NEAR_MAX, NEAR_STEP],
+  side: [-SIDE_MAX, SIDE_MAX, SIDE_STEP],
+};
+
+function shift(aim, key, d) {
+  if (!aim) return aim;
+  const [lo, hi, step] = AXES[key];
+  const now = aim[key] ?? 0;
+  return { ...aim, [key]: clamp(now + step * Math.sign(d), lo, hi) };
+}
+
 // 遠さを刻む。d は +1(遠く)か -1(近く)。帯の外へは出さない
 export function aimNudge(aim, d) {
-  if (!aim) return aim;
-  return { ...aim, away: clamp(aim.away + NEAR_STEP * Math.sign(d), NEAR_MIN, NEAR_MAX) };
+  return shift(aim, 'away', d);
+}
+
+// 横へ刻む。d は +1(右)か -1(左)。**正面と直角に動かす** ──
+// 世界の東西ではなく、いま自分が向いている向きから見た左右
+// (振り向いてから押しても、画面の中では同じ側へ動く)。
+export function aimSide(aim, d) {
+  return shift(aim, 'side', d);
 }
 
 // 向きを刻む。ひとまわりしたら戻る。
@@ -60,20 +96,32 @@ export function aimTurn(aim, d) {
 //
 // **turn = 0 は「自分のほうを向く」**(decor.js の placeSpot と同じ)。
 // ベンチの座面がこちらを向くので、置いてすぐ座れる形が既定になる。
+//
+// 正面は (sin, cos)。横はそれを直角に倒した向きだが、**倒す側は計算では
+// 決まらない**(カメラの構えしだい)。実機の画面座標で測って決めた:
+// はじめ (cos, -sin) にしたら、「みぎ」で見本が**画面の左**へ動いた
+// (正面を向いて 中 195px → みぎ 103px。どの向きでも同じだった)。
+// 符号を逆にしたのがこれ ── side が + で画面の右。
 export function aimSpot(aim, at) {
   if (!aim || !at) return null;
+  const side = aim.side ?? 0;
   return {
-    x: at.x + Math.sin(at.facing) * aim.away,
-    z: at.z + Math.cos(at.facing) * aim.away,
+    x: at.x + Math.sin(at.facing) * aim.away - Math.cos(at.facing) * side,
+    z: at.z + Math.cos(at.facing) * aim.away + Math.sin(at.facing) * side,
     facing: at.facing + Math.PI + aim.turn,
   };
 }
 
 // 押せるか(帯の端まで来ていたら、そのボタンは押せない)。
-// **端の判定を2度書かない** ── 「押したら何か変わるか」を aimNudge 自身に
+// **端の判定を2度書かない** ── 「押したら何か変わるか」を動かす関数自身に
 // 聞く。別に書くと、帯を動かしたときに片方だけ直して食い違う
 // (端ぴったりの誤差を吸う 1e-9 も要らなくなる)。
 export function canNudge(aim, d) {
   if (!aim) return false;
   return aimNudge(aim, d).away !== aim.away;
+}
+
+export function canSide(aim, d) {
+  if (!aim) return false;
+  return aimSide(aim, d).side !== (aim.side ?? 0);
 }

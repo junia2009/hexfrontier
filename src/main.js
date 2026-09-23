@@ -21,7 +21,7 @@ import {
   buyItem, cleanBagShelf, cleanShelf, ITEMS, ITEM_BY_ID, owns, stockOf,
 } from './shop.js';
 import { DECOR_BY_ID, lampGlow, placeSpot, whyCannotPlace } from './minigame/decor.js';
-import { aimNudge, aimSpot, aimTurn, canNudge, newAim } from './minigame/place.js';
+import { aimNudge, aimSide, aimSpot, aimTurn, canNudge, canSide, newAim } from './minigame/place.js';
 import { bagHtml, fishbookHtml, questsHtml, storeHtml, recordsHtml } from './render/records.js';
 import { drawMinimap } from './render/minimap.js';
 import { contestCm } from './minigame/fish.js';
@@ -1495,9 +1495,9 @@ function renderBag() {
 // 押す前に分かるほうがいい)。
 //
 // 持ち物から押すと、すぐ置かずに**下見**に入る(aim)。半透明の見本が
-// 目の前に出て、歩けばついてくる。遠さと向きをボタンで刻んでから置く
+// 目の前に出て、歩けばついてくる。遠さ・横・向きをボタンで刻んでから置く
 // ── 一点しか選べなかったのを直したもの(minigame/place.js)。
-let aim = null;          // { id, away, turn } 下見の途中。置く/やめるで消える
+let aim = null;          // { id, away, side, turn } 下見の途中。置く/やめるで消える
 
 function walkerAt() {
   if (!walk) return null;
@@ -1533,9 +1533,14 @@ function updateAim() {
   bar?.classList.toggle('bad', !!why);
   const put = bar?.querySelector('[data-act="decor-put"]');
   if (put) put.disabled = !!why;
-  for (const [act, d] of [['decor-near:-1', -1], ['decor-near:1', 1]]) {
+  // 帯の端まで来たボタンは押せなくする。**前後も横も同じ扱い** ──
+  // 押しても何も動かないボタンが残っていると、効かないのか端なのか分からない
+  for (const [act, on] of [
+    ['decor-near:-1', canNudge(aim, -1)], ['decor-near:1', canNudge(aim, 1)],
+    ['decor-side:-1', canSide(aim, -1)], ['decor-side:1', canSide(aim, 1)],
+  ]) {
     const b = bar?.querySelector(`[data-act="${act}"]`);
-    if (b) b.disabled = !canNudge(aim, d);
+    if (b) b.disabled = !on;
   }
 }
 
@@ -3637,8 +3642,9 @@ document.addEventListener('click', (e) => {
       walkNote(`${ITEM_BY_ID[arg]?.icon ?? ''} 置く場所を決めて「ここに置く」`);
       return;
     }
-    // 下見のあいだの手。遠さと向きを刻む
+    // 下見のあいだの手。遠さ・横・向きを刻む
     case 'decor-near': aim = aimNudge(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
+    case 'decor-side': aim = aimSide(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
     case 'decor-turn': aim = aimTurn(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
     case 'decor-cancel': endAim(); sfx.play('ui'); return;
     // 決めた場所に置いて、島へ流し込む

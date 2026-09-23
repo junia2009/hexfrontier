@@ -9,8 +9,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  NEAR_MAX, NEAR_MIN, NEAR_STEP, TURN_STEP, TURN_STEPS,
-  aimNudge, aimSpot, aimTurn, canNudge, newAim,
+  NEAR_MAX, NEAR_MIN, NEAR_STEP, SIDE_MAX, SIDE_STEP, TURN_STEP, TURN_STEPS,
+  aimNudge, aimSide, aimSpot, aimTurn, canNudge, canSide, newAim,
 } from '../src/minigame/place.js';
 import { DECOR_BY_ID, PLACE_AHEAD, placeSpot } from '../src/minigame/decor.js';
 
@@ -23,6 +23,7 @@ test('下見: はじめの見本は、今までの置き場所とぴたり同じ
   const a = newAim('bench');
   assert.equal(a.id, 'bench');
   assert.equal(a.away, PLACE_AHEAD);
+  assert.equal(a.side, 0, '横にずれた状態から始まっている');
   assert.equal(a.turn, 0);
   const want = placeSpot(AT);
   const got = aimSpot(a, AT);
@@ -67,6 +68,63 @@ test('下見: 遠さは帯の中に収まる。端では押せない', () => {
   assert.ok(steps >= 6 && steps <= 16, `端から端まで ${steps} 回は多すぎ/少なすぎ`);
 });
 
+// **横は前後とまったく同じ細かさで動くこと。** 前後だけ刻めて横は足で
+// 踏み直す、という不揃いを直すために足したものなので、ここが揃っていないと
+// 直した意味がない(「前後ろはとてもやりやすいが、横の微調整がやりにくい」)。
+test('下見: 横は前後と同じ刻みで、同じだけ細かい', () => {
+  assert.equal(SIDE_STEP, NEAR_STEP, '横だけ刻みが違う');
+  const a = newAim('bench');
+  const b = aimSide(a, 1);
+  assert.ok(near(b.side, SIDE_STEP), `1回ぶんが違う(${b.side})`);
+  // 前後は動かない(軸が混ざっていない)
+  assert.equal(b.away, a.away, '横へ動かしたら遠さまで動いた');
+  assert.equal(b.turn, a.turn, '横へ動かしたら向きまで動いた');
+});
+
+test('下見: 横は正面と直角。左右は対称で、真ん中が正面', () => {
+  for (const facing of [0, 0.7, Math.PI, -2.2, 5.9]) {
+    const at = { x: -0.3, z: 2.1, facing };
+    const mid = aimSpot(newAim('lamp'), at);
+    const r = aimSpot(aimSide(newAim('lamp'), 1), at);
+    const l = aimSpot(aimSide(newAim('lamp'), -1), at);
+    // 真ん中から見て、左右は同じだけ離れて反対側にある
+    assert.ok(near(Math.hypot(r.x - mid.x, r.z - mid.z), SIDE_STEP), '右への1刻みが違う');
+    assert.ok(near(Math.hypot(l.x - mid.x, l.z - mid.z), SIDE_STEP), '左への1刻みが違う');
+    assert.ok(near((r.x + l.x) / 2, mid.x) && near((r.z + l.z) / 2, mid.z), '左右が対称でない');
+    // 正面の向きと直角(内積が 0)
+    const fx = Math.sin(facing);
+    const fz = Math.cos(facing);
+    assert.ok(near((r.x - mid.x) * fx + (r.z - mid.z) * fz, 0, 1e-9), '直角になっていない');
+  }
+});
+
+// **どちら側に倒すかは計算では決まらない**(カメラの構えしだい)。
+// 実機の画面座標で測って決めた ── 正面を向いて「みぎ」を押すと、見本は
+// 画面の 195px から 103px へ、つまり**画面の右**へ動く(盤の -x 側)。
+// はじめ逆に書いていて、押すと左へ動いていた。ここで向きを釘づけにする。
+test('下見: 「みぎ」は画面の右へ動く(実機で測った向き)', () => {
+  const at = { x: 0, z: 0, facing: 0 };            // 正面は +z
+  const r = aimSpot(aimSide(newAim('bench'), 1), at);
+  const l = aimSpot(aimSide(newAim('bench'), -1), at);
+  assert.ok(r.x < 0, `みぎが盤の +x 側へ行っている(${r.x})── 画面では左に見える`);
+  assert.ok(l.x > 0, `ひだりが盤の -x 側へ行っている(${l.x})`);
+  assert.ok(near(r.z, PLACE_AHEAD) && near(l.z, PLACE_AHEAD), '横へ動かしたら前後まで動いた');
+});
+
+test('下見: 横も帯の中に収まる。端では押せない', () => {
+  let a = newAim('bench');
+  for (let i = 0; i < 200; i += 1) a = aimSide(a, 1);
+  assert.equal(a.side, SIDE_MAX, '右の端で止まっていない');
+  assert.equal(canSide(a, 1), false, '端なのに押せる');
+  assert.equal(canSide(a, -1), true);
+  for (let i = 0; i < 400; i += 1) a = aimSide(a, -1);
+  assert.equal(a.side, -SIDE_MAX, '左の端で止まっていない');
+  assert.equal(canSide(a, -1), false, '端なのに押せる');
+  // 正面(0)からどちらの端へも、指が疲れない回数で行ける
+  const steps = Math.round(SIDE_MAX / SIDE_STEP);
+  assert.ok(steps >= 6 && steps <= 16, `正面から端まで ${steps} 回は多すぎ/少なすぎ`);
+});
+
 test('下見: 向きはひとまわりして戻る', () => {
   let a = newAim('flag');
   assert.ok(TURN_STEPS >= 12 && TURN_STEPS <= 36, `向きの刻みが ${TURN_STEPS} 通りは変`);
@@ -93,6 +151,13 @@ test('下見: 何も無くても落ちない', () => {
   assert.equal(aimSpot(null, AT), null);
   assert.equal(aimSpot(newAim('bench'), null), null);
   assert.equal(aimNudge(null, 1), null);
+  assert.equal(aimSide(null, 1), null);
   assert.equal(aimTurn(null, 1), null);
   assert.equal(canNudge(null, 1), false);
+  assert.equal(canSide(null, 1), false);
+  // 横を知らない古い aim(side が無い)でも、正面の1点として扱う
+  const old = { id: 'bench', away: PLACE_AHEAD, turn: 0 };
+  assert.deepEqual(aimSpot(old, AT), aimSpot(newAim('bench'), AT));
+  assert.ok(near(aimSide(old, 1).side, SIDE_STEP), '横を足せない');
+  assert.equal(canSide(old, 1), true);
 });
