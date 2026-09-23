@@ -1,6 +1,6 @@
 // 画面いっぱいのパネルが、ちゃんと流れるか(.panel-scroll)。
 //
-// **実機で詰んだ。** 卓のしつらえの画面を `rules-panel` の器で作ったのに、
+// **実機で詰んだ。** 盤まわりの画面を `rules-panel` の器で作ったのに、
 // 中身を `.panel-scroll` で包まずに直に置いた。この器は
 //
 //     .rules-panel { max-height: 86dvh; overflow: hidden; }

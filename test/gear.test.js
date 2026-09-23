@@ -1,4 +1,4 @@
-// 卓のしつらえ(src/gear.js)── カタン本編の盤で使う見た目の品。
+// 盤まわり(src/gear.js)── カタン本編の盤で使う見た目の品。
 //
 // ここが見張るのは**線引き**。見た目の品は「遊びに1ミリも効かない」ことが
 // 売ってよい根拠なので、効かないことを機械に確かめさせないと意味がない。
@@ -40,7 +40,7 @@ const rich = () => ({ ...emptyProgress(), coins: 99999 });
 
 // ---- 表そのもの ----
 
-test('しつらえ: どのスロットにも既定があり、既定は買えない', () => {
+test('盤まわり: どのスロットにも既定があり、既定は買えない', () => {
   assert.ok(SLOTS.length, 'スロットが1つも無い');
   for (const s of SLOTS) {
     const def = defaultGear(s.id);
@@ -54,9 +54,9 @@ test('しつらえ: どのスロットにも既定があり、既定は買えな
   }
 });
 
-test('しつらえ: id は重ならない。店の品とも重ならない', () => {
+test('盤まわり: id は重ならない。店の品とも重ならない', () => {
   const ids = GEAR.map((g) => g.id);
-  assert.equal(new Set(ids).size, ids.length, 'しつらえの中で id が重なっている');
+  assert.equal(new Set(ids).size, ids.length, '盤まわりの中で id が重なっている');
   // 既定は店に並ばないので、店に出るのは値段付きだけ
   for (const g of GEAR_FOR_SALE) {
     assert.ok(ITEM_BY_ID[g.id], `${g.name} が店に並んでいない`);
@@ -69,25 +69,25 @@ test('しつらえ: id は重ならない。店の品とも重ならない', () 
   for (const s of SLOTS) assert.equal(ITEM_BY_ID[s.items[0].id], undefined, '既定が店にある');
 });
 
-test('しつらえ: 店の棚から全部引ける', () => {
+test('盤まわり: 店の棚から全部引ける', () => {
   const shelf = SHELF_BY_ID.gear;
-  assert.ok(shelf, '卓のしつらえの棚が無い');
+  assert.ok(shelf, '盤まわりの棚が無い');
   assert.equal(shelf.items.length, GEAR_FOR_SALE.length);
   for (const i of shelf.items) assert.equal(i.kind, 'gear');
 });
 
-test('しつらえ: id からスロットが引ける。知らない id は落とす', () => {
+test('盤まわり: id からスロットが引ける。知らない id は落とす', () => {
   for (const g of GEAR) assert.equal(slotOf(g.id), g.slot);
   assert.equal(slotOf('nosuchgear'), null);
   assert.equal(slotOf(null), null);
   assert.equal(isGear('dice-wood'), true);
-  assert.equal(isGear('bench'), false, '島の飾りをしつらえと見なしている');
+  assert.equal(isGear('bench'), false, '島の飾りを盤まわりと見なしている');
   assert.equal(isGear(undefined), false);
 });
 
 // ---- 情報量を変えない(いちばん大事な線引き)----
 
-test('しつらえ: どのサイコロの柄でも、目は地の上で読める', () => {
+test('盤まわり: どのサイコロの柄でも、目は地の上で読める', () => {
   for (const d of DICE) {
     const c = contrast(d.face, d.pip);
     assert.ok(c >= MIN_CONTRAST, `${d.name}: 目と地のコントラストが ${c.toFixed(2)}(下限 ${MIN_CONTRAST})`);
@@ -97,7 +97,7 @@ test('しつらえ: どのサイコロの柄でも、目は地の上で読める
   }
 });
 
-test('しつらえ: サイコロの柄は色を3つとも持っている', () => {
+test('盤まわり: サイコロの柄は色を3つとも持っている', () => {
   // 片方の盤にしか色が無いと、見る向きを変えたときに柄が消える
   for (const d of DICE) {
     for (const k of ['face', 'edge', 'pip']) {
@@ -106,7 +106,7 @@ test('しつらえ: サイコロの柄は色を3つとも持っている', () =>
   }
 });
 
-test('しつらえ: 柄はつやだけを変える。出目にも規則にも触らない', () => {
+test('盤まわり: 柄はつやだけを変える。出目にも規則にも触らない', () => {
   // **持っているのは見た目の値だけ。** 確率・目の数・規則に関わる名前の
   // フィールドが紛れ込んだら、それは見た目の品ではなくなっている
   const LOOKS = new Set([
@@ -130,7 +130,7 @@ test('しつらえ: 柄はつやだけを変える。出目にも規則にも触
 
 // ---- 卓の灯り ----
 
-test('しつらえ: 灯りの既定は 0。買うほど明るくなるが、上限を超えない', () => {
+test('盤まわり: 灯りの既定は 0。買うほど明るくなるが、上限を超えない', () => {
   // **既定が 0 であることが「買わないと閉まる扉を作らない」の中身** ──
   // 灯りゼロの夜でも盤は読める、という前提でここを 0 にしてある
   assert.equal(defaultGear('light').glow, 0, '既定の卓に灯りが点いている');
@@ -147,7 +147,7 @@ test('しつらえ: 灯りの既定は 0。買うほど明るくなるが、上�
   }
 });
 
-test('しつらえ: 灯りは明るさだけ。盤の中身には触らない', () => {
+test('盤まわり: 灯りは明るさだけ。盤の中身には触らない', () => {
   // glow は board3d が night を掛けて使う値。**昼には効かない**という
   // 決めごとは board3d 側にあるので、ここでは「明るさ以外を持たない」を見る
   for (const l of LIGHTS) {
@@ -159,7 +159,7 @@ test('しつらえ: 灯りは明るさだけ。盤の中身には触らない', 
 
 // ---- コマ ----
 
-test('しつらえ: コマの柄は屋根の形の名前しか持たない', () => {
+test('盤まわり: コマの柄は屋根の形の名前しか持たない', () => {
   // **寸法を持たせない。** 柄ごとの寸法を許すと「都市に見えない都市」が
   // 作れてしまう ── 開拓地と都市の見分けは情報(gear.js の3つめ)。
   // 描く側(board3d / board-render)が名前を寸法に読み替える。
@@ -173,7 +173,7 @@ test('しつらえ: コマの柄は屋根の形の名前しか持たない', () 
   assert.equal(defaultGear('piece').roof, 'cone');
 });
 
-test('しつらえ: 屋根の形は全部使われている。名前がだぶらない', () => {
+test('盤まわり: 屋根の形は全部使われている。名前がだぶらない', () => {
   const used = new Set(PIECES.map((p) => p.roof));
   for (const r of ROOF_SHAPES) {
     assert.ok(used.has(r), `${r} の屋根を使う柄が無い(描く側だけにある形)`);
@@ -294,7 +294,7 @@ test('盤の柄: 色の変換は往復しても壊れない', () => {
 
 // ---- 選ぶ ----
 
-test('しつらえ: 買っていない柄は使えない(保存を書き換えても)', () => {
+test('盤まわり: 買っていない柄は使えない(保存を書き換えても)', () => {
   const p = emptyProgress();
   assert.equal(gearOf(p, 'dice').id, defaultGear('dice').id, 'はじめから既定でない');
   assert.ok(isDefaultGear(p, 'dice'));
@@ -306,7 +306,7 @@ test('しつらえ: 買っていない柄は使えない(保存を書き換え�
   assert.equal(gearOf(forged, 'dice').id, defaultGear('dice').id, '保存の書き換えで使えてしまう');
 });
 
-test('しつらえ: 買えば使える。押し直すと既定に戻る', () => {
+test('盤まわり: 買えば使える。押し直すと既定に戻る', () => {
   let p = rich();
   const r = buyItem(p, 'dice-wood');
   assert.ok(r.ok, r.reason);
@@ -325,7 +325,7 @@ test('しつらえ: 買えば使える。押し直すと既定に戻る', () => 
   assert.equal(gearOf(parseProgress(JSON.stringify(p)), 'dice').id, 'dice-wood');
 });
 
-test('しつらえ: 知らないスロットと知らない id では何も起きない', () => {
+test('盤まわり: 知らないスロットと知らない id では何も起きない', () => {
   let p = rich();
   p = buyItem(p, 'dice-wood').progress;
   const used = useGear(p, 'dice', 'dice-wood');
@@ -340,7 +340,7 @@ test('しつらえ: 知らないスロットと知らない id では何も起�
   }
 });
 
-test('しつらえ: 壊れた progress でも既定を返す', () => {
+test('盤まわり: 壊れた progress でも既定を返す', () => {
   for (const bad of [null, undefined, {}, { worn: null }, { worn: { dice: 42 } }]) {
     assert.equal(gearOf(bad, 'dice')?.id, defaultGear('dice').id, `${JSON.stringify(bad)}`);
   }
@@ -348,7 +348,7 @@ test('しつらえ: 壊れた progress でも既定を返す', () => {
   assert.equal(defaultGear('nosuchslot'), null);
 });
 
-test('しつらえ: 買った品は持ち物に出る(棚ごと消えない)', () => {
+test('盤まわり: 買った品は持ち物に出る(棚ごと消えない)', () => {
   let p = rich();
   p = buyItem(p, 'dice-stone').progress;
   assert.ok(GEAR_BY_ID['dice-stone'], '表から引けない');

@@ -245,7 +245,7 @@ test('店の画面: 手持ちと、その棚の売り物が全部出る', () => 
 // 同じ札で混ざっていた。ここから下は、そのときに入れた約束の番人。
 
 test('棚: 売り物はどれか1つの棚にだけ入る', () => {
-  assert.equal(SHELVES.length, 4);   // 道具・かぶりもの・島の飾り・卓のしつらえ
+  assert.equal(SHELVES.length, 4);   // 道具・かぶりもの・島の飾り・盤まわり
   const seen = new Set();
   for (const s of SHELVES) {
     assert.ok(s.icon && s.label && s.note, `${s.id}: 見出しが足りない`);

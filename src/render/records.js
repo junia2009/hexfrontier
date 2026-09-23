@@ -268,7 +268,7 @@ export function recordsHtml(progress, { tab = 'stats', selected = null, confirmi
 //   4. **買い切った品は1行に畳んで下へ送る**(shop.js の shelfItems)。
 //      上から順に「いま手が届くもの」が並ぶ。
 
-// 品の顔。**しつらえの品は見本を出す**(絵文字ではなく現物の色と形)──
+// 品の顔。**盤まわりの品は見本を出す**(絵文字ではなく現物の色と形)──
 // 🌇 と ❄️ と 📜 が並んでいても、どんな盤になるかは分からない。
 // 見本を持たない品はこれまでどおり絵文字(gear-swatch.js は空を返す)
 function faceHtml(item) {
@@ -441,7 +441,7 @@ function bagItemHtml(item, progress, view, open) {
   const n = isDecor(item.id) ? stockOf(progress, item.id) : 0;
   // いま着けているか(かぶりものだけ)。
   //
-  // **卓のしつらえはここを通らない。** しつらえの棚は枠ごとのタイル
+  // **盤まわりはここを通らない。** 盤まわりの棚は枠ごとのタイル
   // (gearPanelHtml)に分けたので、この関数に来るのは道具・かぶりもの・
   // 飾りだけ ── 前はここにも「つかう/もどす」の枝があったが、
   // **誰も通らない道**になっていた(故障注入が2件すり抜けて気づいた。
@@ -474,7 +474,7 @@ function bagItemHtml(item, progress, view, open) {
   </div>`;
 }
 
-// ---- 卓のしつらえ(枠ごとに仕切る)----
+// ---- 盤まわり(枠ごとに仕切る)----
 //
 // **12品を1本に積んでいた。** サイコロ4・灯り3・コマ4・盤4が仕切り無しに
 // 縦に並び、盤の柄はスクロールの外にいた ── どれが盤の話なのかは名前を
@@ -508,7 +508,7 @@ function gearGroupHtml(slot, progress) {
   </div>`;
 }
 
-// 卓のしつらえの一式。**持ち物と対戦の支度の両方から、同じものを出す**
+// 盤まわりの一式。**持ち物と対戦の支度の両方から、同じものを出す**
 // ── 盤が見える場所の近くで選べないと、押しても何が起きたか分からない
 export function gearPanelHtml(progress) {
   return SLOTS.map((s) => gearGroupHtml(s, progress)).join('');
@@ -523,7 +523,7 @@ export function bagHtml(
   const now = cleanBagShelf(progress, shelf);
   const s = got.find((x) => x.id === now);
   const mine = s.items.filter((i) => owns(progress, i.id));
-  // 卓のしつらえだけ組み立てが違う(枠ごとのタイル)。ほかの棚は1品1行のまま
+  // 盤まわりだけ組み立てが違う(枠ごとのタイル)。ほかの棚は1品1行のまま
   const gear = now === 'gear';
   const rows = gear
     ? gearPanelHtml(progress)

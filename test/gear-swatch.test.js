@@ -1,4 +1,4 @@
-// 卓のしつらえの見本(src/render/gear-swatch.js)。
+// 盤まわりの見本(src/render/gear-swatch.js)。
 //
 // 見本の仕事はひとつ ──「選ぶ前に、何になるか分かる」。
 // だからここが見張るのは**差が出ていること**と、**本物と同じ色であること**。
@@ -21,7 +21,7 @@ import { emptyProgress, useGear } from '../src/progress.js';
 // 見本の中の色をぜんぶ拾う
 const colorsIn = (svg) => (svg.match(/#[0-9a-fA-F]{3,6}/g) ?? []).map((c) => c.toLowerCase());
 
-test('見本: しつらえの品は全部、見本が出る', () => {
+test('見本: 盤まわりの品は全部、見本が出る', () => {
   for (const item of GEAR) {
     const svg = gearSwatch(item.id);
     assert.ok(svg.startsWith('<svg'), `${item.name} に見本が無い`);
@@ -31,7 +31,7 @@ test('見本: しつらえの品は全部、見本が出る', () => {
 });
 
 test('見本: 知らない id では空を返す(落ちない)', () => {
-  // 持ち物も店も、しつらえ以外の品を同じ関数に通す
+  // 持ち物も店も、盤まわり以外の品を同じ関数に通す
   for (const bad of [null, undefined, '', 'straw', 'islandMap', 'dice', 'board']) {
     assert.equal(gearSwatch(bad), '', `${bad} で何か返した`);
   }
@@ -145,7 +145,7 @@ test('見本: 灯りは明るいものほど大きく光る', () => {
 
 // ---- 並べる側(店・持ち物・支度の画面)----
 
-test('しつらえ: 枠ごとに仕切られ、既定もタイルに並ぶ', () => {
+test('盤まわり: 枠ごとに仕切られ、既定もタイルに並ぶ', () => {
   // **既定が一覧に無いと戻れなかった。** 前は「使っている品をもう一度押す」
   // という、画面のどこにも書いていない戻り道しか無かった
   const p = emptyProgress();
@@ -162,7 +162,7 @@ test('しつらえ: 枠ごとに仕切られ、既定もタイルに並ぶ', () 
   assert.equal((html.match(/gear-group/g) ?? []).length, SLOTS.length);
 });
 
-test('しつらえ: いま使っているものに印が付き、選ぶと移る', () => {
+test('盤まわり: いま使っているものに印が付き、選ぶと移る', () => {
   const owned = { ...emptyProgress(), owned: { 'board-dusk': true } };
   const before = gearPanelHtml(owned);
   // 既定に印
@@ -175,7 +175,7 @@ test('しつらえ: いま使っているものに印が付き、選ぶと移る
   assert.ok(after.includes('夕日に焼けた色合い'), '選んだ品の説明が出ていない');
 });
 
-test('しつらえ: 「店で買えます」は、既定しか無い枠にだけ出る', () => {
+test('盤まわり: 「店で買えます」は、既定しか無い枠にだけ出る', () => {
   // **故障注入が抜けた場所。** `mine.length < 2` を `<= 2` にしても誰も
   // 落ちなかった ── 1つ買った枠にまで「店で買えます」が出続ける
   const p = { ...emptyProgress(), owned: { 'board-dusk': true } };
@@ -193,20 +193,20 @@ test('しつらえ: 「店で買えます」は、既定しか無い枠にだけ
   assert.equal((none.match(/gear-none/g) ?? []).length, SLOTS.length);
 });
 
-test('持ち物: しつらえの品は1品1行の側を通らない', () => {
+test('持ち物: 盤まわりの品は1品1行の側を通らない', () => {
   // 枠ごとのタイルに分けたので、bagItemHtml には来ない。**来ない道を
   // 残すと、故障注入がすり抜ける**(実際2件すり抜けた)
   const all = { ...emptyProgress(), owned: Object.fromEntries(GEAR.map((g) => [g.id, true])) };
   const bag = bagHtml(all, { shelf: 'gear' });
-  assert.ok(bag.includes('gear-group'), 'しつらえの棚がタイルになっていない');
-  assert.ok(!bag.includes('bag-item'), 'しつらえが1品1行で出ている');
+  assert.ok(bag.includes('gear-group'), '盤まわりの棚がタイルになっていない');
+  assert.ok(!bag.includes('bag-item'), '盤まわりが1品1行で出ている');
   assert.ok(!bag.includes('もどす'), '隠しトグルの「もどす」が残っている');
   // ほかの棚はこれまでどおり1品1行
   const tool = bagHtml({ ...all, owned: { ...all.owned, islandMap: true } }, { shelf: 'tool' });
   assert.ok(tool.includes('bag-item'), '道具の棚まで変わってしまった');
 });
 
-test('しつらえ: 見本つきで並ぶ(絵文字だけにならない)', () => {
+test('盤まわり: 見本つきで並ぶ(絵文字だけにならない)', () => {
   // ここが抜けると「分かりにくすぎる」に逆戻りする ── 🌇 と ❄️ と 📜 が
   // 並んでいても、どんな盤になるかは分からない
   const all = { ...emptyProgress(), owned: Object.fromEntries(GEAR.map((g) => [g.id, true])) };
@@ -215,7 +215,7 @@ test('しつらえ: 見本つきで並ぶ(絵文字だけにならない)', () =
     '見本の数が品の数と合わない');
 });
 
-test('店と持ち物: しつらえの品は見本の顔で出る。ほかの品は絵文字のまま', () => {
+test('店と持ち物: 盤まわりの品は見本の顔で出る。ほかの品は絵文字のまま', () => {
   const rich = { ...emptyProgress(), coins: 9999 };
   const shop = shopHtml(rich, { shelf: 'gear' });
   assert.ok(shop.includes('shop-icon has-sw'), '店の棚に見本が出ていない');

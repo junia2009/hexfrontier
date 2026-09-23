@@ -49,7 +49,7 @@ export function emptyProgress() {
     // 今日の依頼の進み具合。日が変わったら作り直す(quests.js)
     quests: emptyQuests(),
     // いま身に着けている/使っているもの。買っただけでは着ない(持ち物から選ぶ)。
-    // hat はかぶりもの、それ以外は卓のしつらえのスロット(gear.js の SLOTS)。
+    // hat はかぶりもの、それ以外は盤まわりのスロット(gear.js の SLOTS)。
     // null は「既定のまま」── スロットごとに1つだけ。
     worn: { hat: null, ...Object.fromEntries(SLOT_IDS.map((s) => [s, null])) },
     // まだ置いていない飾りの数。{ bench: 2, ... }(shop.js が増やす)
@@ -119,7 +119,7 @@ export function wearHat(progress, id) {
   return { ...progress, worn: { ...(progress?.worn ?? {}), hat: next } };
 }
 
-// 卓のしつらえを選ぶ。**かぶりものとまったく同じ扱い** ── 買ってあるものの
+// 盤まわりを選ぶ。**かぶりものとまったく同じ扱い** ── 買ってあるものの
 // 中から1つ、スロットごとに選ぶ。既定(値段の付いていないもの)はいつでも
 // 選べるので、買ったあとでも元の見た目に戻せる。
 // 知らない id とスロット違いは null(既定)に倒す。
@@ -575,7 +575,7 @@ function sanitizeDecor(src) {
 function sanitizeWorn(src, owned) {
   const id = typeof src?.hat === 'string' ? src.hat : null;
   const out = { hat: id && owned[id] && isWear(id) ? id : null };
-  // 卓のしつらえ。**既定は買っていなくても選べる**(値段が付いていない)
+  // 盤まわり。**既定は買っていなくても選べる**(値段が付いていない)
   for (const slot of SLOT_IDS) {
     const g = GEAR_BY_ID[typeof src?.[slot] === 'string' ? src[slot] : null];
     const ok = g && g.slot === slot && (g.price == null || owned[g.id]);

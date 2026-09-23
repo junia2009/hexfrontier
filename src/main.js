@@ -226,12 +226,12 @@ function renderSelectPanel() {
 }
 
 // 支度の画面に出す1行。**いま何を使っているかを、開かずに見せる。**
-// 「卓のしつらえ ›」だけだと、中に何があるのか・いま何なのかが分からない
+// 「盤まわり ›」だけだと、中に何があるのか・いま何なのかが分からない
 function gearLine(p) {
-  return `${SLOT_IDS.map((s) => gearOf(p, s)?.icon ?? '').join(' ')} 卓のしつらえ ›`;
+  return `${SLOT_IDS.map((s) => gearOf(p, s)?.icon ?? '').join(' ')} 盤まわり ›`;
 }
 
-// 卓のしつらえの画面。中身は持ち物の棚と同じ組み立てを使う
+// 盤まわりの画面。中身は持ち物の棚と同じ組み立てを使う
 // (買う場所と使う場所で見え方が違うと、さっき買ったものを見失う)。
 //
 // **流すのは .panel-scroll の中だけ。** `.rules-panel` は `overflow: hidden`
@@ -248,7 +248,7 @@ function renderGearPanel() {
   const keep = panel.querySelector('.panel-scroll')?.scrollTop ?? 0;
 
   setHTML(panel, `
-    <h3>🎲 卓のしつらえ</h3>
+    <h3>🎲 盤まわり</h3>
     <div class="panel-scroll">
       <div class="net-note">対戦の盤で使う見た目です。勝ち負けは変わりません。
         品は島の店で買えます。</div>
@@ -1456,7 +1456,7 @@ function afterAdmin(note) {
   if (ui) refresh();
 }
 
-// ---- 卓のしつらえ(gear.js)----
+// ---- 盤まわり(gear.js)----
 //
 // **自分の画面だけを塗り替える。** state にも部屋の名簿にも乗せない
 // ── 乗せた瞬間に「相手の盤を見にくくする品」が作れてしまう(gear.js の1つめ)。
@@ -1483,7 +1483,7 @@ function applyGear() {
   const board = gearOf(progress, 'board');
   setBoardShift(board?.shift, board?.id);
   renderer3d?.setBoardSkin(board);
-  applyNightGlow();   // 卓の灯りも「しつらえ」のひとつ
+  applyNightGlow();   // 卓の灯りも「盤まわり」のひとつ
 }
 
 // ---- 島の砂時計(空の時刻を選ぶ)----
@@ -3784,7 +3784,7 @@ document.addEventListener('click', (e) => {
       walkNote(worn ? `${item?.icon ?? ''} ${item?.name ?? ''}をかぶった` : 'かぶりものをぬいだ');
       return;
     }
-    // 卓のしつらえ。**素直に選ぶだけ**にした。
+    // 盤まわり。**素直に選ぶだけ**にした。
     // 前は「使っているものをもう一度押すと既定に戻る」隠しトグルだったが、
     // 既定(いつもの盤など)をタイルとして並べたので戻り道が画面に出ている
     // ── 隠しトグルは残しておくと「選んだのに外れた」にしかならない。
