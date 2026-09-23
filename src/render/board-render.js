@@ -875,10 +875,21 @@ function drawRoad(ctx, view, eid, pid, alpha = 1) {
   ctx.restore();
 }
 
+// コマの柄(gear.js の piece)。**屋根の形だけ**を差し替える ──
+// 胴の大きさも席の色も変えないので、開拓地と都市の見分けは崩れない。
+// 3D盤の ROOF_FORM と対になる(名前は gear.js の ROOF_SHAPES)。
+let pieceRoof = 'cone';
+export function setPieceRoof(roof) {
+  pieceRoof = roof ?? 'cone';
+}
+
 function drawBuilding(ctx, view, vid, pid, type) {
   const v = LAYOUT.vertices[vid];
   const [px, py] = toPixel(view, v.x, v.y);
   const s = view.scale * (type === 'city' ? 0.18 : 0.14);
+  // 屋根のてっぺんの高さ(s に対する割合)と、平らかどうか
+  const flat = pieceRoof === 'box';
+  const peak = pieceRoof === 'tall' ? 1.5 : 1;
 
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.45)';
@@ -895,10 +906,18 @@ function drawBuilding(ctx, view, vid, pid, type) {
 
   ctx.beginPath();
   if (type === 'city') {
-    // 都市: 塔 + 本体
+    // 都市: 塔 + 本体。屋根は塔の上だけ(本体の段差で都市だと分かる)
     ctx.moveTo(px - s, py + s * 0.95);
     ctx.lineTo(px - s, py - s * 0.55);
-    ctx.lineTo(px - s * 0.62, py - s * 1.05);
+    if (flat) {
+      // 陸屋根: 塔の上を平らに切り、少しだけ外へ張り出させる(胸壁)
+      ctx.lineTo(px - s * 1.1, py - s * 0.55);
+      ctx.lineTo(px - s * 1.1, py - s * 0.8);
+      ctx.lineTo(px - s * 0.14, py - s * 0.8);
+      ctx.lineTo(px - s * 0.14, py - s * 0.55);
+    } else {
+      ctx.lineTo(px - s * 0.62, py - s * (0.55 + 0.5 * peak));
+    }
     ctx.lineTo(px - s * 0.24, py - s * 0.55);
     ctx.lineTo(px - s * 0.24, py - s * 0.1);
     ctx.lineTo(px + s, py - s * 0.1);
@@ -907,7 +926,14 @@ function drawBuilding(ctx, view, vid, pid, type) {
     // 開拓地: 家
     ctx.moveTo(px - s, py + s * 0.9);
     ctx.lineTo(px - s, py - s * 0.15);
-    ctx.lineTo(px, py - s);
+    if (flat) {
+      ctx.lineTo(px - s * 1.15, py - s * 0.15);
+      ctx.lineTo(px - s * 1.15, py - s * 0.45);
+      ctx.lineTo(px + s * 1.15, py - s * 0.45);
+      ctx.lineTo(px + s * 1.15, py - s * 0.15);
+    } else {
+      ctx.lineTo(px, py - s * (0.15 + 0.85 * peak));
+    }
     ctx.lineTo(px + s, py - s * 0.15);
     ctx.lineTo(px + s, py + s * 0.9);
   }

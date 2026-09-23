@@ -166,8 +166,44 @@ function mat(color, opts = {}) {
 }
 
 // コマ用: 少し発色を強く(視認性優先)
-function pieceMat(color) {
-  return mat(color, { roughness: 0.55, emissive: color, emissiveIntensity: 0.12 });
+function pieceMat(color, finish = null) {
+  return mat(color, {
+    roughness: finish?.roughness ?? 0.55,
+    metalness: finish?.metalness ?? 0,
+    emissive: color,
+    emissiveIntensity: 0.12,
+  });
+}
+
+// ---- コマの柄(gear.js の piece)----
+//
+// 柄が持っているのは**屋根の形の名前**だけ(gear.js の ROOF_SHAPES)。
+// 寸法をここで読み替える ── 柄ごとの寸法を表に持たせると、
+// 「都市に見えない都市」が作れてしまう(gear.js の3つめ)。
+//
+// 数は**既定の屋根に掛ける倍率**。[横, 高さ, 奥行き] と、上下のずらし。
+// 胴と塔には掛けない ── 開拓地と都市の見分けは胴の組み立てで付いている。
+const ROOF_FORM = {
+  cone: { geo: 'cone', scale: [1, 1, 1], dy: 0 },
+  tall: { geo: 'cone', scale: [0.82, 1.75, 0.82], dy: 0.04 },
+  box: { geo: 'box', scale: [1.2, 0.42, 1.2], dy: -0.045 },
+};
+
+// 屋根1枚。既定の寸法(w, h, d)と載せる高さ y を受け取って、柄ぶん変える
+function makeRoof(color, skin, w, h, d, y) {
+  const form = ROOF_FORM[skin?.roof] ?? ROOF_FORM.cone;
+  const m = new THREE.Mesh(
+    form.geo === 'box' ? GEO.box : GEO.cone,
+    mat(color, {
+      roughness: skin?.finish?.roughness ?? 0.55,
+      metalness: skin?.finish?.metalness ?? 0,
+    }),
+  );
+  m.scale.set(w * form.scale[0], h * form.scale[1], d * form.scale[2]);
+  // 三角屋根は角を前に出す。陸屋根は辺をそろえる(回すと段差が目立つ)
+  m.rotation.y = form.geo === 'box' ? 0 : Math.PI / 4;
+  m.position.y = y + form.dy * (h / 0.16);
+  return m;
 }
 
 const PICK_MAT = new THREE.MeshBasicMaterial({
@@ -664,38 +700,34 @@ function makePirate() {
   return g;
 }
 
-function makeSettlement(pid) {
+// **胴の寸法は柄で変えない。** 変わるのは屋根の形と質感だけ ──
+// 開拓地(胴 + 屋根1つ)と都市(胴 + 塔 + 屋根2つ)の見分けは情報なので、
+// 柄で崩さない(gear.js の3つめ)。
+function makeSettlement(pid, skin = null) {
   const g = new THREE.Group();
   g.add(basePlate(pid, 0.2));
-  const body = new THREE.Mesh(GEO.box, pieceMat(PLAYER_COLORS_3D[pid]));
+  const body = new THREE.Mesh(GEO.box, pieceMat(PLAYER_COLORS_3D[pid], skin?.finish));
   body.scale.set(0.28, 0.19, 0.23);
   body.position.y = 0.125;
-  const roof = new THREE.Mesh(GEO.cone, mat(PLAYER_COLORS_DARK_3D[pid], { roughness: 0.55 }));
-  roof.scale.set(0.22, 0.16, 0.19);
-  roof.rotation.y = Math.PI / 4;
-  roof.position.y = 0.3;
+  const roof = makeRoof(PLAYER_COLORS_DARK_3D[pid], skin, 0.22, 0.16, 0.19, 0.3);
   g.add(body, roof);
   g.traverse((o) => { o.castShadow = true; });
   return g;
 }
 
-function makeCity(pid) {
+function makeCity(pid, skin = null) {
   const g = new THREE.Group();
   g.add(basePlate(pid, 0.25));
-  const base = new THREE.Mesh(GEO.box, pieceMat(PLAYER_COLORS_3D[pid]));
+  const base = new THREE.Mesh(GEO.box, pieceMat(PLAYER_COLORS_3D[pid], skin?.finish));
   base.scale.set(0.42, 0.19, 0.26);
   base.position.y = 0.125;
-  const tower = new THREE.Mesh(GEO.box, pieceMat(PLAYER_COLORS_3D[pid]));
+  const tower = new THREE.Mesh(GEO.box, pieceMat(PLAYER_COLORS_3D[pid], skin?.finish));
   tower.scale.set(0.19, 0.44, 0.23);
   tower.position.set(-0.12, 0.22, 0);
-  const roof = new THREE.Mesh(GEO.cone, mat(PLAYER_COLORS_DARK_3D[pid], { roughness: 0.55 }));
-  roof.scale.set(0.16, 0.15, 0.17);
-  roof.rotation.y = Math.PI / 4;
-  roof.position.set(-0.12, 0.51, 0);
-  const roof2 = new THREE.Mesh(GEO.cone, mat(PLAYER_COLORS_DARK_3D[pid], { roughness: 0.55 }));
-  roof2.scale.set(0.15, 0.11, 0.16);
-  roof2.rotation.y = Math.PI / 4;
-  roof2.position.set(0.1, 0.27, 0);
+  const roof = makeRoof(PLAYER_COLORS_DARK_3D[pid], skin, 0.16, 0.15, 0.17, 0.51);
+  roof.position.x = -0.12;
+  const roof2 = makeRoof(PLAYER_COLORS_DARK_3D[pid], skin, 0.15, 0.11, 0.16, 0.27);
+  roof2.position.x = 0.1;
   g.add(base, tower, roof, roof2);
   g.traverse((o) => { o.castShadow = true; });
   return g;
@@ -1545,6 +1577,8 @@ export class Board3D {
     // サイコロの柄(gear.js)。null で既定。**盤の state には入れない** ──
     // 自分の画面だけの話で、相手には届かない(gear.js の1つめ)
     this.diceSkin = null;
+    // コマの柄(gear.js)。屋根の形と質感だけ ── 席の色も胴の寸法も変えない
+    this.pieceSkin = null;
 
     // ライティング
     this.hemi = new THREE.HemisphereLight(0xcfe3ff, 0x46617a, 1.05);
@@ -1937,6 +1971,12 @@ export class Board3D {
   // 次に振ったぶんから effect する。
   setDiceSkin(skin) {
     this.diceSkin = skin?.id ? skin : null;
+  }
+
+  // コマの柄。**次に盤を組み直したときから効く** ── 駒は毎回まるごと
+  // 作り直している(dynamicGroup)ので、呼んだあとに refresh すればよい。
+  setPieceSkin(skin) {
+    this.pieceSkin = skin?.id ? skin : null;
   }
 
   nightNow(now = Date.now()) {
@@ -2529,7 +2569,9 @@ export class Board3D {
     }
 
     for (const [vid, b] of Object.entries(state.buildings)) {
-      const piece = b.type === 'city' ? makeCity(b.player) : makeSettlement(b.player);
+      const piece = b.type === 'city'
+        ? makeCity(b.player, this.pieceSkin)
+        : makeSettlement(b.player, this.pieceSkin);
       piece.position.copy(vpos(vid));
       piece.rotation.y = (hashStr(vid) % 628) / 100;
       addPiece(`bld:${vid}:${b.type}:${b.player}`, piece);

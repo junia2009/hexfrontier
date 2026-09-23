@@ -44,7 +44,7 @@ import {
   PROGRESS_CARDS, diplomatMovable, diplomatDestinations,
   deserterKnights, deserterSpots,
 } from './rules/cak/progress-cards.js';
-import { drawBoard, hexCenterOf, toPixel, PLAYER_COLORS } from './render/board-render.js';
+import { drawBoard, hexCenterOf, setPieceRoof, toPixel, PLAYER_COLORS } from './render/board-render.js';
 import { avatarSvg } from './render/avatars.js';
 import { renderHUD, RES_ICON, COM_ICON, setHumanSeat, setPlayerTitle } from './render/hud-render.js';
 import { rulesHtml } from './render/rules-content.js';
@@ -1367,6 +1367,11 @@ function applyGear() {
     css.setProperty('--die-pip', dice.pip);
   }
   if (renderer3d) renderer3d.setDiceSkin(dice);
+  // コマの柄。2D盤は輪郭、3D盤はメッシュ ── どちらも次に盤を描いた
+  // ときから効く(下の refresh がその1回)
+  const piece = gearOf(progress, 'piece');
+  setPieceRoof(piece?.roof);
+  renderer3d?.setPieceSkin(piece);
   applyNightGlow();   // 卓の灯りも「しつらえ」のひとつ
 }
 
@@ -3676,6 +3681,8 @@ document.addEventListener('click', (e) => {
       saveProgress(progress);
       applyGear();
       renderBag();
+      // コマの柄は盤を描き直さないと変わらない(2D は輪郭、3D はメッシュ)
+      if (ui) refresh();
       sfx.play('ui');
       const g = gearOf(progress, slot);
       walkNote(`${g?.icon ?? ''} ${g?.name ?? ''}にした`);

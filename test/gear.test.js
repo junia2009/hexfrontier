@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  DICE, GEAR, GEAR_BY_ID, GEAR_FOR_SALE, LIGHTS, SLOTS, SLOT_IDS,
+  DICE, GEAR, GEAR_BY_ID, GEAR_FOR_SALE, LIGHTS, PIECES, ROOF_SHAPES, SLOTS, SLOT_IDS,
   defaultGear, gearOf, isDefaultGear, isGear, slotOf,
 } from '../src/gear.js';
 import { ITEMS, ITEM_BY_ID, SHELF_BY_ID, buyItem, owns } from '../src/shop.js';
@@ -111,6 +111,7 @@ test('しつらえ: 柄はつやだけを変える。出目にも規則にも触
     'id', 'name', 'icon', 'price', 'desc', 'slot',
     'face', 'edge', 'pip', 'finish',   // サイコロ
     'glow',                             // 卓の灯り(夜の明るさ。昼には効かない)
+    'roof',                             // コマ(屋根の形の名前。寸法は持たない)
   ]);
   for (const g of GEAR) {
     for (const k of Object.keys(g)) {
@@ -151,6 +152,30 @@ test('しつらえ: 灯りは明るさだけ。盤の中身には触らない', 
     assert.equal(l.face, undefined, '灯りが盤の色を持っている');
     assert.equal(l.finish, undefined);
   }
+});
+
+// ---- コマ ----
+
+test('しつらえ: コマの柄は屋根の形の名前しか持たない', () => {
+  // **寸法を持たせない。** 柄ごとの寸法を許すと「都市に見えない都市」が
+  // 作れてしまう ── 開拓地と都市の見分けは情報(gear.js の3つめ)。
+  // 描く側(board3d / board-render)が名前を寸法に読み替える。
+  for (const p of PIECES) {
+    assert.ok(ROOF_SHAPES.includes(p.roof), `${p.name}: 知らない屋根の形 ${p.roof}`);
+    for (const k of ['scale', 'size', 'body', 'height', 'color']) {
+      assert.equal(p[k], undefined, `${p.name} が ${k} を持っている`);
+    }
+  }
+  // 既定は今までの三角屋根(買わない人の見た目が変わらない)
+  assert.equal(defaultGear('piece').roof, 'cone');
+});
+
+test('しつらえ: 屋根の形は全部使われている。名前がだぶらない', () => {
+  const used = new Set(PIECES.map((p) => p.roof));
+  for (const r of ROOF_SHAPES) {
+    assert.ok(used.has(r), `${r} の屋根を使う柄が無い(描く側だけにある形)`);
+  }
+  assert.equal(new Set(ROOF_SHAPES).size, ROOF_SHAPES.length);
 });
 
 // ---- 選ぶ ----
