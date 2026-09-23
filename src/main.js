@@ -185,6 +185,10 @@ function isHost() {
 function setScreen(s) {
   screen = s;
   document.body.dataset.screen = s;
+  // 夜の明るさは画面ごとに出どころが違う(島は石灯籠、盤は卓の灯り)。
+  // **画面が変わった後に決め直す** ── 変わる前に決めると、島を出た瞬間は
+  // まだ screen === 'walk' なので、盤に島の勘定が残る
+  applyNightGlow();
   if (ui) refresh();
 }
 
@@ -832,7 +836,10 @@ async function startWalk() {
 function exitWalk() {
   stopLocalMeet();
   endAim();
-  if (renderer3d) renderer3d.nightGlow = 0;   // 島を出たら戻す(盤には効かせない)
+  // 島の灯籠ぶんはここで落とす。**盤の灯り(卓の灯り)を入れ直すのは
+  // setScreen のほう** ── ここではまだ screen が 'walk' のままなので、
+  // applyNightGlow を呼んでも島の勘定になる
+  if (renderer3d) renderer3d.nightGlow = 0;
   if (walk?.isAiming) stopArchery();
   setWalkBook(false);
   setWalkGuide(false);
@@ -1360,6 +1367,7 @@ function applyGear() {
     css.setProperty('--die-pip', dice.pip);
   }
   if (renderer3d) renderer3d.setDiceSkin(dice);
+  applyNightGlow();   // 卓の灯りも「しつらえ」のひとつ
 }
 
 // ---- 島の砂時計(空の時刻を選ぶ)----
@@ -1388,10 +1396,17 @@ function applySkyTime() {
 // **大会のあいだは足さない。** 砂時計とまったく同じ理由で、夜の
 // 見えにくさで差が付く形にしない(灯籠そのものは光ったままで、
 // 島ぜんぶの底上げだけを止める)。
+// **対戦の盤には「卓の灯り」が効く**(gear.js の lamp)。島の灯籠とは
+// 別勘定 ── 島に何本立てても対戦の卓は明るくならないし、その逆もない。
+// 効かせる口が nightGlow の1本なので、ここで振り分ける。
 function applyNightGlow() {
   if (!renderer3d) return;
-  const live = screen === 'walk' && !walk?.contestFishing && !contestLive();
-  renderer3d.nightGlow = live ? lampGlow(walk?.decorSpecs() ?? []) : 0;
+  if (screen === 'walk') {
+    const live = !walk?.contestFishing && !contestLive();
+    renderer3d.nightGlow = live ? lampGlow(walk?.decorSpecs() ?? []) : 0;
+    return;
+  }
+  renderer3d.nightGlow = gearOf(progress, 'light')?.glow ?? 0;
 }
 
 function setSkyTime(id) {

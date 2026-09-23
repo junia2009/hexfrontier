@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  DICE, GEAR, GEAR_BY_ID, GEAR_FOR_SALE, SLOTS, SLOT_IDS,
+  DICE, GEAR, GEAR_BY_ID, GEAR_FOR_SALE, LIGHTS, SLOTS, SLOT_IDS,
   defaultGear, gearOf, isDefaultGear, isGear, slotOf,
 } from '../src/gear.js';
 import { ITEMS, ITEM_BY_ID, SHELF_BY_ID, buyItem, owns } from '../src/shop.js';
@@ -107,7 +107,11 @@ test('しつらえ: サイコロの柄は色を3つとも持っている', () =>
 test('しつらえ: 柄はつやだけを変える。出目にも規則にも触らない', () => {
   // **持っているのは見た目の値だけ。** 確率・目の数・規則に関わる名前の
   // フィールドが紛れ込んだら、それは見た目の品ではなくなっている
-  const LOOKS = new Set(['id', 'name', 'icon', 'price', 'desc', 'face', 'edge', 'pip', 'finish', 'slot']);
+  const LOOKS = new Set([
+    'id', 'name', 'icon', 'price', 'desc', 'slot',
+    'face', 'edge', 'pip', 'finish',   // サイコロ
+    'glow',                             // 卓の灯り(夜の明るさ。昼には効かない)
+  ]);
   for (const g of GEAR) {
     for (const k of Object.keys(g)) {
       assert.ok(LOOKS.has(k), `${g.name} に見た目でない値がある: ${k}`);
@@ -117,6 +121,35 @@ test('しつらえ: 柄はつやだけを変える。出目にも規則にも触
         assert.ok(['roughness', 'metalness'].includes(k), `${g.name} の finish に ${k}`);
       }
     }
+  }
+});
+
+// ---- 卓の灯り ----
+
+test('しつらえ: 灯りの既定は 0。買うほど明るくなるが、上限を超えない', () => {
+  // **既定が 0 であることが「買わないと閉まる扉を作らない」の中身** ──
+  // 灯りゼロの夜でも盤は読める、という前提でここを 0 にしてある
+  assert.equal(defaultGear('light').glow, 0, '既定の卓に灯りが点いている');
+  const paid = LIGHTS.filter((l) => l.price != null);
+  assert.ok(paid.length >= 2, '明るさの段が1つしかない');
+  for (const l of LIGHTS) {
+    assert.ok(l.glow >= 0 && l.glow <= 1, `${l.name} の glow が ${l.glow}(0〜1 の外)`);
+  }
+  // 値段の高いほうが明るい(安いほうが明るいと、高いものを買う理由が消える)
+  const sorted = [...paid].sort((a, b) => a.price - b.price);
+  for (let i = 1; i < sorted.length; i += 1) {
+    assert.ok(sorted[i].glow > sorted[i - 1].glow,
+      `${sorted[i].name} は ${sorted[i - 1].name} より高いのに明るくない`);
+  }
+});
+
+test('しつらえ: 灯りは明るさだけ。盤の中身には触らない', () => {
+  // glow は board3d が night を掛けて使う値。**昼には効かない**という
+  // 決めごとは board3d 側にあるので、ここでは「明るさ以外を持たない」を見る
+  for (const l of LIGHTS) {
+    assert.equal(typeof l.glow, 'number');
+    assert.equal(l.face, undefined, '灯りが盤の色を持っている');
+    assert.equal(l.finish, undefined);
   }
 });
 

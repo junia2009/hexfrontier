@@ -277,7 +277,10 @@ test('店の画面: 選んだ棚の品だけが出る', () => {
     for (const other of SHELVES) {
       if (other.id === s.id) continue;
       for (const item of other.items) {
-        assert.equal(html.includes(`shop-buy:${item.id}`), false,
+        // **引用符まで入れて探す。** `shop-buy:lamp` だけで探すと
+        // `shop-buy:lamp-candle` の頭に当たって、出ていないものを
+        // 「出ている」と言う(実際に誤報した。id の頭が重なったとき)
+        assert.equal(html.includes(`shop-buy:${item.id}"`), false,
           `${s.id} の棚に ${item.id}(${other.id} の棚)が出ている`);
       }
     }
