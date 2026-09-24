@@ -738,7 +738,7 @@ const fishBeats = [
   },
   {
     say: (s) => `魚は手札の外に置かれます ── いまの手持ちは${fishCount(s.players[P])}匹。`
-      + '**7を出しても盗賊にも取られません。**',
+      + '7を出しても盗賊にも取られません。',
     hold: 1600,
   },
   {
@@ -774,7 +774,7 @@ const fishBeats = [
     hold: 1600,
   },
   {
-    say: '持っている間は、**勝つのに必要な点が1点増えます**(10点なら11点)。',
+    say: '持っている間は、勝つのに必要な点が1点増えます(10点なら11点)。',
     hold: 1600,
   },
   {
@@ -845,7 +845,7 @@ const seaBeats = [
     hold: 1400,
   },
   {
-    say: '「✓ 確定」で進水。道と船はつながりますが、**乗り継げるのは自分の開拓地・都市の上でだけ**です。',
+    say: '「✓ 確定」で進水。道と船はつながりますが、乗り継げるのは自分の開拓地・都市の上でだけです。',
     tap: () => ({ btn: 'confirm' }),
     action: (s, ui) => ({ type: 'BUILD_SHIP', player: P, edgeId: ui.pending?.edgeId }),
     hold: 1800,
@@ -866,7 +866,7 @@ const seaBeats = [
     hold: 800,
   },
   {
-    say: '⛵ 船は動かせます ── 動かせるのは**開いた航路の先端**にある船で、1手番に1隻だけ。',
+    say: '⛵ 船は動かせます ── 動かせるのは開いた航路の先端にある船で、1手番に1隻だけ。',
     hold: 1800,
   },
   {
@@ -880,12 +880,12 @@ const seaBeats = [
     hold: 2000,
   },
   {
-    say: '🏝 本島以外の島に**初めて開拓地を建てると +2点**。島ごとに1回なので、渡る価値があります。',
+    say: '🏝 本島以外の島に初めて開拓地を建てると +2点。島ごとに1回なので、渡る価値があります。',
     hold: 1800,
   },
   {
     cut: { id: 'sea-pirate', title: '海賊と金鉱', lead: '7で盗賊か海賊・好きな資源を産む土地' },
-    say: '🏴 海には海賊がいます。7を出したとき、陸の盗賊と海の海賊の**どちらか一方**を動かします。',
+    say: '🏴 海には海賊がいます。7を出したとき、陸の盗賊と海の海賊のどちらか一方を動かします。',
     // **字幕だけの章にしない。** 実際に7を振って海賊を動かすところまで見せる
     // (テストが「指も手も出ない章」を弾いてくれた)
     prep: (s) => { cutToTurn(s); tidyHandsForSeven(s); forceRoll(s, [3, 4]); },
@@ -1011,6 +1011,83 @@ const islandBeats = [
   },
 ];
 
+
+// 見張り塔を建てられる自分の建物(良い土地に接しているところを選ぶ)
+const pickTower = (state) => pickBest(
+  Object.keys(state.buildings).filter(
+    (vid) => validateAction(state, { type: 'BUILD_TOWER', player: P, vertexId: vid }) === null,
+  ),
+  (vid) => vertexValue(state, vid),
+);
+
+// ---- ドラゴンの島 ----
+//
+// 盗賊がドラゴンに置き換わる。**ゾロ目で暴走する**のがこのモードの芯で、
+// 見張り塔はそれに備える建物。ゾロ目は偶数なので、7(捨て札)とは同時に起きない。
+const dragonBeats = [
+  {
+    say: '🐉「ドラゴンの島」は、盗賊のかわりにドラゴンがいます。巣はいちばん出目の良い山です。',
+    prep: (s) => forceRoll(s, bestRollFor(s, P)),
+    hold: 1800,
+  },
+  {
+    say: '🎲 いる土地の産出を止めるのは盗賊と同じ。7が出たら、行き先を選んで動かします。',
+    tap: () => ({ btn: 'roll' }),
+    action: () => ({ type: 'ROLL_DICE', player: P }),
+    hold: 2000,
+  },
+  {
+    say: 'これがドラゴンのいる土地。ここは資源を産みません ── 巣にしているあいだは、ずっと止まったままです。',
+    tap: (s) => ({ hex: s.board.robber }),
+    hold: 2200,
+  },
+  {
+    cut: { id: 'dragon-rampage', title: 'ドラゴンの暴走', lead: 'ゾロ目で飛び立ち、8手番のあいだ炎上' },
+    say: '🐉 ここからが本番。ゾロ目が出ると暴走します(6回に1回)。',
+    // ゾロ目は偶数なので7にならない ── 捨て札と暴走は同時に起きない
+    prep: (s) => { cutToTurn(s); tidyHandsForSeven(s); forceRoll(s, [4, 4]); },
+    tap: () => ({ btn: 'roll' }),
+    action: () => ({ type: 'ROLL_DICE', player: P }),
+    hold: 2400,
+  },
+  {
+    say: '資源を配ったあと、ドラゴンがいちばん美味しい土地(出目 × 建物、都市は2倍)へ飛びます。',
+    hold: 2200,
+  },
+  {
+    say: '🔥 そこは8手番のあいだ炎上 ── 産出が止まり、隣り合う人は手札から1枚失います。',
+    hold: 2200,
+  },
+  {
+    cut: { id: 'dragon-tower', title: '見張り塔と財宝', lead: '襲撃を撃退して、点に変える' },
+    say: '🗼 備えが見張り塔。🪵1 🧱1 🪨1 で、自分の開拓地・都市の上に建てます(1人2基まで)。',
+    prep: (s) => ensure(s, P, { wood: 1, brick: 1, ore: 1 }),
+    tap: () => ({ btn: 'mode:tower' }),
+    ui: () => ({ mode: 'build-tower' }),
+    hold: 2000,
+  },
+  {
+    say: '建てられる自分の建物が光ります。守りたい土地の隣を選びます。',
+    tap: (s) => ({ vertex: pickTower(s) }),
+    ui: (s) => ({ pending: { vertexId: pickTower(s) } }),
+    hold: 1400,
+  },
+  {
+    say: '「✓ 確定」で完成。',
+    tap: () => ({ btn: 'confirm' }),
+    action: (s, ui) => ({ type: 'BUILD_TOWER', player: P, vertexId: ui.pending?.vertexId }),
+    hold: 1400,
+  },
+  {
+    say: '🏆 塔が炎上した土地の隣にあれば、略奪を防いだうえ財宝がもらえます ── 1個で +1点と資源1枚。',
+    hold: 2400,
+  },
+  {
+    say: '財宝は最後まで失われません。勝利は12点 ── 暴走をどう受けるかが、そのまま点差になります。',
+    hold: 1800,
+  },
+];
+
 // ---- 節と章 ----
 //
 // **1本を短くする。** 前は3本で 61 / 182 / 114 秒あり、「基本の手番」の
@@ -1055,6 +1132,12 @@ export const DEMO_SECTIONS = [
     lead: '商品・都市改良・騎士・蛮族の襲来',
   },
   {
+    id: 'dragon',
+    icon: '🐉',
+    title: 'ドラゴンの島',
+    lead: '暴走と炎上・見張り塔・財宝',
+  },
+  {
     id: 'fish',
     icon: '🐟',
     title: '漁師たち',
@@ -1082,6 +1165,9 @@ export const DEMO_CHAPTERS = [
   }),
   ...cutInto('base', 'base', basicBeats),
   ...cutInto('cak', 'cak', cakBeats),
+  ...cutInto('dragon', 'dragon', dragonBeats, {
+    first: { id: 'dragon-nest', title: 'ドラゴンの巣', lead: '盗賊のかわりに、島にドラゴンがいる' },
+  }),
   ...cutInto('fish', 'fish', fishBeats, {
     first: { id: 'fish-catch', title: '湖と漁場で魚をとる', lead: '砂漠が湖に、海岸に漁場が並ぶ' },
   }),

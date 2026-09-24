@@ -191,8 +191,9 @@ function setupHtml() {
   <p>「人だけ」を選ぶと2人でも3人でも、集まった人数でそのまま対戦します。</p>`;
 }
 
-function dragonHtml() {
+function dragonHtml(demo) {
   return `
+  ${demo ? demoCta('dragon-nest', 'ドラゴンの島を動画で見る', '暴走と炎上・見張り塔・財宝') : ''}
   <h4>🐉 ドラゴンの島とは</h4>
   <p>基本ルールをベースにした<b>このアプリだけのオリジナルルール</b>。
   島にドラゴンが棲みつき、盗賊の代わりに暴れまわります。勝利点は<b>12点</b>。</p>
@@ -222,8 +223,9 @@ function dragonHtml() {
   騎士カードでドラゴンを追い払うのは冒険者の腕の見せどころ。</p>`;
 }
 
-function fishHtml() {
+function fishHtml(demo) {
   return `
+  ${demo ? demoCta('fish-catch', '漁師たちを動画で見る', '湖と漁場・魚の使い道・古い靴') : ''}
   <h4>🐟 漁師たちとは</h4>
   <p>基本ルールに<b>魚</b>を足した公式の小拡張。勝利点は基本と同じ<b>10点</b>です。
   砂漠が<b>湖</b>になり、港のない海岸に<b>漁場</b>が6か所できます。</p>
@@ -256,8 +258,9 @@ function fishHtml() {
   湖からは資源が出ないので、湖のまわりは<b>魚だけが目当ての土地</b>になります。</p>`;
 }
 
-function seaHtml() {
+function seaHtml(demo) {
   return `
+  ${demo ? demoCta('sea-ship', '航海者たちを動画で見る', '船・航路・新しい島・海賊') : ''}
   <h4>⛵ 航海者たちとは</h4>
   <p>基本ルールに<b>海と船</b>を足した公式拡張。勝利点は<b>13点</b>。
   盤がぐっと広くなり、<b>本島19マス</b>(基本の盤と同じ形)のまわりの海に
@@ -308,9 +311,9 @@ export function rulesHtml(tab = 'basic', { demo = true } = {}) {
   const body =
     tab === 'cak' ? cakHtml(demo)
     : tab === 'cards' ? cardsHtml()
-    : tab === 'dragon' ? dragonHtml()
-    : tab === 'fish' ? fishHtml()
-    : tab === 'sea' ? seaHtml()
+    : tab === 'dragon' ? dragonHtml(demo)
+    : tab === 'fish' ? fishHtml(demo)
+    : tab === 'sea' ? seaHtml(demo)
     : tab === 'meets' ? meetsGuideHtml()
     : tab === 'setup' ? setupHtml()
     : basicHtml(demo);

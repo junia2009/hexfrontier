@@ -19,6 +19,7 @@ import {
   bestRollFor, buildDemoState, chapterSeconds, DEMO_PLAYER, stackDevDeck,
 } from '../src/demo/scenario.js';
 import { LAYOUT } from '../src/rules/board.js';
+import { MODE_IDS as MODES } from '../src/state.js';
 import { demoIndexHtml, lengthLabel } from '../src/render/demo-index.js';
 
 function conservation(s, where) {
@@ -279,6 +280,54 @@ test('デモ: 尺の表記は、1分を超えたら分で言う', () => {
     const t = lengthLabel(n);
     assert.ok(!/分60秒/.test(t), `${n}秒 → ${t}(秒が60になっている)`);
     assert.match(t, /^約(\d+分(\d+秒)?|\d+秒)$/, `${n}秒 → ${t}`);
+  }
+});
+
+
+// **モードを丸ごと忘れる、が実際に起きた。** 節を5つ作って「体系的に
+// 整理した」つもりでいたら、遊べるモードの1つ(ドラゴンの島)に短編が
+// 1本も無かった ── 指摘されるまで気づけなかった。
+// 遊べるモードと、短編のある節を突き合わせる。
+test('デモ: 遊べるモード全部に、短編が1本はある', () => {
+  const covered = new Set(DEMO_CHAPTERS.filter((c) => !c.island).map((c) => c.mode));
+  for (const m of MODES) {
+    assert.ok(covered.has(m), `モード「${m}」の短編が1本も無い`);
+  }
+  assert.ok(MODES.length >= 5, `モードを ${MODES.length} 個しか見ていない(探し方が壊れている)`);
+});
+
+test('デモ: ドラゴンの短編が、暴走と見張り塔を実際に見せている', () => {
+  const ram = dryRun(findChapter('dragon-rampage')).state;
+  assert.ok(ram.log.some((l) => l.includes('暴走')), '暴走が起きていない');
+  assert.ok(ram.log.some((l) => l.includes('焼かれ')), '略奪が起きていない');
+
+  const tw = dryRun(findChapter('dragon-tower')).state;
+  assert.ok(Object.values(tw.towers).includes(DEMO_PLAYER), '見張り塔が建っていない');
+});
+
+
+// **字幕は素のテキスト。** `**強調**` と書いても、そのまま
+// 「**いちばん美味しい土地**」とアスタリスクごと画面に出る
+// ── 実機で見つけた(driver.js の #caption は textContent)。
+// 台本に書き慣れた記法が混ざるので、機械で見張る。
+test('デモ: 字幕に、そのまま出てしまう記法が混ざっていない', () => {
+  const src = readFileSync(new URL('../src/demo/script.js', import.meta.url), 'utf8');
+  let checked = 0;
+  for (const line of src.split('\n')) {
+    if (!/^\s*(say:|\+ ')/.test(line)) continue;
+    checked += 1;
+    assert.ok(!line.includes('**'), `字幕に ** が残っている:\n  ${line.trim()}`);
+    assert.ok(!/`[^`]+`/.test(line.replace(/`$/, '')) || line.includes('${'),
+      `字幕にバッククォートの強調が残っている:\n  ${line.trim()}`);
+  }
+  assert.ok(checked > 60, `字幕を ${checked} 行しか見ていない(探し方が壊れている)`);
+
+  // 実際に組み立てた字幕でも確かめる(関数の字幕も通す)
+  for (const ch of DEMO_CHAPTERS) {
+    for (const [i, b] of ch.beats.entries()) {
+      if (typeof b.say !== 'string') continue;
+      assert.ok(!b.say.includes('**'), `${ch.id}[${i}]: ${b.say}`);
+    }
   }
 });
 
