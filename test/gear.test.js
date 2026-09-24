@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  boardTop,
   BOARDS, DICE, GEAR, GEAR_BY_ID, GEAR_FOR_SALE, LIGHTS, PIECES, ROOF_SHAPES, SLOTS, SLOT_IDS,
   hexToNum, numToHex, tintHex,
   defaultGear, gearOf, isDefaultGear, isGear, slotOf,
@@ -114,7 +115,8 @@ test('盤まわり: 柄はつやだけを変える。出目にも規則にも触
     'face', 'edge', 'pip', 'finish',   // サイコロ
     'glow',                             // 卓の灯り(夜の明るさ。昼には効かない)
     'roof',                             // コマ(屋根の形の名前。寸法は持たない)
-    'shift',                            // 盤(色相・彩度・明度のずらし)
+    'shift',                            // 盤(色相・彩度・明度のずらし。飾りの色づけ用)
+    'palette',                          // 盤(地形ごとの色。**読めるかは下限で測る**)
   ]);
   for (const g of GEAR) {
     for (const k of Object.keys(g)) {
@@ -216,15 +218,18 @@ function colorDist(a, b) {
 }
 
 // 既定の盤でいちばん近い2つの地形の隔たり。ここを下回らせない
-function closestPair(shift) {
+// **柄そのものを渡す。** 変換(shift)だけを測ってはいけない ── 柄は
+// 地形ごとの色(palette)を持てるので、shift を測ると**盤に出ていない色**を
+// 見張ることになる。盤が使うのと同じ boardTop を通す
+function closestPair(skin) {
   const keys = Object.keys(TERRAIN_SAMPLE);
   let min = Infinity;
   let pair = null;
   for (let i = 0; i < keys.length; i += 1) {
     for (let j = i + 1; j < keys.length; j += 1) {
       const d = colorDist(
-        tintHex(TERRAIN_SAMPLE[keys[i]], shift),
-        tintHex(TERRAIN_SAMPLE[keys[j]], shift),
+        boardTop(keys[i], TERRAIN_SAMPLE[keys[i]], skin),
+        boardTop(keys[j], TERRAIN_SAMPLE[keys[j]], skin),
       );
       if (d < min) { min = d; pair = [keys[i], keys[j]]; }
     }
@@ -238,7 +243,7 @@ test('盤の柄: 地形どうしの見分けが、既定より大きく落ちな
   // ときに既定だけ通って柄が落ちる ── 比べる相手は既定にする
   const floor = base.min * 0.8;
   for (const b of BOARDS) {
-    const got = closestPair(b.shift);
+    const got = closestPair(b);
     assert.ok(got.min >= floor,
       `${b.name}: いちばん近い ${got.pair?.join('と')} が ${got.min.toFixed(1)}`
       + `(既定は ${base.pair?.join('と')} の ${base.min.toFixed(1)}、下限 ${floor.toFixed(1)})`);
@@ -252,7 +257,7 @@ test('盤の柄: どの柄でも、数字トークンが地形から浮く', () 
   const floor = base * 0.8;
   for (const b of BOARDS) {
     for (const [name, col] of Object.entries(TERRAIN_SAMPLE)) {
-      const d = colorDist(TOKEN_FACE, tintHex(col, b.shift));
+      const d = colorDist(TOKEN_FACE, boardTop(name, col, b));
       assert.ok(d >= floor,
         `${b.name}: ${name} の上で円盤が ${d.toFixed(1)}(既定の最小 ${base.toFixed(1)}、下限 ${floor.toFixed(1)})`);
     }

@@ -1577,6 +1577,9 @@
     text-align: left; font-size: 12.5px; line-height: 1.25;
     background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 9px; color: inherit;
+    /* **格子の子は既定で「中身より小さくなれない」**(min-width: auto)。
+       札が縮めずに列を押し広げて、10px はみ出していた ── 横に巻ける原因 */
+    min-width: 0;
   }
   /* 選んでいるものは枠で示す。**色だけに頼らない** ── 印(✓)も付ける */
   .gear-tile.sel {
@@ -1587,7 +1590,7 @@
      柄の差(いちばん見せたいもの)が潰れた ── 実機で見て上げた */
   .gear-tile .gsw { width: 38px; height: 38px; flex: 0 0 38px; }
   .gear-emoji { font-size: 24px; flex: 0 0 38px; text-align: center; }
-  .gear-cap { flex: 1 1 auto; }
+  .gear-cap { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
   /* 選んでいるものの説明。**枠に属していることを見せる** ── ただ下に
      置いたら、次の枠の見出しの真上に来て、どちらの説明か分からなかった */
   .gear-now {
@@ -1678,6 +1681,14 @@
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    /* **overflow-x を書かないと auto になる。** 片方を visible 以外にすると
+       もう片方も auto に倒れる、という CSS の決まりがあって、中身が1pxでも
+       はみ出すと横に巻けてしまう ── 実機で「横にもぶよぶよ動いて気持ち悪い」
+       と言われた(盤まわりの札が 10px はみ出していた)。
+       **流すのは縦だけ。** 全部のパネルで横の巻ける量を測って、
+       ここを塞いで困る画面が1つも無いことを確かめてある
+       (test/panel-scroll.test.js が、この宣言ごと見張っている)。 */
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     padding-right: 4px;
   }

@@ -147,4 +147,9 @@ test('パネル: 器の決めごとが CSS 側で崩れていない', () => {
     'panel-scroll が流れなくなった');
   assert.match(css, /\.rules-panel > \.panel-scroll \{[^}]*min-height: 0/,
     'min-height: 0 が消えた ── フレックスの子が縮めず、パネルごと伸びる');
+  // **片方だけ指定すると、もう片方も auto に倒れる。** 横に巻けるようになり、
+  // 実機で「横にもぶよぶよ動く」になった。塞いで困る画面が無いことは
+  // 全パネルの実測で確かめてある(流すのは縦だけ)
+  assert.match(css, /\.rules-panel > \.panel-scroll \{[^}]*overflow-x: hidden/,
+    'overflow-x を塞いでいない ── 書かないと auto になり、横に巻けてしまう');
 });

@@ -10,11 +10,11 @@
 // gear.js が色と形を持ち、ここが SVG に読み替える ── hats.js と
 // body.js の関係と同じで、node のテストから中身を直に測れる。
 //
-// **見本は本物と同じ変換を通す。** 盤の見本は board-render.js の
-// TERRAIN_STYLE に gear.js の tintHex を掛けて作る ── 別表に色を
-// 書き写すと、柄を足したときに見本だけ古い色のまま残る。
+// **見本は本物と同じ出どころを通す。** 盤の見本は board-render.js の
+// TERRAIN_STYLE を gear.js の boardTop に通して作る(2D盤・3D盤と同じ関数)
+// ── 別表に色を書き写すと、柄を足したときに見本だけ古い色のまま残る。
 
-import { GEAR_BY_ID, ROOF_SHAPES, tintHex } from '../gear.js';
+import { GEAR_BY_ID, ROOF_SHAPES, boardTop } from '../gear.js';
 import { TERRAIN_STYLE } from './board-render.js';
 
 // 盤の見本に出す地形。**6つに絞る。**
@@ -45,7 +45,7 @@ function boardSwatch(item) {
     const row = Math.floor(i / 3);
     const cx = R + col * dx;
     const cy = R * Math.sqrt(3) / 2 + row * dy + (col % 2) * (dy / 2);
-    const fill = tintHex(TERRAIN_STYLE[t].top, item.shift);
+    const fill = boardTop(t, TERRAIN_STYLE[t].top, item);
     return `<polygon points="${hexPoints(cx, cy, R)}" fill="${fill}"/>`;
   }).join('');
   return `<svg class="gsw" viewBox="0 0 28 25" aria-hidden="true">${cells}</svg>`;

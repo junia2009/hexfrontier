@@ -12,7 +12,7 @@ import {
   ROOFS_COVERED, SWATCH_ROOFS, SWATCH_TERRAINS, gearSwatch,
 } from '../src/render/gear-swatch.js';
 import {
-  BOARDS, DICE, GEAR, LIGHTS, PIECES, ROOF_SHAPES, SLOTS, tintHex,
+  BOARDS, DICE, GEAR, LIGHTS, PIECES, ROOF_SHAPES, SLOTS, boardTop,
 } from '../src/gear.js';
 import { TERRAIN_STYLE } from '../src/render/board-render.js';
 import { bagHtml, gearPanelHtml, shopHtml } from '../src/render/records.js';
@@ -44,7 +44,9 @@ test('見本: 盤の見本は、本物と同じ変換を通っている', () => 
   // 見本だけ古い色で残る ── 目で見て気づけない類のずれ
   for (const b of BOARDS) {
     const got = colorsIn(gearSwatch(b.id));
-    const want = SWATCH_TERRAINS.map((t) => tintHex(TERRAIN_STYLE[t].top, b.shift).toLowerCase());
+    // **盤が使うのと同じ関数を通す。** 柄は地形ごとの色を持てるので、
+    // 変換(shift)で照合すると盤に出ていない色を確かめることになる
+    const want = SWATCH_TERRAINS.map((t) => boardTop(t, TERRAIN_STYLE[t].top, b).toLowerCase());
     assert.deepEqual(got, want, `${b.name} の見本の色が本物とちがう`);
   }
 });
@@ -172,7 +174,8 @@ test('盤まわり: いま使っているものに印が付き、選ぶと移る
   // 印は1枠に1つだけ
   assert.equal((after.match(/gear-tile sel/g) ?? []).length, SLOTS.length);
   // 選んでいるものの説明が出る
-  assert.ok(after.includes('夕日に焼けた色合い'), '選んだ品の説明が出ていない');
+  assert.ok(after.includes(BOARDS.find((b) => b.id === 'board-dusk').desc),
+    '選んだ品の説明が出ていない');
 });
 
 test('盤まわり: 「店で買えます」は、既定しか無い枠にだけ出る', () => {

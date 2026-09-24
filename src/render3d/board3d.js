@@ -18,7 +18,7 @@ import { BARBARIAN_TRACK_LENGTH as BARB_TRACK } from '../rules/cak/barbarians.js
 import {
   TILE_TOP, SEA_Y, CAP_PARAMS, CAP_N, capCorners, capVertexHeight, capHeight, coordHash, boardScale,
 } from '../terrain.js';
-import { tintColor } from '../gear.js';
+import { boardTopNum, tintColor } from '../gear.js';
 // 構図を取り直すかどうかの判断は、描画から切り離して試せるようにしてある
 import { isPortrait, needsRefit } from '../view-fit.js';
 // 描画ループで例外が出たときの共通の出口
@@ -2428,9 +2428,11 @@ export class Board3D {
       beach.receiveShadow = true;
       this.staticGroup.add(beach);
 
-      // 盤の柄(gear.js の board)。タイルの側面と地表を同じ変換でずらす
+      // 盤の柄(gear.js の board)。柄が色を持っていればその色、無ければ変換
+      // ── 2D盤・見本と同じ1本の出どころを通す
       const shift = this.boardSkin?.shift ?? null;
-      const tile = new THREE.Mesh(GEO.tile, mat(tintColor(TERRAIN_COLORS[hex.terrain], shift)));
+      const tile = new THREE.Mesh(GEO.tile,
+        mat(boardTopNum(hex.terrain, TERRAIN_COLORS[hex.terrain], this.boardSkin)));
       tile.position.set(c.x, 0.06, c.y);
       tile.receiveShadow = true;
       tile.castShadow = true;

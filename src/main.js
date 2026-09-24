@@ -50,7 +50,7 @@ import {
   PROGRESS_CARDS, diplomatMovable, diplomatDestinations,
   deserterKnights, deserterSpots,
 } from './rules/cak/progress-cards.js';
-import { drawBoard, hexCenterOf, setBoardShift, setPieceRoof, toPixel, PLAYER_COLORS } from './render/board-render.js';
+import { drawBoard, hexCenterOf, setBoardSkin, setPieceRoof, toPixel, PLAYER_COLORS } from './render/board-render.js';
 import { avatarSvg } from './render/avatars.js';
 import { renderHUD, RES_ICON, COM_ICON, setHumanSeat, setPlayerTitle } from './render/hud-render.js';
 import { rulesHtml } from './render/rules-content.js';
@@ -1481,7 +1481,7 @@ function applyGear() {
   // 盤の柄。2D も 3D も静的レイヤーを焼いて使い回しているので、
   // **柄を鍵に入れて**組み直させる(入れないと古い色のまま残る)
   const board = gearOf(progress, 'board');
-  setBoardShift(board?.shift, board?.id);
+  setBoardSkin(board);
   renderer3d?.setBoardSkin(board);
   applyNightGlow();   // 卓の灯りも「盤まわり」のひとつ
 }
@@ -4501,6 +4501,15 @@ window.hexDebug = {
   // 島の掲示板(E2E 用)。今日の依頼と進み具合、手持ちの銀貨
   getQuests: () => questBoard(progress),
   getCoins: () => ({ coins: progress.coins ?? 0, earned: progress.coinsEarned ?? 0 }),
+  // 盤まわり(E2E 用)。**対戦中は選ぶ画面が出ていない**ので、盤を見ながら
+  // 柄を切り替えるにはここが要る(柄ごとの見えかたを撮って比べるのに使う)
+  setGear: (slot, id) => {
+    progress = useGear(progress, slot, id);
+    saveProgress(progress);
+    applyGear();
+    if (ui) refresh();
+    return gearOf(progress, slot)?.id ?? null;
+  },
   hexCenter: (hid) => walk?.hexCenter(hid) ?? null,
   // 散策部屋(E2E 用): いま見えている他の人
   getWalkPeers: () => walk?.remote.sample() ?? [],

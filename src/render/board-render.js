@@ -4,7 +4,7 @@
 // 動的レイヤー(盗賊・道・建物・ハイライト)を毎回上描きする。
 
 import { LAYOUT, PIPS, LAKE_NUMBERS, boardVertexIds } from '../rules/board.js';
-import { tintHex } from '../gear.js';
+import { boardBottom, boardTop } from '../gear.js';
 
 export const PLAYER_COLORS = ['#e04848', '#3d7dd8', '#f0973c', '#9d5fd8'];
 export const PLAYER_COLORS_DARK = ['#9c2626', '#22508f', '#b3651a', '#6a3a99'];
@@ -380,10 +380,11 @@ function drawHexTile(ctx, view, hid, terrain) {
   const [cx, cy] = toPixel(view, c.x, c.y);
   const st = TERRAIN_STYLE[terrain];
   const g = ctx.createLinearGradient(cx, cy - view.scale, cx, cy + view.scale);
-  // 盤の柄(gear.js の board)。**色の変換は1本**なので、2D盤・3D盤・地表が
-  // 食い違わない。既定(shift = null)なら 1バイトも変わらない
-  g.addColorStop(0, tintHex(st.top, boardShift));
-  g.addColorStop(1, tintHex(st.bottom, boardShift));
+  // 盤の柄(gear.js の board)。**色の出どころは1本**(boardTop / boardBottom)
+  // なので、2D盤・3D盤・見本が食い違わない。柄が色を持っていればその色、
+  // 無ければ変換。既定なら 1バイトも変わらない
+  g.addColorStop(0, boardTop(terrain, st.top, boardSkin));
+  g.addColorStop(1, boardBottom(terrain, st.bottom, boardSkin));
   hexPath(ctx, view, hid, 0.985);
   ctx.fillStyle = g;
   ctx.fill();
@@ -886,14 +887,15 @@ export function setPieceRoof(roof) {
   pieceRoof = roof ?? 'cone';
 }
 
-// 盤の柄(gear.js の board)。地形の色をまとめてずらす変換。
+// 盤の柄(gear.js の board)。**柄そのものを持つ** ── 柄は地形ごとの色
+// (palette)を持つことがあり、変換(shift)だけでは足りない。
 // **静的レイヤーのキャッシュ鍵に入れること** ── 海と地形は1枚に焼いて
 // 使い回しているので、鍵に入れないと柄を変えても古い絵が出たままになる。
-let boardShift = null;
+let boardSkin = null;
 let boardShiftKey = 'default';
-export function setBoardShift(shift, id = 'default') {
-  boardShift = shift ?? null;
-  boardShiftKey = id;
+export function setBoardSkin(skin) {
+  boardSkin = skin ?? null;
+  boardShiftKey = skin?.id ?? 'default';
 }
 
 function drawBuilding(ctx, view, vid, pid, type) {
