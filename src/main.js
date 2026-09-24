@@ -3700,8 +3700,19 @@ function walkStickHide() {
   walk?.setStick(0, 0);
 }
 
+// 島の入力を受けてよいか。
+//
+// **デモの再生中は受けない。** 遮蔽の板(.demo-shield)は画面を覆うが、
+// 島のなぞりは window に繋がっていて板を素通りする ── 実測で、再生中に
+// 画面をなぞると人が 1.84 動いた。「見せてほしいのに操作する感じになる」
+// と言われたのがこれ。板はボタンを覆うので、押すほうは元々止まっている。
+//
+// **台本の操作は素通しでよい。** demoHost は要素へ直に dispatch するか
+// walk の API を呼ぶので、ここを通らない。
+const islandInputOff = () => demoRunning;
+
 function walkPointerDown(e) {
-  if (!walk || walkBookOpen) return;
+  if (!walk || walkBookOpen || islandInputOff()) return;
   // ボタンの上で始まったなぞりは、移動にも視点にも使わない
   // (ジャンプや「もどる」を押しただけで視点が回ってしまう)
   if (e.target.closest('button')) return;
@@ -3730,6 +3741,7 @@ function walkPointerDown(e) {
 }
 
 function walkPointerMove(e) {
+  if (islandInputOff()) return;
   if (!walk) return;
   const m = walkTouch.move;
   if (m && m.id === e.pointerId) {
@@ -3797,7 +3809,7 @@ for (const ev of ['pointerup', 'pointercancel']) {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (!walk) return;
+  if (!walk || islandInputOff()) return;
   // Escape は手前のものから閉じる: 図鑑 → 竿 → 島
   if (e.code === 'Escape') {
     if (walkBookOpen) setWalkBook(false);

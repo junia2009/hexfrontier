@@ -406,6 +406,36 @@ test('デモ: 終わるときも始めるときも、島を畳んでいる', () 
   assert.ok(!/setScreen\(/.test(code(body('disposeWalk'))), 'disposeWalk が画面を動かしている');
 });
 
+
+// **見せる動画なのに、触ると動いてしまった。** 遮蔽の板(.demo-shield)は
+// 画面を覆うが、島のなぞりは window に繋がっていて板を素通りする ──
+// 実測で、再生中に画面をなぞると人が 1.84 動いた(塞いだあとは 0.00)。
+// ブラウザ無しでは動かせないので、**見ていることを構造で確かめる**。
+test('デモ: 再生中は、島の入力を受け付けない', () => {
+  const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(src, /const islandInputOff = \(\) => demoRunning;/,
+    '再生中かどうかを見る口が無い');
+  // なぞり(移動・視点)と鍵盤が、その口を通っていること
+  for (const fn of ['walkPointerDown', 'walkPointerMove']) {
+    const at = src.indexOf(`function ${fn}(`);
+    assert.ok(at >= 0, `${fn} が無い`);
+    assert.match(src.slice(at, at + 300), /islandInputOff\(\)/, `${fn} が素通し`);
+  }
+  const down = src.indexOf("window.addEventListener('keydown'");
+  assert.ok(down >= 0, '鍵盤の口が無い');
+  assert.match(src.slice(down, down + 200), /islandInputOff\(\)/, '鍵盤(押す)が素通し');
+
+  // **塞ぎすぎない。離す合図は通す。** 指も鍵も、離したことを伝える口を
+  // 止めると「押しっぱなし」が残る(再生が始まる前に押していた指・キーが
+  // 解放されなくなる)
+  const up = src.indexOf('function walkPointerUp(');
+  assert.ok(!/islandInputOff\(\)/.test(src.slice(up, up + 200)),
+    'walkPointerUp まで止めている(離した指が解放されなくなる)');
+  const kup = src.indexOf("window.addEventListener('keyup'");
+  assert.ok(!/islandInputOff\(\)/.test(src.slice(kup, kup + 200)),
+    'keyup まで止めている(押しっぱなしが残る)');
+});
+
 // ---- 台本が使う仕込みの部品 ----
 //
 // script.js から間接的にしか呼ばれていなかったので、境界がどこも押さえられて
