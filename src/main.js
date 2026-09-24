@@ -853,6 +853,9 @@ async function startDemo(chapterId, from = 'title') {
   clearTimeout(cpuTimer);
   demoRunning = true;
   setSeat(0);
+  // 前の章の島が残っていたら、ここでも畳む ── 一覧から直に別の章へ
+  // 飛んだときなど、endDemo を通らない道があるため(二重に畳んでも無害)
+  if (walk) disposeWalk();
   if (demoChapter.island) {
     // 島の章は盤を作らない。**実物の島にそのまま入る**
     walkSetup.mode = demoChapter.mode ?? 'base';
@@ -875,6 +878,11 @@ function endDemo(where) {
   const next = where === 'next' ? nextDemoChapter() : null;
   demoDriver?.stop();
   demoRunning = false;
+  // **島を畳む。** 島の章は実物の島に入るので、畳まないと walk が生きたまま
+  // 残り、次に盤の短編を開いても画面には島が映り続ける(字幕だけが進む)
+  // ── 「再生されているようで画面に映らない」と言われたのがこれ。
+  // 次が島の章でも、いったん畳んでから入り直す(島は章ごとに違う)。
+  if (walk) disposeWalk();
   if (next) {
     startDemo(next.id, demoReturn);
     return;
@@ -1036,7 +1044,14 @@ async function startWalk() {
   syncWalkMap();   // **画面を切り替えたあとで**。切り替え前は「島にいない」扱い
 }
 
-function exitWalk() {
+// 島の後始末だけ(画面は動かさない)。
+//
+// **後始末と画面遷移を分ける。** デモから島を閉じるときは、行き先が
+// 島えらびではなく「あそびかたの一覧」なので、exitWalk をそのまま
+// 呼べない ── 分けるまでは endDemo が後始末を呼んでおらず、
+// **島が生きたまま盤の短編が始まっていた**(画面には島が残り、
+// 字幕だけが進む。「再生されているようで画面に映らない」の正体)。
+function disposeWalk() {
   stopLocalMeet();
   endAim();
   // 島の灯籠ぶんはここで落とす。**盤の灯り(卓の灯り)を入れ直すのは
@@ -1066,6 +1081,10 @@ function exitWalk() {
   walk = null;
   setDiveVeil(0);
   resetFishHud();
+}
+
+function exitWalk() {
+  disposeWalk();
   // 散策部屋から入った島なら部屋へ、ひとりなら島えらびへ戻る
   // (タイトルまで戻すと、島を変えてもう一度歩くのに2手かかる)
   setScreen(online.kind === 'walk' && online.lobby ? 'online' : 'walkset');

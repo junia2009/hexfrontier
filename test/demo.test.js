@@ -376,6 +376,36 @@ test('デモ: 集まりの短編は、エントリーして実際に遊んでい
   }
 });
 
+
+// **島を畳み忘れると、動画が「再生されているのに映らない」。**
+// 島の章は実物の島に入るので、閉じるときに walk を捨てないと生きたまま
+// 残り、次に盤の短編を開いても画面には島が映り続ける(字幕だけが進む)
+// ── 実機で「画面に映らない時も多くある」と言われたのがこれ。
+// ブラウザ無しでは動かせないので、**呼んでいることを構造で見張る**。
+test('デモ: 終わるときも始めるときも、島を畳んでいる', () => {
+  const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const body = (name) => {
+    const at = src.search(new RegExp(`(async )?function ${name}\\b`));
+    assert.ok(at >= 0, `${name} が見つからない`);
+    let i = src.indexOf('{', src.indexOf('(', at));
+    for (let d = 0; i < src.length; i += 1) {
+      if (src[i] === '{') d += 1;
+      else if (src[i] === '}') { d -= 1; if (d === 0) return src.slice(at, i + 1); }
+    }
+    return src.slice(at);
+  };
+  for (const fn of ['endDemo', 'startDemo']) {
+    assert.match(body(fn), /disposeWalk\(\)/, `${fn} が島を畳んでいない`);
+  }
+  // 後始末と画面遷移は分けてあること(exitWalk をそのまま呼ぶと、
+  // デモの行き先である一覧ではなく島えらびへ飛ばされる)
+  assert.match(body('exitWalk'), /disposeWalk\(\)/, 'exitWalk が後始末を使い回していない');
+  // **コメントを外してから見る。** disposeWalk の説明文に「setScreen の
+  // ほう」と書いてあり、素の文字列検索では誤報した
+  const code = (t) => t.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.ok(!/setScreen\(/.test(code(body('disposeWalk'))), 'disposeWalk が画面を動かしている');
+});
+
 // ---- 台本が使う仕込みの部品 ----
 //
 // script.js から間接的にしか呼ばれていなかったので、境界がどこも押さえられて
