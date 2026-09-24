@@ -109,9 +109,47 @@ test('デモ: 節ごとに章が並び、id で引ける', () => {
 // 始まる章が、前の章の続きを当てにしていた)。
 test('デモ: どの短編も、単独で最後まで通る', () => {
   for (const ch of DEMO_CHAPTERS) {
+    if (ch.island) continue;   // 島は盤の手を出さない(下の別のテストで見張る)
     const { taps, actions } = dryRun(ch);
     assert.ok(taps + actions > 0, `${ch.id}: 指も手も出ない(字幕だけの章)`);
   }
+});
+
+// 島の章は盤ではないので、手が validate を通るかでは見張れない。
+// **代わりに操作の綴りを見張る。** `data-act` を1文字間違えると
+// 「押しても何も起きない動画」になり、目で見ても気づきにくい
+test('デモ: 島の章の操作が、実在のボタンを指している', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const acts = new Set([...html.matchAll(/data-act="([^"]+)"/g)].map((m) => m[1]));
+  const KINDS = ['click', 'walk', 'wait', 'fish'];
+  const WALKS = ['fish', 'shop'];
+  let ops = 0;
+  for (const ch of DEMO_CHAPTERS.filter((c) => c.island)) {
+    // **章に1つは操作が要る。** 字幕だけの章は「動画」ではない
+    // (説明だけのビートが混じるのは構わない)
+    assert.ok(ch.beats.some((b) => b.island), `${ch.id}: 操作が1つも無い(字幕だけの章)`);
+    for (const [i, b] of ch.beats.entries()) {
+      if (!b.island) continue;
+      const kind = Object.keys(b.island)[0];
+      assert.ok(KINDS.includes(kind), `${ch.id}[${i}]: 知らない操作 ${kind}`);
+      ops += 1;
+      if (kind === 'click') {
+        assert.ok(acts.has(b.island.click),
+          `${ch.id}[${i}]: 押せないボタン "${b.island.click}"(index.html に無い)`);
+      }
+      if (kind === 'walk') {
+        assert.ok(WALKS.includes(b.island.walk), `${ch.id}[${i}]: 知らない行き先 ${b.island.walk}`);
+      }
+      // 指を出す先も実在すること(演出だけとはいえ、空振りすると指が出ない)
+      if (b.tap) {
+        const t = b.tap(null, null);
+        const sel = t.btn ? `[data-act="${t.btn}"]` : t.sel;
+        const act = sel?.match(/data-act="([^"]+)"/)?.[1];
+        if (act) assert.ok(acts.has(act), `${ch.id}[${i}]: 指す先が無い "${act}"`);
+      }
+    }
+  }
+  assert.ok(ops >= 10, `島の操作を ${ops} 個しか見つけられていない(探し方が壊れている)`);
 });
 
 // 尺。**一覧に「約◯秒」と出す**ので、長すぎる短編は切り直しの合図

@@ -99,6 +99,16 @@ export class DemoDriver {
       await this.#pointAt(beat.tap(host.getState(), host.getUi()), token);
       if (!this.#alive(token)) return;
     }
+    // 島の短編。**盤ではないので state を差し替えて見せられない** ──
+    // 操作は台本にデータで書いてあり(`{ click } { walk } { wait } { fish }`)、
+    // host がそれを実物に当てる(関数で書くと node から確かめられない)。
+    //
+    // **字幕と指のあとに置く。** 先に動かしていたら、釣りの20秒のあいだ
+    // 1つ前の字幕が出たままになった(盤の action と同じ位置に揃える)
+    if (beat.island) {
+      await host.island?.(beat.island);
+      if (!this.#alive(token)) return;
+    }
     if (beat.ui) host.setUi(beat.ui(host.getState(), host.getUi()));
     if (beat.action) {
       const action = beat.action(host.getState(), host.getUi());

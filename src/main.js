@@ -63,7 +63,7 @@ import { computePoints as vpOf, pointsToWin } from './rules/victory.js';
 import { Sfx, sfxForAction, sfxForEnd, suspendAudio } from './audio/sfx.js';
 import { stepSound } from './audio/footsteps.js';
 import { contestOutcome } from './minigame/contest.js';
-import { DESK_REACH, POST_RADIUS, TABLE_REACH } from './minigame/ground.js';
+import { DESK_REACH, POST_RADIUS, TABLE_REACH, shopPoint } from './minigame/ground.js';
 import { meetFor } from './minigame/meets.js';
 import {
   RULES as DFG_RULES, SUITS as DFG_SUITS, RANKS as DFG_RANKS, TITLE_JP,
@@ -697,6 +697,44 @@ function boardPos(kind, id) {
   return [rect.left + xy[0], rect.top + xy[1]];
 }
 
+// 島の見どころの場所。**名前で指す** ── 座標を台本に焼き込むと、
+// 島は歩くたびに作り直されるので毎回ずれる
+function islandSpot(kind) {
+  if (!walk) return null;
+  if (kind === 'fish') return walk.spots?.[0] ?? null;
+  if (kind === 'shop') {
+    const p = shopPoint(state);
+    return p ? { x: p.x, z: p.z } : null;
+  }
+  return null;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 釣りを1匹ぶん、自動で回す。**必ず終わる** ── アタリは乱数なので、
+// 待ち続けると動画がそこで固まる。上限を決めて、駄目なら黙って先へ進む
+async function islandAutoFish() {
+  const el = document.getElementById('walk-fish');
+  if (!el || !walk) return;
+  const press = () => el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  const release = () => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  for (let cast = 0; cast < 3; cast += 1) {
+    press(); release();
+    let hooked = false;
+    for (let i = 0; i < 420; i += 1) {         // 1回の投げは最長7秒ほど
+      const v = walk.fishing ? walk.fishing.view() : null;
+      if (!v) break;
+      if (v.phase === 'bite' && !hooked) { hooked = true; press(); release(); }
+      if (v.phase === 'fight') walk.setReeling((v.tension ?? 0) < 0.68);
+      if (v.phase === 'landed') { walk.setReeling(false); return; }
+      if (v.phase === 'lost') break;
+      await sleep(16);
+    }
+    walk.setReeling(false);
+    await sleep(300);
+  }
+}
+
 const demoHost = {
   getState: () => state,
   getUi: () => ui,
@@ -716,6 +754,27 @@ const demoHost = {
   resetView: () => renderer3d?.resetView(),
   nextChapterTitle: () => nextDemoChapter()?.title ?? null,
   exit: (where) => endDemo(where),
+
+  // ---- 島の短編(chapter.island)----
+  //
+  // 島は盤ではないので、state を差し替えて見せることができない。
+  // **台本は操作をデータで書き、当てるのはここ** ── 台本に関数を書くと
+  // node のテストから確かめられず、`data-act` の綴り間違いが
+  // 「押しても何も起きない動画」になって気づけない。
+  island: async (op) => {
+    if (op.wait) { await sleep(op.wait); return; }
+    if (op.click) {
+      document.querySelector(`[data-act="${op.click}"]`)?.click();
+      return;
+    }
+    if (op.walk) {
+      const to = islandSpot(op.walk);
+      if (to) walk?.walker.setPosition(to.x, to.z);
+      await sleep(500);
+      return;
+    }
+    if (op.fish) await islandAutoFish();
+  },
 };
 
 async function startDemo(chapterId, from = 'title') {
@@ -731,13 +790,19 @@ async function startDemo(chapterId, from = 'title') {
   clearTimeout(cpuTimer);
   demoRunning = true;
   setSeat(0);
-  state = scenario.buildDemoState(demoChapter.mode, {
-    finishSetup: !demoChapter.fromSetup, midTurn: demoChapter.midTurn,
-  });
-  ui = freshUi();
-  setScreen('game');
-  if (viewMode === '3d' && !renderer3dFailed) await ensureRenderer3d();
-  refresh();
+  if (demoChapter.island) {
+    // 島の章は盤を作らない。**実物の島にそのまま入る**
+    walkSetup.mode = demoChapter.mode ?? 'base';
+    await enterWalk();
+  } else {
+    state = scenario.buildDemoState(demoChapter.mode, {
+      finishSetup: !demoChapter.fromSetup, midTurn: demoChapter.midTurn,
+    });
+    ui = freshUi();
+    setScreen('game');
+    if (viewMode === '3d' && !renderer3dFailed) await ensureRenderer3d();
+    refresh();
+  }
   demoDriver ??= new DemoDriver(demoHost);
   demoDriver.run(demoChapter);
 }

@@ -917,6 +917,100 @@ const seaBeats = [
   },
 ];
 
+
+// ---- 島(散策・釣り・店)----
+//
+// **ここだけ盤ではない。** 3D の島を歩くので、state を差し替えて見せる
+// ことができない ── 操作は `island:` にデータで書き、当てるのは main.js。
+// 関数で書くと node から確かめられず、`data-act` の綴り間違いが
+// 「押しても何も起きない動画」になって気づけない。
+const islandBeats = [
+  {
+    say: '🏝 対戦とは別に、島を歩いて過ごせます。タイトルの「島を歩く」から入ります。',
+    island: { wait: 1200 },
+    hold: 1400,
+  },
+  {
+    say: '左半分をなぞると歩き、右半分で見まわします。島は入るたびに作り直されます。',
+    island: { wait: 1400 },
+    hold: 1600,
+  },
+  {
+    say: '❓ 迷ったら画面の上の「あそびかた」。島でできることが一枚にまとまっています。',
+    tap: () => ({ btn: 'walk-guide' }),
+    island: { click: 'walk-guide' },
+    hold: 2000,
+  },
+  {
+    say: '閉じて、島の見どころを回ってみます。',
+    tap: () => ({ sel: '[data-act="walk-guide-close"]' }),
+    island: { click: 'walk-guide-close' },
+    hold: 900,
+  },
+  {
+    cut: { id: 'island-fish', title: '島で釣りをする', lead: '桟橋で投げて、合わせて、寄せる' },
+    say: '🎣 桟橋の先が釣り場です。近づくと「投げる」のボタンが出ます。',
+    island: { walk: 'fish' },
+    hold: 1600,
+  },
+  {
+    say: 'ウキが沈んだら合わせて、糸が切れないように張りを見ながら寄せます。',
+    island: { fish: 'auto' },
+    hold: 1200,
+  },
+  {
+    say: '釣れた魚は図鑑に残り、大きさに応じて銀貨がもらえます。その日の相場で買い取り値が変わります。',
+    hold: 2200,
+  },
+  {
+    say: '📖 図鑑はいつでも開けます。釣れる場所と大きさの目安が載っています。',
+    tap: () => ({ btn: 'walk-book' }),
+    island: { click: 'walk-book' },
+    hold: 2000,
+  },
+  {
+    say: '閉じます。',
+    tap: () => ({ sel: '[data-act="walk-book-close"]' }),
+    island: { click: 'walk-book-close' },
+    hold: 800,
+  },
+  {
+    cut: { id: 'island-shop', title: '店で買う・持ち物', lead: '銀貨の使い道と、買ったものの使い方' },
+    say: '🛖 島には店が建っています。歩いて屋台まで行き、店番に話しかけて買います。',
+    island: { walk: 'shop' },
+    hold: 1600,
+  },
+  {
+    say: '棚は「道具・かぶりもの・島の飾り・盤まわり」の4つ。遊ぶとたまる銀貨で買います。',
+    tap: () => ({ btn: 'walk-shop' }),
+    island: { click: 'walk-shop' },
+    hold: 2200,
+  },
+  {
+    say: '閉じて、買ったものを使うほうへ。',
+    tap: () => ({ sel: '[data-act="walk-shop-close"]' }),
+    island: { click: 'walk-shop-close' },
+    hold: 900,
+  },
+  {
+    say: '🎒 持ち物は島のどこでも開けます ── 見取り図も砂時計も、店まで戻らずに使えます。',
+    tap: () => ({ btn: 'walk-bag' }),
+    island: { click: 'walk-bag' },
+    hold: 2200,
+  },
+  {
+    say: '「盤まわり」の棚で選んだ見た目は、対戦の盤にそのまま出ます。',
+    island: { wait: 1200 },
+    hold: 1600,
+  },
+  {
+    say: '閉じます。島の暮らしは以上です ── 釣って、貯めて、飾って、また対戦へ。',
+    tap: () => ({ sel: '[data-act="walk-bag-close"]' }),
+    island: { click: 'walk-bag-close' },
+    hold: 1600,
+  },
+];
+
 // ---- 節と章 ----
 //
 // **1本を短くする。** 前は3本で 61 / 182 / 114 秒あり、「基本の手番」の
@@ -972,6 +1066,12 @@ export const DEMO_SECTIONS = [
     title: '航海者たち',
     lead: '船・航路・新しい島・海賊',
   },
+  {
+    id: 'island',
+    icon: '🏝',
+    title: '島を歩く',
+    lead: '散策・釣り・店と持ち物',
+  },
 ];
 
 export const DEMO_CHAPTERS = [
@@ -990,6 +1090,11 @@ export const DEMO_CHAPTERS = [
   ...cutInto('sea', 'sea', seaBeats, {
     first: { id: 'sea-ship', title: '船を建てる', lead: '🪵1🐑1・海に面した辺へ' },
     chapter: { midTurn: true },
+  }),
+  // 島の章は盤を作らない(実物の島に入る)
+  ...cutInto('island', 'base', islandBeats, {
+    first: { id: 'island-walk', title: '島を歩く', lead: '入りかたと、見まわしかた' },
+    chapter: { island: true, midTurn: false },
   }),
 ];
 
