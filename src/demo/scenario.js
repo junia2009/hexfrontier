@@ -10,9 +10,13 @@
 import { createGame, RESOURCES } from '../state.js';
 import { dispatch } from '../actions.js';
 import { chooseAction } from '../ai/cpu-player.js';
-import { LAYOUT, TERRAIN_RESOURCE, vertexHexesOf } from '../rules/board.js';
+import { legalShipEdges } from '../ai/legal-moves.js';
+import { boardEdgeIds } from '../rules/board.js';
+import { isShipEdge } from '../rules/sea.js';
+import { LAKE_NUMBERS, LAYOUT, TERRAIN_RESOURCE, vertexHexesOf } from '../rules/board.js';
 import { rngInt } from '../rng.js';
 import { COMMODITIES } from '../rules/cak/progress-cards.js';
+import { fishCount, fishGainForRoll } from '../rules/fish.js';
 
 // 盤面を固定して、字幕と手順が毎回同じ流れになるようにする
 export const DEMO_SEED = 20260806;
@@ -248,4 +252,107 @@ export function chapterSeconds(chapter) {
     if (b.tap) ms += TAP_MS;
   }
   return Math.round(ms / 1000);
+}
+
+// ---- 漁師たち ----
+
+// その出目でいちばん魚がもらえる目。**資源の目とは別に探す**
+// ── bestRollFor は資源だけを見るので、魚は 2/3/11/12 と漁場の目に偏る
+export function bestFishRoll(state, pid) {
+  let best = [1, 2];
+  let score = -1;
+  for (let a = 1; a <= 6; a += 1) {
+    for (let b = 1; b <= 6; b += 1) {
+      if (a + b === 7) continue;
+      const n = fishGainForRoll(state, a + b)[pid] ?? 0;
+      if (n > score) { score = n; best = [a, b]; }
+    }
+  }
+  return best;
+}
+
+// 魚を n 匹以上にする。**山から引く**(手で作らない) ── 魚トークンには
+// 1〜3匹が描かれていて枚数と匹数が違うので、山の中身をそのまま使う
+export function ensureFish(state, pid, n) {
+  const p = state.players[pid];
+  let guard = 0;
+  while (fishCount(p) < n && guard < 40) {
+    guard += 1;
+    const pool = state.bank.fishPool;
+    if (!pool?.length) { p.fish.push(3); continue; }   // 山が尽きたら最大の札で補う
+    const i = pool.findIndex((t) => t !== 'shoe');
+    p.fish.push(i >= 0 ? pool.splice(i, 1)[0] : 3);
+  }
+}
+
+// 古い靴を持たせる(山にあれば山から取る)
+export function giveOldShoe(state, pid) {
+  const pool = state.bank.fishPool ?? [];
+  const i = pool.indexOf('shoe');
+  if (i >= 0) pool.splice(i, 1);
+  if (!state.players[pid].fish.includes('shoe')) state.players[pid].fish.push('shoe');
+}
+
+// 魚のもらえる場所に、あなたの開拓地を用意する。
+//
+// **デモの盤では、誰も漁場にも湖にも接していなかった**(全部の目で獲得 0)。
+// 魚が入るところを見せる章なので、接した頂点へ席を1つ移す ── 増やすのでは
+// なく移すのは、コマの数(開拓地5軒)を壊さないため。
+// 戻り値はその頂点と、そこに魚を出す出目。
+export function seatByFish(state, pid = DEMO_PLAYER) {
+  // **漁場を先に見る。** 湖は開始時に盗賊が乗っている(元の砂漠なので)ため
+  // 魚が止まっていて、そこに席を作っても1匹も入らない ── 実際そうなった
+  const spots = [];
+  for (const f of state.board.fisheries ?? []) {
+    for (const vid of LAYOUT.edges[f.edgeId].v) spots.push({ vid, total: f.number });
+  }
+  const lake = state.board.lake;
+  if (lake && state.board.robber !== lake) {
+    for (const vid of LAYOUT.hexVertices[lake] ?? []) spots.push({ vid, total: LAKE_NUMBERS[0] });
+  }
+  // すでに接しているならそのまま
+  const mine = Object.keys(state.buildings).filter((v) => state.buildings[v].player === pid);
+  const already = spots.find((x) => mine.includes(x.vid));
+  if (already) return already;
+  // 空いている頂点へ、自分の開拓地を1つ移す
+  const free = spots.find((x) => !state.buildings[x.vid]);
+  if (!free || !mine.length) return null;
+  delete state.buildings[mine[0]];
+  state.buildings[free.vid] = { player: pid, type: 'settlement' };
+  return free;
+}
+
+// ---- 航海者たち ----
+
+// 海沿いに、あなたの開拓地を用意する。
+//
+// **CPU の初期配置は内陸を好む。** そのままだと海に面した辺が自分の建物に
+// 1つも接していなくて、**船を置ける辺が0だった**(実測)── 船の章が
+// 成立しない。席を1つ海沿いへ移す(増やさないのは seatByFish と同じ理由)。
+export function seatByCoast(state, pid = DEMO_PLAYER) {
+  const mine = Object.keys(state.buildings).filter((v) => state.buildings[v].player === pid);
+  if (legalShipEdges(state, pid).length) return null;   // すでに出港できる
+  for (const eid of boardEdgeIds(state.board)) {
+    if (!isShipEdge(state.board, eid)) continue;
+    const free = LAYOUT.edges[eid].v.find((v) => !state.buildings[v]);
+    if (!free || !mine.length) continue;
+    delete state.buildings[mine[0]];
+    state.buildings[free] = { player: pid, type: 'settlement' };
+    if (legalShipEdges(state, pid).length) return free;
+    // 置いてみて駄目なら戻す(隣の建物との距離などで弾かれることがある)
+    delete state.buildings[free];
+    state.buildings[mine[0]] = { player: pid, type: 'settlement' };
+  }
+  return null;
+}
+
+// 船を1隻、置いた状態にする。**前の手番に建てたことにする**
+// ── 建てたその手番の船は動かせない規則があるので、「動かす」の章を
+// 単独で見せるには、すでに航路がある状態から始める必要がある。
+export function giveShip(state, pid = DEMO_PLAYER) {
+  const eid = legalShipEdges(state, pid)[0];
+  if (!eid) return null;
+  state.ships = state.ships ?? {};
+  state.ships[eid] = { player: pid, builtTurn: state.turn - 1 };
+  return eid;
 }

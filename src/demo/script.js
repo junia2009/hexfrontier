@@ -15,15 +15,19 @@ import { LAYOUT, TERRAIN_RESOURCE, vertexHexesOf } from '../rules/board.js';
 import { validateAction } from '../actions.js';
 import { canPlaceSettlement, piecesLeft, totalCards } from '../rules/build.js';
 import { tradeRate } from '../rules/trade.js';
+import { fishCount, shoeTargets } from '../rules/fish.js';
+import { computePoints } from '../rules/victory.js';
+import { isSeaHex, movableShips, pirateTargets } from '../rules/sea.js';
 import { stealableTargets } from '../rules/robber.js';
 import { chooseAction } from '../ai/cpu-player.js';
 import {
   legalCityVertices, legalRoadEdges, legalRobberHexes, legalSettlementVertices,
-  legalSetupEdges,
+  legalSetupEdges, legalShipEdges,
 } from '../ai/legal-moves.js';
 import {
-  DEMO_PLAYER as P, bestRollFor, cutToTurn, ensure, forceRoll,
-  pickBest, pipsOf, seedDiceLog, stackDevDeck, trimHand, vertexValue,
+  DEMO_PLAYER as P, bestFishRoll, bestRollFor, cutToTurn, ensure, ensureFish, forceRoll,
+  giveOldShoe, giveShip, pickBest, pipsOf, seatByCoast, seatByFish, seedDiceLog, stackDevDeck,
+  trimHand, vertexValue,
 } from './scenario.js';
 
 // ---- 盤面から「見せ場」を選ぶ ----
@@ -710,6 +714,209 @@ const cakBeats = [
   },
 ];
 
+
+// 古い靴を押しつけられる相手(自分と同点以上)。**いなければ null** ──
+// 台本が噛み合わないときは、driver が黙って次のビートへ進む
+const shoeTarget = (s) => shoeTargets(s, P, (id) => computePoints(s, id))[0] ?? null;
+
+// ---- 漁師たち ----
+//
+// 湖と漁場から魚が入り、匹数を払って使う。**魚は手札に数えない**ので
+// 7でも盗賊でも失われない ── そこが基本の資源といちばん違うところ。
+const fishBeats = [
+  {
+    say: '🐟「漁師たち」は、基本ルールに湖と漁場が加わります。砂漠が湖になり、海岸に漁場が並びます。',
+    // 魚の入る頂点に席を用意する(デモの盤は誰も漁場に接していなかった)
+    prep: (s) => { const spot = seatByFish(s); if (spot) forceRoll(s, bestFishRoll(s, P)); },
+    hold: 1200,
+  },
+  {
+    say: '🎲 漁場の数字が出ると、接している建物に魚が入ります。開拓地は1枚、都市なら2枚。',
+    tap: () => ({ btn: 'roll' }),
+    action: () => ({ type: 'ROLL_DICE', player: P }),
+    hold: 1800,
+  },
+  {
+    say: (s) => `魚は手札の外に置かれます ── いまの手持ちは${fishCount(s.players[P])}匹。`
+      + '**7を出しても盗賊にも取られません。**',
+    hold: 1600,
+  },
+  {
+    cut: { id: 'fish-use', title: '魚の使い道', lead: '匹数を払って、盗賊を戻す・奪う・引く' },
+    say: '🐟 貯めた魚は「魚」ボタンから使います。お釣りは出ないので、ちょうど払える使い道を選びます。',
+    prep: (s) => ensureFish(s, P, 5),
+    tap: () => ({ btn: 'fish-open' }),
+    ui: () => ({ dialog: { type: 'fish', pick: null } }),
+    hold: 1600,
+  },
+  {
+    say: '2匹で盗賊を湖へ戻す(これだけはダイスの前でも使えます)、3匹で資源を1枚奪う、4匹で好きな資源を1枚。',
+    hold: 2200,
+  },
+  {
+    say: '5匹で道を1本ただで、7匹で発展カードを1枚。ここでは4匹で 🌾小麦 をもらいます。',
+    tap: () => ({ sel: '[data-act="fish-use:resource"]' }),
+    ui: (s, ui) => ({ dialog: { ...ui.dialog, pick: 'resource' } }),
+    hold: 1600,
+  },
+  {
+    say: '銀行から1枚。魚は4匹ぶん減ります。',
+    tap: () => ({ sel: '[data-act="fish-res:wheat"]' }),
+    action: () => ({
+      type: 'SPEND_FISH', player: P, use: 'resource', params: { resource: 'wheat' },
+    }),
+    hold: 1500,
+  },
+  {
+    cut: { id: 'fish-shoe', title: '古い靴', lead: '押しつけ合う、1枚だけの厄介もの' },
+    say: '👞 魚の山には「古い靴」が1枚だけ混じっています。引いたらすぐ公開されます。',
+    prep: (s) => giveOldShoe(s, P),
+    hold: 1600,
+  },
+  {
+    say: '持っている間は、**勝つのに必要な点が1点増えます**(10点なら11点)。',
+    hold: 1600,
+  },
+  {
+    say: '渡せるのは自分と同点以上の相手だけ。手番中に押しつけられます。',
+    tap: (s) => ({ sel: `[data-act="pass-shoe:${shoeTarget(s)}"]` }),
+    action: (s) => ({ type: 'PASS_SHOE', player: P, target: shoeTarget(s) }),
+    hold: 1800,
+  },
+  {
+    say: '🏆 勝利は10点。魚は資源とは別の流れなので、目が悪い日の逃げ道になります。',
+    hold: 1400,
+  },
+];
+
+
+// ---- 航海者たち ----
+
+// 船を建てる辺。**先へ伸びる海路**を選ぶ(行き止まりに置くと話が続かない)
+const pickShip = (state) => pickBest(
+  legalShipEdges(state, P),
+  (eid) => LAYOUT.edges[eid].hexes.filter((h) => state.board.hexes[h]).length,
+);
+
+// 海賊の行き先。**いまいる海は選べない**ので除く。奪える相手がいる海は
+// 相手を選ばないと弾かれるので、**誰の船も無い海**を選ぶ(演出を単純に保つ)
+const pickPirateHex = (state) => pickBest(
+  state.board.hexIds.filter(
+    (h) => isSeaHex(state.board, h) && state.board.pirate !== h
+      && pirateTargets(state, h, P).length === 0,
+  ),
+  () => 1,
+);
+
+// 動かせる船(航路の先端。建てたその手番の船と、海賊のいる海の船は動かせない)
+const pickMovableShip = (state) => movableShips(state, P)[0] ?? null;
+
+// その船の移動先。**いったん退けてから探す** ── 置いたままだと
+// 「その辺には船があります」で自分自身に塞がれ、先の辺も繋がらなく見える
+function pickShipTo(state, from) {
+  const keep = state.ships[from];
+  delete state.ships[from];
+  const to = pickBest(
+    legalShipEdges(state, P).filter((eid) => eid !== from),
+    (eid) => LAYOUT.edges[eid].hexes.filter((h) => state.board.hexes[h]).length,
+  );
+  state.ships[from] = keep;
+  return to;
+}
+
+const seaBeats = [
+  {
+    say: '⛵「航海者たち」は盤が広がり、本島のまわりに小島が5つ浮かびます。小島へは必ず船で渡ります。',
+    // CPU の初期配置は内陸を好むので、そのままだと出港できる辺が0だった
+    prep: (s) => seatByCoast(s),
+    hold: 1600,
+  },
+  {
+    say: '⛵ 船は 🪵1 🐑1。海に面した辺に置きます(1人15隻まで)。「船」ボタンから。',
+    prep: (s) => ensure(s, P, { wood: 1, sheep: 1 }),
+    tap: () => ({ btn: 'mode:ship' }),
+    ui: () => ({ mode: 'build-road', roadPiece: 'ship' }),
+    hold: 1400,
+  },
+  {
+    say: '置ける辺が光ります。海岸の辺は道でも船でもよいのですが、同じ辺に両方は置けません。',
+    tap: (s) => ({ edge: pickShip(s) }),
+    ui: (s) => ({ pending: { edgeId: pickShip(s) } }),
+    hold: 1400,
+  },
+  {
+    say: '「✓ 確定」で進水。道と船はつながりますが、**乗り継げるのは自分の開拓地・都市の上でだけ**です。',
+    tap: () => ({ btn: 'confirm' }),
+    action: (s, ui) => ({ type: 'BUILD_SHIP', player: P, edgeId: ui.pending?.edgeId }),
+    hold: 1800,
+  },
+  {
+    cut: { id: 'sea-move', title: '船を動かす', lead: '航路の先端を、1手番に1隻' },
+    say: '── 次のあなたの手番。まずダイスを振ります ──',
+    // **建てたその手番の船は動かせない。** 手番を送ってから動かす。
+    // この章だけで見たときのために、船が無ければ1隻置いておく
+    prep: (s) => {
+      seatByCoast(s);
+      if (!Object.values(s.ships ?? {}).some((x) => x.player === P)) giveShip(s);
+      cutToTurn(s);
+      forceRoll(s, bestRollFor(s, P));
+    },
+    tap: () => ({ btn: 'roll' }),
+    action: () => ({ type: 'ROLL_DICE', player: P }),
+    hold: 800,
+  },
+  {
+    say: '⛵ 船は動かせます ── 動かせるのは**開いた航路の先端**にある船で、1手番に1隻だけ。',
+    hold: 1800,
+  },
+  {
+    say: '行き先を選ぶと、そこまで航路が伸びます。建てたその手番の船と、海賊がいる海の船は動かせません。',
+    tap: (s) => ({ edge: pickMovableShip(s) }),
+    action: (s) => {
+      const from = pickMovableShip(s);
+      const to = from ? pickShipTo(s, from) : null;
+      return from && to ? { type: 'MOVE_SHIP', player: P, from, to } : null;
+    },
+    hold: 2000,
+  },
+  {
+    say: '🏝 本島以外の島に**初めて開拓地を建てると +2点**。島ごとに1回なので、渡る価値があります。',
+    hold: 1800,
+  },
+  {
+    cut: { id: 'sea-pirate', title: '海賊と金鉱', lead: '7で盗賊か海賊・好きな資源を産む土地' },
+    say: '🏴 海には海賊がいます。7を出したとき、陸の盗賊と海の海賊の**どちらか一方**を動かします。',
+    // **字幕だけの章にしない。** 実際に7を振って海賊を動かすところまで見せる
+    // (テストが「指も手も出ない章」を弾いてくれた)
+    prep: (s) => { cutToTurn(s); tidyHandsForSeven(s); forceRoll(s, [3, 4]); },
+    tap: () => ({ btn: 'roll' }),
+    action: () => ({ type: 'ROLL_DICE', player: P }),
+    hold: 2000,
+  },
+  {
+    say: '海の目を選べば海賊が動きます。海賊のいる海には船を置けません。',
+    tap: (s) => ({ hex: pickPirateHex(s) }),
+    ui: (s) => ({ pending: { hexId: pickPirateHex(s) } }),
+    hold: 1600,
+  },
+  {
+    say: 'その海に船を持つ相手からは、資源を1枚いただけます。',
+    tap: () => ({ btn: 'confirm' }),
+    action: (s, ui) => (ui.pending?.hexId
+      ? { type: 'MOVE_ROBBER', player: P, hexId: ui.pending.hexId, targetPlayer: null }
+      : null),
+    hold: 1800,
+  },
+  {
+    say: '💰 金鉱は好きな資源を産む土地(開拓地1枚・都市2枚)。小島に厚く配ってあります。',
+    hold: 1800,
+  },
+  {
+    say: '🏆 勝利は13点。渡って点を伸ばすか、本島を固めるか ── 航路の引き方がそのまま戦略になります。',
+    hold: 1600,
+  },
+];
+
 // ---- 節と章 ----
 //
 // **1本を短くする。** 前は3本で 61 / 182 / 114 秒あり、「基本の手番」の
@@ -753,6 +960,18 @@ export const DEMO_SECTIONS = [
     title: '都市と騎士',
     lead: '商品・都市改良・騎士・蛮族の襲来',
   },
+  {
+    id: 'fish',
+    icon: '🐟',
+    title: '漁師たち',
+    lead: '湖と漁場・魚の使い道・古い靴',
+  },
+  {
+    id: 'sea',
+    icon: '⛵',
+    title: '航海者たち',
+    lead: '船・航路・新しい島・海賊',
+  },
 ];
 
 export const DEMO_CHAPTERS = [
@@ -763,6 +982,15 @@ export const DEMO_CHAPTERS = [
   }),
   ...cutInto('base', 'base', basicBeats),
   ...cutInto('cak', 'cak', cakBeats),
+  ...cutInto('fish', 'fish', fishBeats, {
+    first: { id: 'fish-catch', title: '湖と漁場で魚をとる', lead: '砂漠が湖に、海岸に漁場が並ぶ' },
+  }),
+  // **航海者たちは1本目から手番の途中。** 冒頭にダイスを振るビートが無く、
+  // 船も交易も「先にダイスを振ってください」で弾かれる
+  ...cutInto('sea', 'sea', seaBeats, {
+    first: { id: 'sea-ship', title: '船を建てる', lead: '🪵1🐑1・海に面した辺へ' },
+    chapter: { midTurn: true },
+  }),
 ];
 
 export const CHAPTER_BY_ID = Object.fromEntries(DEMO_CHAPTERS.map((c) => [c.id, c]));
