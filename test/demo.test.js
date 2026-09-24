@@ -136,7 +136,7 @@ test('デモ: 島の章の操作が、実在のボタンを指している', () 
   const known = (act) => acts.has(act) || prefixes.has(act.split(':')[0]);
   const KINDS = ['click', 'walk', 'wait', 'fish', 'meet', 'stick', 'bow', 'cards'];
   // main.js の islandSpot が知っている行き先と揃える
-  const WALKS = ['fish', 'shop', 'desk', 'notice'];
+  const WALKS = ['fish', 'shop', 'desk', 'notice', 'post'];
   let ops = 0;
   for (const ch of DEMO_CHAPTERS.filter((c) => c.island)) {
     // **章に1つは操作が要る。** 字幕だけの章は「動画」ではない

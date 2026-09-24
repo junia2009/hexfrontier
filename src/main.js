@@ -64,6 +64,7 @@ import { Sfx, sfxForAction, sfxForEnd, suspendAudio } from './audio/sfx.js';
 import { stepSound } from './audio/footsteps.js';
 import { contestOutcome } from './minigame/contest.js';
 import { DESK_REACH, POST_RADIUS, TABLE_REACH, shopPoint } from './minigame/ground.js';
+import { BOW_Y, reach as arrowReach } from './minigame/archery.js';
 import { meetFor } from './minigame/meets.js';
 import {
   RULES as DFG_RULES, SUITS as DFG_SUITS, RANKS as DFG_RANKS, TITLE_JP,
@@ -703,6 +704,7 @@ function islandSpot(kind) {
   if (!walk) return null;
   if (kind === 'fish') return walk.spots?.[0] ?? null;
   if (kind === 'desk') return walk.deskAt ?? null;      // 集まりの受付(島ごとに1つ)
+  if (kind === 'post') return walk.postAt ?? null;      // 浜の櫓(蛮族を射る)
   if (kind === 'notice') return walk.boardAt ?? null;   // 依頼の掲示板
   if (kind === 'shop') {
     const p = shopPoint(state);
@@ -758,14 +760,62 @@ async function islandStick({ x = 0, y = -1, ms = 1500 }) {
   walk.setStick(0, 0);
 }
 
-// 弓を n 回、引いて放つ。引き絞る時間を変えて、当たり外れの両方を見せる
+// 弓を n 回、船を狙って放つ。
+//
+// **狙わずに射っても当たらない。** はじめはただ引いて離すだけで、
+// 実測すると櫓に登っても点は 0 のままだった ── 船は左右にばらけて
+// 湧くので、まっすぐ沖へ放っても当たらない。的のほうを向いてから引く。
+//
+// 引き具合は距離から決める(満引きで届く距離に対する割合)。
+// **当たらなくても止まらない** ── 動画が固まるより、外して先へ進む。
 async function islandShoot(n = 3) {
   for (let i = 0; i < n; i += 1) {
-    bowPress();
-    await sleep(500 + (i % 3) * 250);
-    bowRelease();
-    await sleep(900);
+    bowPress();                       // 1回目は「構える」で消える
+    await sleep(260);
+    const d = faceNearestShip();
+    if (!walk?.isAiming) { await sleep(600); continue; }
+    if (d != null) {
+      // 水面は 0 を基準にする(櫓の y からの落差で飛距離が決まる)
+      const far = arrowReach(1, (walk.postAt?.y ?? 0) + BOW_Y, 0);
+      // 近くても強く引く ── 弱いと山なりになって手前に落ちる
+      const power = Math.max(0.55, Math.min(1, far > 0 ? d / far : 0.8));
+      bowPress();                     // 引き始める
+      await sleep(Math.round(power * DRAW_FULL_MS));
+      bowRelease();
+    } else {
+      bowPress(); await sleep(600); bowRelease();
+    }
+    await sleep(1100);
   }
+}
+
+// 引き切るまでの時間(walk-mode の DRAW_FULL と同じ 0.9 秒)
+const DRAW_FULL_MS = 900;
+
+// いちばん近い船(いなければ浜に降りた蛮族)のほうを向く。
+// 前方は (sin(camYaw), cos(camYaw)) ── walk-mode と同じ決まりに合わせる。
+// 戻り値はその的までの距離(いなければ null)。
+function faceNearestShip() {
+  const r = walk?.raid;
+  if (!walk || !r) return null;
+  const w = walk.walker.motion.pos;
+  const all = [...(r.ships ?? []), ...(r.foes ?? [])];
+  let best = null;
+  let bd = Infinity;
+  for (const s of all) {
+    const d = Math.hypot(s.x - w.x, s.z - w.z);
+    if (d < bd) { bd = d; best = s; }
+  }
+  if (!best) return null;
+  const yaw = Math.atan2(best.x - w.x, best.z - w.z);
+  walk.camYaw = yaw;
+  walk.walker.motion.facing = yaw;
+  // **上下も合わせる。** 左右だけ合わせても当たらなかった(実測: ずれ 2〜17度
+  // まで詰めても命中 0)── 櫓は水面より高く、船は目の前(1〜5)まで寄る
+  // ので、見下ろす角度が要る。camPitch は大きいほど下向き(0.05〜0.9)。
+  const h = Math.max(0.2, (walk.postAt?.y ?? 0) + BOW_Y - (best.y ?? 0));
+  walk.camPitch = Math.max(0.05, Math.min(0.9, Math.atan2(h, Math.max(0.5, bd))));
+  return bd;
 }
 
 // 大富豪を n 手ぶん進める。**出せる手は playsFor に数えさせる** ──
