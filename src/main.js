@@ -702,6 +702,8 @@ function boardPos(kind, id) {
 function islandSpot(kind) {
   if (!walk) return null;
   if (kind === 'fish') return walk.spots?.[0] ?? null;
+  if (kind === 'desk') return walk.deskAt ?? null;      // 集まりの受付(島ごとに1つ)
+  if (kind === 'notice') return walk.boardAt ?? null;   // 依頼の掲示板
   if (kind === 'shop') {
     const p = shopPoint(state);
     return p ? { x: p.x, z: p.z } : null;

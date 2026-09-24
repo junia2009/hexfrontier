@@ -20,6 +20,7 @@ import {
 } from '../src/demo/scenario.js';
 import { LAYOUT } from '../src/rules/board.js';
 import { MODE_IDS as MODES } from '../src/state.js';
+import { MEETS } from '../src/minigame/meets.js';
 import { demoIndexHtml, lengthLabel } from '../src/render/demo-index.js';
 
 function conservation(s, where) {
@@ -120,10 +121,22 @@ test('デモ: どの短編も、単独で最後まで通る', () => {
 // **代わりに操作の綴りを見張る。** `data-act` を1文字間違えると
 // 「押しても何も起きない動画」になり、目で見ても気づきにくい
 test('デモ: 島の章の操作が、実在のボタンを指している', () => {
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  const acts = new Set([...html.matchAll(/data-act="([^"]+)"/g)].map((m) => m[1]));
+  // **画面に直書きの名前だけでは足りない。** 棚の帯のように
+  // `data-act="bag-shelf:${x.id}"` と組み立てるものがあるので、
+  // 生成側の接頭辞も集める(接頭辞までしか見られないのは承知のうえ ──
+  // 綴り間違いはほぼ接頭辞で起きる)
+  const srcs = ['index.html', 'src/render/records.js', 'src/render/hud-render.js', 'src/main.js']
+    .map((f) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')).join('\n');
+  const acts = new Set(
+    [...srcs.matchAll(/data-act="([^"$]+)"/g)].map((m) => m[1]),
+  );
+  const prefixes = new Set(
+    [...srcs.matchAll(/data-act="([a-z-]+):\$\{/g)].map((m) => m[1]),
+  );
+  const known = (act) => acts.has(act) || prefixes.has(act.split(':')[0]);
   const KINDS = ['click', 'walk', 'wait', 'fish'];
-  const WALKS = ['fish', 'shop'];
+  // main.js の islandSpot が知っている行き先と揃える
+  const WALKS = ['fish', 'shop', 'desk', 'notice'];
   let ops = 0;
   for (const ch of DEMO_CHAPTERS.filter((c) => c.island)) {
     // **章に1つは操作が要る。** 字幕だけの章は「動画」ではない
@@ -135,8 +148,8 @@ test('デモ: 島の章の操作が、実在のボタンを指している', () 
       assert.ok(KINDS.includes(kind), `${ch.id}[${i}]: 知らない操作 ${kind}`);
       ops += 1;
       if (kind === 'click') {
-        assert.ok(acts.has(b.island.click),
-          `${ch.id}[${i}]: 押せないボタン "${b.island.click}"(index.html に無い)`);
+        assert.ok(known(b.island.click),
+          `${ch.id}[${i}]: 押せないボタン "${b.island.click}"(そんな data-act は無い)`);
       }
       if (kind === 'walk') {
         assert.ok(WALKS.includes(b.island.walk), `${ch.id}[${i}]: 知らない行き先 ${b.island.walk}`);
@@ -146,7 +159,7 @@ test('デモ: 島の章の操作が、実在のボタンを指している', () 
         const t = b.tap(null, null);
         const sel = t.btn ? `[data-act="${t.btn}"]` : t.sel;
         const act = sel?.match(/data-act="([^"]+)"/)?.[1];
-        if (act) assert.ok(acts.has(act), `${ch.id}[${i}]: 指す先が無い "${act}"`);
+        if (act) assert.ok(known(act), `${ch.id}[${i}]: 指す先が無い "${act}"`);
       }
     }
   }
@@ -329,6 +342,23 @@ test('デモ: 字幕に、そのまま出てしまう記法が混ざっていな
       assert.ok(!b.say.includes('**'), `${ch.id}[${i}]: ${b.say}`);
     }
   }
+});
+
+
+// **島の節も、集まりを丸ごと落としていた。**「島を歩く」が散策・釣り・店の
+// 3本しかなく、島ごとに開かれている5つの集まり(大富豪・つり大会・
+// ドラゴンから逃げろ・丸太乗り・蛮族を射る)に1本も無かった ──
+// モードのときと同じ忘れ方。**集まりの表と突き合わせる。**
+test('デモ: 島の集まり全部に、短編が1本はある', () => {
+  const kinds = Object.values(MEETS).map((m) => m.id);
+  assert.ok(kinds.length >= 5, `集まりを ${kinds.length} 個しか見ていない(探し方が壊れている)`);
+  const ids = new Set(DEMO_CHAPTERS.map((c) => c.id));
+  for (const k of kinds) {
+    assert.ok(ids.has(`meet-${k}`), `集まり「${k}」の短編が無い(meet-${k})`);
+  }
+  // 集まりは島ごとに違うので、章の mode もばらけているはず
+  const modes = new Set(DEMO_CHAPTERS.filter((c) => c.id.startsWith('meet-')).map((c) => c.mode));
+  assert.equal(modes.size, kinds.length, `集まりの島が ${modes.size} 種類しかない`);
 });
 
 // ---- 台本が使う仕込みの部品 ----

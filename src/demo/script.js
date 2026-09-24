@@ -948,6 +948,22 @@ const islandBeats = [
     hold: 900,
   },
   {
+    cut: { id: 'island-quests', title: '掲示板の依頼', lead: '日替わりのお題と、魚の相場' },
+    say: '📋 広場の掲示板には、その日の依頼が3つ貼ってあります。0時に張り替わります。',
+    island: { walk: 'notice' },
+    hold: 1800,
+  },
+  {
+    say: '「◯◯を釣る」「◯cm を超える」といったお題で、達成すると銀貨がもらえます。',
+    island: { wait: 1600 },
+    hold: 1800,
+  },
+  {
+    say: '🐟 同じ板に、その日の魚の買い取り値も出ます ── 高値の魚を狙う日を作れます。',
+    island: { wait: 1400 },
+    hold: 2000,
+  },
+  {
     cut: { id: 'island-fish', title: '島で釣りをする', lead: '桟橋で投げて、合わせて、寄せる' },
     say: '🎣 桟橋の先が釣り場です。近づくと「投げる」のボタンが出ます。',
     island: { walk: 'fish' },
@@ -1004,12 +1020,135 @@ const islandBeats = [
     hold: 1600,
   },
   {
-    say: '閉じます。島の暮らしは以上です ── 釣って、貯めて、飾って、また対戦へ。',
+    cut: { id: 'island-decor', title: '島に飾りを置く', lead: '買った飾りを、好きな場所へ' },
+    say: '🪵「島の飾り」は何個でも買えて、島の好きなところに置けます。持ち物の「置く」から。',
+    island: { click: 'bag-shelf:decor' },
+    hold: 2200,
+  },
+  {
+    say: '半透明の見本が出るので、歩いて場所を決めます。前後だけでなく横にも寄せられます。',
+    island: { wait: 1800 },
+    hold: 2000,
+  },
+  {
+    say: '置いた飾りは島に残ります ── 灯籠を立てれば夜が明るくなります。',
     tap: () => ({ sel: '[data-act="walk-bag-close"]' }),
     island: { click: 'walk-bag-close' },
-    hold: 1600,
+    hold: 1800,
   },
 ];
+
+// ---- 集まり(島ごとに1つ)----
+//
+// **島によって開かれている集まりが違う。** 基本=大富豪、漁師=つり大会、
+// ドラゴン=逃げろ、航海者=丸太乗り、都市と騎士=蛮族を射る。
+// だから短編も島ごとに1本ずつ ── デモの章に mode を持たせて島を選ぶ。
+function meetBeats(title, lead, body) {
+  return [
+    {
+      cut: { id: `meet-${title.id}`, title: title.name, lead },
+      say: title.intro,
+      island: { walk: 'desk' },
+      hold: 1800,
+    },
+    {
+      say: '受付に近づくとパネルが開きます。エントリーして、人数が足りなければ CPU を足せます。',
+      island: { wait: 1600 },
+      hold: 2000,
+    },
+    ...body,
+    {
+      say: '順位は記録に残り、称号がもらえます。オンラインの散策部屋なら、居合わせた人と一緒に遊べます。',
+      island: { wait: 1200 },
+      hold: 2000,
+    },
+  ];
+}
+
+const daifugoBeats = meetBeats(
+  { id: 'daifugo', name: '🃏 大富豪', intro: '🃏 基本の島の中央には円卓があります。囲んで札を出し合う大富豪です。' },
+  '円卓で札を出し合う',
+  [
+    {
+      say: '弱い順に 3 4 5 … K A 2、いちばん強いのがジョーカー。同じ枚数を重ねて出します。',
+      island: { wait: 1600 },
+      hold: 2200,
+    },
+    {
+      say: '手札を先に無くした人が上位。順位で大富豪から大貧民までの称号がつきます。',
+      island: { wait: 1200 },
+      hold: 2000,
+    },
+  ],
+);
+
+const fishMeetBeats = meetBeats(
+  { id: 'fishing', name: '🎣 つり大会', intro: '🎣 漁師の島では、つり大会が開かれています。受付は広場の中央です。' },
+  '制限時間で、釣った合計の長さを競う',
+  [
+    {
+      say: '制限時間のあいだに釣った魚の合計の長さを競います。何匹釣ってもかまいません。',
+      island: { wait: 1600 },
+      hold: 2200,
+    },
+    {
+      say: '大会に出ていなくても、釣ったものは図鑑に残ります。港はどの島にもあります。',
+      island: { wait: 1200 },
+      hold: 2000,
+    },
+  ],
+);
+
+const dragonHuntBeats = meetBeats(
+  { id: 'dragonhunt', name: '🐉 ドラゴンから逃げろ', intro: '🐉 ドラゴンの島では、竜から逃げる集まりが開かれています。' },
+  '捕まらずに、どれだけ生き残れるか',
+  [
+    {
+      say: '竜に捕まらないように逃げます。順位は生き残った時間 ── 最後まで残れば1位です。',
+      island: { wait: 1600 },
+      hold: 2200,
+    },
+    {
+      say: '竜は歩きより少し遅い代わりに、曲がるのが下手です。木の陰に回りこんで急に向きを変えると振り切れます。',
+      island: { wait: 1200 },
+      hold: 2400,
+    },
+  ],
+);
+
+const logrollBeats = meetBeats(
+  { id: 'logroll', name: '🪵 丸太乗り', intro: '🪵 航海者の島では、沖に浮かぶ丸太に乗る集まりが開かれています。' },
+  '回る丸太の上で、最後まで残る',
+  [
+    {
+      say: '丸太が回るので横へ転がされます。逆らって歩き続けないと海に落ちます ── 棒立ちは数秒でおしまい。',
+      island: { wait: 1600 },
+      hold: 2400,
+    },
+    {
+      say: '丸太には切れ目があって、回って上がってくると足場が消えます。回る速さはだんだん上がります。',
+      island: { wait: 1200 },
+      hold: 2400,
+    },
+  ],
+);
+
+const raidMeetBeats = meetBeats(
+  { id: 'raid', name: '🏹 蛮族を射る', intro: '🏹 都市と騎士の島では、浜の櫓から蛮族船を射る集まりが開かれています。' },
+  '寄せる船を、櫓から射落とす',
+  [
+    {
+      say: '押している間、弓を引き絞ります。離すと放ちます ── 船を沈めて3点、蛮族ひとりで1点。',
+      island: { wait: 1600 },
+      hold: 2400,
+    },
+    {
+      say: '取り逃がした船は浜に降り、蛮族が櫓へ歩いてきます。3回着かれたら終わりです。',
+      island: { wait: 1200 },
+      hold: 2200,
+    },
+  ],
+);
 
 
 // 見張り塔を建てられる自分の建物(良い土地に接しているところを選ぶ)
@@ -1153,7 +1292,13 @@ export const DEMO_SECTIONS = [
     id: 'island',
     icon: '🏝',
     title: '島を歩く',
-    lead: '散策・釣り・店と持ち物',
+    lead: '散策・依頼・釣り・店と持ち物・飾り',
+  },
+  {
+    id: 'meets',
+    icon: '🎪',
+    title: '島の集まり',
+    lead: '島ごとに開かれている、5つの遊び',
   },
 ];
 
@@ -1182,6 +1327,12 @@ export const DEMO_CHAPTERS = [
     first: { id: 'island-walk', title: '島を歩く', lead: '入りかたと、見まわしかた' },
     chapter: { island: true, midTurn: false },
   }),
+  // **集まりは島ごとに1つ。** 章の mode がそのまま入る島になる
+  ...cutInto('meets', 'base', daifugoBeats, { chapter: { island: true } }),
+  ...cutInto('meets', 'fish', fishMeetBeats, { chapter: { island: true } }),
+  ...cutInto('meets', 'dragon', dragonHuntBeats, { chapter: { island: true } }),
+  ...cutInto('meets', 'sea', logrollBeats, { chapter: { island: true } }),
+  ...cutInto('meets', 'cak', raidMeetBeats, { chapter: { island: true } }),
 ];
 
 export const CHAPTER_BY_ID = Object.fromEntries(DEMO_CHAPTERS.map((c) => [c.id, c]));
