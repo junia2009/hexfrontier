@@ -16,8 +16,17 @@ export const RULES_TABS = [
 ];
 
 // 動画(自動再生デモ)への導線。文章の頭に置いて、操作感は動画で見てもらう。
+//
+// **章の id は実在するものだけ。** 知らない id は findChapter が黙って
+// 先頭の章に倒すので、間違えても「なぜか初期配置が始まる」だけで気づけない
+// ── test/demo.test.js が、ここに書いた id を実在する章と突き合わせている。
 const demoCta = (chapter, label, note) =>
   `<button class="demo-cta" data-act="demo:${chapter}">▶ ${label}<small>${note}</small></button>`;
+
+// 短編の一覧へ。**1本ずつ選びたい人の入口**(ここの導線は要点だけ)
+const demoAll = () =>
+  '<button class="demo-cta" data-act="goto-demos">▶ あそびかたの動画を一覧から選ぶ'
+  + '<small>話題ごとの短編。見たいところだけ見られます</small></button>';
 
 const costRow = (icon, name, cost) =>
   `<div class="rrow"><span class="ricon">${icon}</span><b>${name}</b><span class="rcost">${cost}</span></div>`;
@@ -25,7 +34,8 @@ const costRow = (icon, name, cost) =>
 function basicHtml(demo) {
   return `
   ${demo ? demoCta('setup', '① はじめの配置を動画で見る', '開拓地と道の置き方・実際の画面が動きます') : ''}
-  ${demo ? demoCta('basic', '② 手番の流れを動画で見る', 'ダイス → 建設 → 交易 → ターン終了') : ''}
+  ${demo ? demoCta('dice', '② 手番の流れを動画で見る', 'ダイス → 建設 → 交易 → 発展カード → 勝ち方') : ''}
+  ${demo ? demoAll() : ''}
 
   <h4>🏆 ゲームの目的</h4>
   <p>島に開拓地や都市を築いて<b>勝利点</b>を集めます。基本ルールは<b>10点</b>、都市と騎士は<b>13点</b>で勝利です。</p>
@@ -64,7 +74,7 @@ function basicHtml(demo) {
 
 function cakHtml(demo) {
   return `
-  ${demo ? demoCta('cak', '都市と騎士を動画で見る', '商品・都市改良・騎士・蛮族の襲来') : ''}
+  ${demo ? demoCta('cak-dice', '都市と騎士を動画で見る', '商品・都市改良・騎士・蛮族の襲来') : ''}
 
   <h4>🏙 基本ルールとの違い</h4>
   <div class="rrow"><b>勝利点</b><span class="rcost">13点(基本は10点)</span></div>

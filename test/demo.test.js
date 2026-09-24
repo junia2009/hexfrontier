@@ -6,16 +6,20 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { RESOURCES } from '../src/state.js';
 import { dispatch, validateAction } from '../src/actions.js';
 import { totalCards } from '../src/rules/build.js';
 import { COMMODITIES } from '../src/rules/cak/progress-cards.js';
-import { DEMO_CHAPTERS, findChapter } from '../src/demo/script.js';
 import {
-  bestRollFor, buildDemoState, DEMO_PLAYER, stackDevDeck,
+  DEMO_CHAPTERS, DEMO_SECTIONS, chaptersOf, findChapter, nextChapter,
+} from '../src/demo/script.js';
+import {
+  bestRollFor, buildDemoState, chapterSeconds, DEMO_PLAYER, stackDevDeck,
 } from '../src/demo/scenario.js';
 import { LAYOUT } from '../src/rules/board.js';
+import { demoIndexHtml, lengthLabel } from '../src/render/demo-index.js';
 
 function conservation(s, where) {
   for (const r of RESOURCES) {
@@ -31,7 +35,12 @@ function conservation(s, where) {
 
 // main.js の doAction / refresh と同じ順序でビートを実行する(描画だけ無い)
 function dryRun(chapter) {
-  let state = buildDemoState(chapter.mode, { finishSetup: !chapter.fromSetup });
+  // **章ごとに、まっさらな盤から始める。** 短編は1本ずつ選んで見られるので、
+  // 前の章が建てた道や配った資源を当てにできない(midTurn はダイスを
+  // 振ってある状態にする ── 手番の途中から始まる章のため)
+  let state = buildDemoState(chapter.mode, {
+    finishSetup: !chapter.fromSetup, midTurn: chapter.midTurn,
+  });
   const ui = { mode: 'idle', pending: null, pendingEdges: [], pendingHexes: [], dialog: null };
   let taps = 0;
   let actions = 0;
@@ -73,12 +82,44 @@ function dryRun(chapter) {
   return { state, taps, actions };
 }
 
-test('デモ: 章が3つあり、id で引ける', () => {
-  assert.deepEqual(DEMO_CHAPTERS.map((c) => c.id), ['setup', 'basic', 'cak']);
-  assert.equal(findChapter('cak').mode, 'cak');
-  assert.equal(findChapter('しらない章').id, 'setup'); // 未知の id は先頭にフォールバック
+test('デモ: 節ごとに章が並び、id で引ける', () => {
+  assert.ok(DEMO_CHAPTERS.length >= 12, `短編が ${DEMO_CHAPTERS.length} 本しかない`);
+  assert.equal(findChapter('cak-knight').mode, 'cak');
+  assert.equal(findChapter('しらない章').id, DEMO_CHAPTERS[0].id); // 未知の id は先頭へ
+  // id は重ならない(重なると一覧のボタンが同じ章を開く)
+  const ids = DEMO_CHAPTERS.map((c) => c.id);
+  assert.equal(new Set(ids).size, ids.length, `id が重なっている: ${ids}`);
   for (const ch of DEMO_CHAPTERS) {
-    assert.ok(ch.beats.length > 10, `${ch.id}: ビートが少なすぎる`);
+    assert.ok(ch.title && ch.lead, `${ch.id}: 題か説明が無い`);
+    assert.ok(ch.beats.length >= 3, `${ch.id}: ビートが ${ch.beats.length} しかない`);
+    assert.ok(DEMO_SECTIONS.some((x) => x.id === ch.section), `${ch.id}: 知らない節 ${ch.section}`);
+  }
+  // 節は空にならない。次の章は節をまたがない
+  for (const sec of DEMO_SECTIONS) {
+    const list = chaptersOf(sec.id);
+    assert.ok(list.length >= 2, `${sec.id}: 章が ${list.length} 本`);
+    assert.equal(nextChapter(list.at(-1).id), null, `${sec.id}: 最後の章から先へ送っている`);
+    assert.equal(nextChapter(list[0].id)?.id, list[1].id);
+  }
+});
+
+// **ここが短編に切り分けたことの肝。** 1本だけ選んで見られるということは、
+// **どの章もまっさらな盤から成立しないといけない**。切り分けた直後は
+// 14本中8本が「先にダイスを振ってください」で落ちた(手番の途中から
+// 始まる章が、前の章の続きを当てにしていた)。
+test('デモ: どの短編も、単独で最後まで通る', () => {
+  for (const ch of DEMO_CHAPTERS) {
+    const { taps, actions } = dryRun(ch);
+    assert.ok(taps + actions > 0, `${ch.id}: 指も手も出ない(字幕だけの章)`);
+  }
+});
+
+// 尺。**一覧に「約◯秒」と出す**ので、長すぎる短編は切り直しの合図
+test('デモ: 短編が長くなりすぎていない', () => {
+  for (const ch of DEMO_CHAPTERS) {
+    const sec = chapterSeconds(ch);
+    assert.ok(sec >= 8, `${ch.id}: ${sec}秒 ── 短すぎる(章に分ける値打ちがない)`);
+    assert.ok(sec <= 75, `${ch.id}: ${sec}秒 ── 長い。話題で切り直す`);
   }
 });
 
@@ -96,40 +137,111 @@ test('デモ 第1章: 初期配置を最初から見せられる(あなた2回 +
   assert.ok(totalCards(me) >= 2, `初期資源が入っていない: ${totalCards(me)}枚`);
 });
 
-test('デモ 第2章: 建設・銀行交易・プレイヤー交易・発展カード・盗賊まで見せられる', () => {
-  const { state, taps, actions } = dryRun(findChapter('basic'));
+// 短編それぞれが「その話題を実際に見せている」こと。**ビートが通るだけでは
+// 足りない** ── 字幕だけ残って手が消えても、通ること自体は通ってしまう
+test('デモ: 基本の短編が、それぞれの話題を実際に見せている', () => {
+  const log = (id) => dryRun(findChapter(id)).state.log.join('\n');
 
-  assert.ok(taps >= 20, `タップ演出が少ない: ${taps}`);
-  assert.ok(actions >= 12, `実際の手が少ない: ${actions}`);
+  const build = dryRun(findChapter('build')).state;
   assert.ok(
-    Object.values(state.buildings).some((b) => b.player === DEMO_PLAYER && b.type === 'city'),
-    '都市が建っていない',
+    Object.values(build.buildings).some((b) => b.player === DEMO_PLAYER),
+    '道と開拓地: 建物が建っていない',
   );
-  const log = state.log.join('\n');
-  assert.ok(/1 交易/.test(log), '銀行との交易が出ていない');
-  assert.ok(log.includes('🤝'), 'プレイヤー間交易が成立していない');
-  assert.ok(log.includes('発展カードを購入'), '発展カードを買えていない');
-  assert.ok(log.includes('「街道建設」を使用'), '街道建設カードを使えていない');
-  assert.ok(log.includes('盗賊'), '盗賊の演出が出ていない');
+  const city = dryRun(findChapter('city')).state;
+  assert.ok(
+    Object.values(city.buildings).some((b) => b.player === DEMO_PLAYER && b.type === 'city'),
+    '都市に育てる: 都市が建っていない',
+  );
+  assert.ok(/1 交易/.test(log('trade-bank')), '銀行と交易: 交易が出ていない');
+  assert.ok(log('trade-player').includes('🤝'), '相手と交易: 成立していない');
+
+  const dev = log('dev');
+  assert.ok(dev.includes('発展カードを購入'), '発展カード: 買えていない');
+  assert.ok(dev.includes('「街道建設」を使用'), '発展カード: 使えていない');
+  assert.ok(log('robber').includes('盗賊'), '7と盗賊: 盗賊が動いていない');
 });
 
-test('デモ 第3章: 都市改良 → 進歩カード → 騎士 → 蛮族襲来 → 城壁まで通る', () => {
-  const { state } = dryRun(findChapter('cak'));
-  const me = state.players[DEMO_PLAYER];
+test('デモ: 都市と騎士の短編が、それぞれの話題を実際に見せている', () => {
+  const cityS = dryRun(findChapter('cak-city')).state;
+  assert.ok(cityS.players[DEMO_PLAYER].improvements.science >= 2, '都市改良が進んでいない');
+  assert.ok(cityS.players[DEMO_PLAYER].progressCards.length >= 1, '進歩カードが入っていない');
 
-  assert.ok(me.improvements.science >= 2, '都市改良が進んでいない');
-  assert.ok(me.progressCards.length >= 1, '進歩カードを獲得できていない');
+  const kn = dryRun(findChapter('cak-knight')).state;
   assert.ok(
-    Object.values(state.knights).some((k) => k.player === DEMO_PLAYER),
+    Object.values(kn.knights).some((k) => k.player === DEMO_PLAYER),
     '騎士が置かれていない',
   );
-  assert.ok(Object.keys(state.walls).length >= 1, '城壁が建っていない');
-  assert.ok(state.log.some((l) => l.includes('蛮族襲来')), '蛮族襲来が起きていない');
-  // 襲来後は全騎士が不活性に戻る(章の最後で城壁を建てるまでが1手番)
+
+  const bar = dryRun(findChapter('cak-barbarian')).state;
+  assert.ok(bar.log.some((l) => l.includes('蛮族襲来')), '蛮族襲来が起きていない');
+  // 襲来後は全騎士が不活性に戻る
   assert.ok(
-    Object.values(state.knights).every((k) => !k.active),
+    Object.values(bar.knights).every((k) => !k.active),
     '襲来後に騎士が不活性へ戻っていない',
   );
+
+  const wall = dryRun(findChapter('cak-wall')).state;
+  assert.ok(Object.keys(wall.walls).length >= 1, '城壁が建っていない');
+});
+
+
+// **`demo:<id>` の書き間違いは、静かに間違った章を開く。**
+// findChapter は知らない id を先頭の章に倒すので、「なぜか初期配置が
+// 始まる」だけで気づけない ── 実際、短編に切り分けたとき
+// `demo:basic` と `demo:cak` が消えた id のまま残った。
+test('デモ: 画面に書いてある章の id が、全部実在する', () => {
+  const files = ['index.html', 'src/render/rules-content.js', 'src/main.js'];
+  const ids = new Set(DEMO_CHAPTERS.map((c) => c.id));
+  let found = 0;
+  for (const f of files) {
+    const src = readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
+    // 書き方は2通り ── markup の直書きと、導線を作る関数への引数
+    const pats = [/data-act="demo:([a-z-]+)"/g, /demoCta\('([a-z-]+)'/g, /startDemo\('([a-z-]+)'/g];
+    for (const re of pats) {
+      for (const m of src.matchAll(re)) {
+        found += 1;
+        assert.ok(ids.has(m[1]), `${f}: 知らない章 "${m[1]}" を開こうとしている`);
+      }
+    }
+  }
+  assert.ok(found >= 2, `導線を ${found} 個しか見つけられていない(探し方が壊れている)`);
+});
+
+// 一覧の表示。**尺の出しかたが崩れると、全部「約0秒」になっても気づかない**
+test('デモ: 一覧に全部の短編が、尺つきで並ぶ', () => {
+  const rows = DEMO_CHAPTERS.map((c) => ({
+    id: c.id, section: c.section, title: c.title, lead: c.lead, seconds: chapterSeconds(c),
+  }));
+  const html = demoIndexHtml(DEMO_SECTIONS, rows);
+  for (const c of DEMO_CHAPTERS) {
+    assert.ok(html.includes(`data-act="demo:${c.id}"`), `${c.id} が一覧に無い`);
+    assert.ok(html.includes(c.title), `${c.title} が一覧に無い`);
+  }
+  assert.equal((html.match(/class="demo-row"/g) ?? []).length, DEMO_CHAPTERS.length);
+  // 「続けて見る」は節ごとに1つ
+  assert.equal((html.match(/class="demo-all"/g) ?? []).length, DEMO_SECTIONS.length);
+  assert.ok(!html.includes('約0秒'), '尺が 0 秒になっている');
+  // 画面に入りきらないと困るので、流れる器に入れていること
+  assert.match(html, /class="panel-scroll"/);
+});
+
+test('デモ: 尺の表記は、1分を超えたら分で言う', () => {
+  assert.equal(lengthLabel(12), '約10秒');
+  assert.equal(lengthLabel(38), '約40秒');
+  assert.equal(lengthLabel(60), '約1分');
+  assert.equal(lengthLabel(75), '約1分15秒');
+  assert.equal(lengthLabel(120), '約2分');
+  // 端でも「約0秒」を出さない(0 秒の動画は無い)
+  assert.equal(lengthLabel(0), '約5秒');
+  assert.equal(lengthLabel(2), '約5秒');
+  // **丸めたぶんを繰り上げる。** 実機の一覧で「約1分60秒」が出た
+  assert.equal(lengthLabel(110), '約1分45秒');
+  assert.equal(lengthLabel(118), '約2分');
+  for (let n = 0; n <= 600; n += 1) {
+    const t = lengthLabel(n);
+    assert.ok(!/分60秒/.test(t), `${n}秒 → ${t}(秒が60になっている)`);
+    assert.match(t, /^約(\d+分(\d+秒)?|\d+秒)$/, `${n}秒 → ${t}`);
+  }
 });
 
 // ---- 台本が使う仕込みの部品 ----

@@ -606,6 +606,7 @@
   body[data-screen="online"] #screen-online { display: flex; }
   body[data-screen="records"] #screen-records { display: flex; }
   body[data-screen="gear"] #screen-gear { display: flex; }
+  body[data-screen="demos"] #screen-demos { display: flex; }
 
   /* ---------- 戦績と実績 ---------- */
   .rec-tabs { display: flex; gap: 6px; }
@@ -1598,6 +1599,33 @@
     border-left: 2px solid rgba(240, 190, 90, 0.5); min-height: 1em;
   }
   .gear-none { margin: 6px 0 0; color: var(--dim); }
+  /* ---- あそびかたの一覧 ---- */
+  .demo-sec { margin: 12px 0 16px; }
+  .demo-sec-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; margin: 0 0 6px; }
+  .demo-sec-head small { color: var(--dim); font-size: 11px; }
+  .demo-row {
+    display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 6px;
+    padding: 9px 10px; text-align: left; color: inherit; min-width: 0;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+  }
+  .demo-no {
+    flex: 0 0 22px; height: 22px; border-radius: 50%; font-size: 11.5px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(240, 190, 90, 0.22); color: var(--accent2);
+  }
+  .demo-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+  .demo-text b { font-size: 13px; }
+  .demo-text small { color: var(--dim); font-size: 11px; }
+  /* 尺は右はし。**折り返させない** ── 「約1分15秒」が2行になると行が踊る */
+  .demo-len { flex: 0 0 auto; color: var(--dim); font-size: 11px; white-space: nowrap; }
+  .demo-all {
+    width: 100%; padding: 8px; font-size: 12.5px; color: var(--accent2);
+    background: rgba(240, 190, 90, 0.10); border: 1px dashed rgba(240, 190, 90, 0.45);
+    border-radius: 10px;
+  }
+  .demo-all small { color: var(--dim); margin-left: 6px; font-size: 11px; }
+
   /* 支度の画面の入口。いま使っている顔ぶれを1行で出す */
   .gear-open { width: 100%; text-align: left; }
   .shop-has { color: #4fd18b; font-size: 12px; flex: 0 0 auto; }
@@ -2263,7 +2291,7 @@
         <div id="load-note"></div>
         <!-- 遊ぶ以外の入口。アイコン+小さなラベルの一列にまとめる -->
         <div class="title-dock">
-          <button data-act="demo:setup"><i class="di">▶</i><span>あそびかた</span></button>
+          <button data-act="goto-demos"><i class="di">▶</i><span>あそびかた</span></button>
           <button data-act="goto-rules"><i class="di">📖</i><span>ルール</span></button>
           <button data-act="goto-records"><i class="di">📊</i><span>戦績</span></button>
           <button data-act="goto-walk"><i class="di">🚶</i><span>島を歩く</span></button>
@@ -2299,6 +2327,11 @@
        島をやめてタイトルへ戻って対戦を始める、の4画面ぶん離れていた -->
   <div id="screen-gear" class="screen">
     <div class="select-panel rules-panel" id="gear-panel"></div>
+  </div>
+  <!-- あそびかたの一覧(短編を選ぶ)。**入口はここ1つ** ── 前はタイトルと
+       ルールの2タブに導線が散っていて、どれだけ本数があるのか分からなかった -->
+  <div id="screen-demos" class="screen">
+    <div class="select-panel rules-panel" id="demos-panel"></div>
   </div>
 
   <div id="walk-hud">

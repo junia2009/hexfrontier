@@ -26,7 +26,7 @@ const TERRAIN_COMMODITY = { forest: 'paper', mountain: 'coin', pasture: 'cloth' 
 // デモ用の盤面。既定では初期配置を CPU ロジックで済ませ、
 // 「あなた」の1手番目から始まる状態にする。
 // finishSetup: false なら初期配置の1手目(あなたの番)から始める(「はじめの配置」の章用)。
-export function buildDemoState(mode, { finishSetup = true } = {}) {
+export function buildDemoState(mode, { finishSetup = true, midTurn = false } = {}) {
   let state = createGame({
     seed: DEMO_SEED,
     playerCount: 3,
@@ -43,7 +43,20 @@ export function buildDemoState(mode, { finishSetup = true } = {}) {
     state = dispatch(state, action);
   }
   state.currentPlayer = DEMO_PLAYER;
-  return state;
+  return midTurn ? rollForDemo(state) : state;
+}
+
+// 手番の途中から始まる章の下ごしらえ。**ダイスを振ってある状態にする。**
+//
+// 短編に切り分けたら、2本目以降は「手番の頭」ではなく途中から始まる ──
+// 振っていないと、建設も交易も発展カードも**全部**「先にダイスを振って
+// ください」で弾かれた(切り分けた直後、14本中8本がこれで落ちた)。
+//
+// 出目は「あなたがいちばんもらえる目」に寄せる。資源が入った状態から
+// 話が始まるので、建てる話にそのままつながる。
+export function rollForDemo(state, pid = DEMO_PLAYER) {
+  forceRoll(state, bestRollFor(state, pid));
+  return dispatch(state, { type: 'ROLL_DICE', player: pid });
 }
 
 // 次の「あなたの手番」へジャンプする(動画のカット割りに相当)
@@ -207,4 +220,32 @@ export function pickBest(items, score) {
     }
   }
   return best;
+}
+
+// ---- 尺(字幕を読む時間)----
+//
+// **再生する側と数える側で、同じ式を使う。** 一覧に「約30秒」と出すのに
+// 別の式で見積もると、表示と実物がずれていく。driver.js もここを読む。
+export const TAP_MS = 670;            // 指を出してタップするまでの演出
+export const SAY_MIN = 1200;
+export const SAY_MAX = 5400;
+export const SAY_PER_CHAR = 78;
+
+export function readTime(text) {
+  if (!text) return 450;
+  return Math.min(SAY_MAX, Math.max(SAY_MIN, text.length * SAY_PER_CHAR));
+}
+
+// 章のおおよその尺(秒)。**字幕が関数のビートは実物を作らないと文が
+// 決まらない**ので、平均的な長さで見積もる ── 一覧の「約◯秒」に使う
+export const SAY_GUESS_MS = 2600;
+
+export function chapterSeconds(chapter) {
+  let ms = 0;
+  for (const b of chapter.beats) {
+    ms += typeof b.say === 'function' ? SAY_GUESS_MS : readTime(b.say);
+    ms += b.hold ?? 0;
+    if (b.tap) ms += TAP_MS;
+  }
+  return Math.round(ms / 1000);
 }

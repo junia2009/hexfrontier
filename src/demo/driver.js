@@ -10,6 +10,8 @@
 //   getState / getUi / patchState(fn) / setUi(patch) / act(action)
 //   boardPos(kind, id) / resetView() / exit(where)
 
+import { readTime } from './scenario.js';
+
 const TICK = 30; // 再生タイマーの刻み(ms)
 const SPEEDS = [1, 1.5, 2];
 
@@ -107,10 +109,10 @@ export class DemoDriver {
     await this.#wait(this.#readTime(say) + (beat.hold ?? 0));
   }
 
-  // 字幕を読む時間。短い字幕でも最低 1.2 秒は残す。
+  // 字幕を読む時間。**式は scenario.js に置いてある** ── 一覧に出す
+  // 「約◯秒」と同じ式で数えないと、表示と実物がずれていく
   #readTime(text) {
-    if (!text) return 450;
-    return Math.min(5400, Math.max(1200, text.length * 78));
+    return readTime(text);
   }
 
   // ---- 指のタップ演出 ----

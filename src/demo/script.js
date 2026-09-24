@@ -236,6 +236,7 @@ const setupBeats = [
 
 const basicBeats = [
   {
+    cut: { id: 'dice', title: 'ダイスと資源', lead: '振ると、土地に接した建物が資源を生む' },
     say: 'あなたの手番でできることを、実際の画面で一通り見ていきます。',
     hold: 500,
   },
@@ -251,6 +252,7 @@ const basicBeats = [
     hold: 600,
   },
   {
+    cut: { id: 'build', title: '道と開拓地を建てる', lead: '光った場所をタップして確定' },
     say: '🛤 道は 🪵1 🧱1。まず「道」ボタンを押します。',
     prep: (s) => ensure(s, P, { wood: 1, brick: 1 }),
     tap: () => ({ btn: 'mode:road' }),
@@ -289,6 +291,7 @@ const basicBeats = [
     hold: 900,
   },
   {
+    cut: { id: 'city', title: '都市に育てる', lead: '産出が2倍。コマのやりくりも' },
     say: '🏰 都市は 🌾2 🪨3 で開拓地を昇格させます。産出が2倍になり、点も1→2点に。',
     prep: (s) => ensure(s, P, { wheat: 2, ore: 3 }),
     tap: () => ({ btn: 'mode:city' }),
@@ -319,6 +322,7 @@ const basicBeats = [
     hold: 1600,
   },
   {
+    cut: { id: 'trade-bank', title: '銀行と交易する', lead: '4:1、港があれば 3:1 や 2:1' },
     say: '⚖️ 資源が偏ったら交易。「交易」から銀行と交換できます。',
     prep: (s) => {
       const { give, rate } = bankTradePlan(s);
@@ -349,6 +353,7 @@ const basicBeats = [
     hold: 900,
   },
   {
+    cut: { id: 'trade-player', title: '相手と交易する', lead: '枚数を組み立てて全員に提案' },
     say: '🤝 相手と直接やりとりもできます。もう一度「交易」を開いて、「プレイヤー」タブへ。',
     prep: (s) => {
       ensure(s, P, { [PT.give]: PT.giveN });
@@ -407,6 +412,7 @@ const basicBeats = [
     hold: 1800,
   },
   {
+    cut: { id: 'dev', title: '発展カードを買って使う', lead: '買った次の手番から使える' },
     say: '📜 発展カードは 🐑1 🌾1 🪨1。騎士・街道建設・収穫・独占・勝利点が入っています。',
     prep: (s) => {
       ensure(s, P, { sheep: 1, wheat: 1, ore: 1 });
@@ -427,6 +433,51 @@ const basicBeats = [
     hold: 700,
   },
   {
+    // **ダイスを振ってからでないとカードは使えない。** 手番送りだけして
+    // カードを出そうとして「先にダイスを振ってください」で弾かれた
+    say: '── 次のあなたの手番。まずダイスを振ります ──',
+    prep: (s) => { cutToTurn(s); forceRoll(s, bestRollFor(s, P)); },
+    tap: () => ({ btn: 'roll' }),
+    action: () => ({ type: 'ROLL_DICE', player: P }),
+    hold: 800,
+  },
+  {
+    say: '📜 発展カードは手札のカードをタップ。効果と「✨ 使う」が出ます。',
+    tap: () => ({ sel: '[data-act="dev-info:0"]' }),
+    ui: () => ({ dialog: { type: 'dev-info', index: 0 } }),
+    hold: 1600,
+  },
+  {
+    say: '「街道建設」は道を2本ぶん無料で建てられるカード。使うと、建てられる辺が光ります。',
+    tap: () => ({ sel: '[data-act="dev-use:0"]' }),
+    ui: () => ({ dialog: null, mode: 'play-road-building', pendingEdges: [], pending: null }),
+    hold: 1400,
+  },
+  {
+    say: 'どこへ伸ばすかは自分で選べます。まず1本目。',
+    tap: (s) => ({ edge: pickRoad(s) }),
+    ui: (s) => ({ pendingEdges: [pickRoad(s)] }),
+    hold: 900,
+  },
+  {
+    say: '続けて2本目。1本目の先へつなげることもできます。',
+    tap: (s, ui) => ({ edge: pickNextRoad(s, ui.pendingEdges[0]) }),
+    ui: (s, ui) => ({
+      pendingEdges: [...ui.pendingEdges, pickNextRoad(s, ui.pendingEdges[0])],
+    }),
+    hold: 1000,
+  },
+  {
+    say: '「✓ 確定」でまとめて建設。資源は使いません。',
+    tap: () => ({ btn: 'confirm' }),
+    action: (s, ui) => ({
+      type: 'PLAY_DEV_CARD', player: P, card: 'roadBuilding',
+      params: { edges: [...ui.pendingEdges] },
+    }),
+    hold: 1400,
+  },
+  {
+    cut: { id: 'robber', title: '7が出たときと盗賊', lead: '手札を捨てる・盗賊を動かす' },
     say: '── ほかの人の手番を飛ばして、次のあなたの手番へ ──',
     prep: (s) => {
       cutToTurn(s);
@@ -467,41 +518,7 @@ const basicBeats = [
     hold: 1500,
   },
   {
-    say: '📜 発展カードは手札のカードをタップ。効果と「✨ 使う」が出ます。',
-    tap: () => ({ sel: '[data-act="dev-info:0"]' }),
-    ui: () => ({ dialog: { type: 'dev-info', index: 0 } }),
-    hold: 1600,
-  },
-  {
-    say: '「街道建設」は道を2本ぶん無料で建てられるカード。使うと、建てられる辺が光ります。',
-    tap: () => ({ sel: '[data-act="dev-use:0"]' }),
-    ui: () => ({ dialog: null, mode: 'play-road-building', pendingEdges: [], pending: null }),
-    hold: 1400,
-  },
-  {
-    say: 'どこへ伸ばすかは自分で選べます。まず1本目。',
-    tap: (s) => ({ edge: pickRoad(s) }),
-    ui: (s) => ({ pendingEdges: [pickRoad(s)] }),
-    hold: 900,
-  },
-  {
-    say: '続けて2本目。1本目の先へつなげることもできます。',
-    tap: (s, ui) => ({ edge: pickNextRoad(s, ui.pendingEdges[0]) }),
-    ui: (s, ui) => ({
-      pendingEdges: [...ui.pendingEdges, pickNextRoad(s, ui.pendingEdges[0])],
-    }),
-    hold: 1000,
-  },
-  {
-    say: '「✓ 確定」でまとめて建設。資源は使いません。',
-    tap: () => ({ btn: 'confirm' }),
-    action: (s, ui) => ({
-      type: 'PLAY_DEV_CARD', player: P, card: 'roadBuilding',
-      params: { edges: [...ui.pendingEdges] },
-    }),
-    hold: 1400,
-  },
-  {
+    cut: { id: 'win', title: '記録と勝ち方', lead: '出目の偏り・最長交易路・10点' },
     say: '📊 ダイスの横の記録ボタンで、2〜12がそれぞれ何回出たかを見られます。',
     prep: (s) => seedDiceLog(s),
     tap: () => ({ btn: 'dicelog-open' }),
@@ -528,6 +545,7 @@ const basicBeats = [
 
 const cakBeats = [
   {
+    cut: { id: 'cak-dice', title: '3つ目のダイスと商品', lead: 'イベントダイスと、都市が産む商品' },
     say: '「都市と騎士」は、基本ルールに “3つ目のダイス・商品・騎士” が加わった上級ルールです。',
     hold: 800,
   },
@@ -548,7 +566,12 @@ const cakBeats = [
     hold: 800,
   },
   {
+    cut: { id: 'cak-city', title: '都市改良と進歩カード', lead: '商品を注ぎ込んで能力を開ける' },
     say: '🏙 商品の使い道が都市改良です。「改良」を開きます。',
+    // **この章だけで見ても成立するように、商品を持たせる。**
+    // 前は手前の章で都市が産んだ商品を当てにしていたので、単独で再生すると
+    // 「科学Lv1には商品が1枚必要です」で止まった(必ず銀行から出す)
+    prep: (s) => ensure(s, P, { paper: 3 }),
     tap: () => ({ btn: 'improve-open' }),
     ui: () => ({ dialog: { type: 'improve' } }),
     hold: 900,
@@ -594,6 +617,7 @@ const cakBeats = [
     hold: 700,
   },
   {
+    cut: { id: 'cak-knight', title: '騎士を置いて働かせる', lead: '置く → 活性化 → 動かす' },
     say: '⚔️ 騎士は 🐑1 🪨1。自分の道につながる空き頂点に置きます。',
     prep: (s) => ensure(s, P, { sheep: 1, ore: 1 }),
     tap: () => ({ btn: 'mode:knight' }),
@@ -630,6 +654,7 @@ const cakBeats = [
     hold: 900,
   },
   {
+    cut: { id: 'cak-barbarian', title: '蛮族の襲来', lead: '都市の数 対 活性騎士の合計' },
     say: '⛵ 蛮族船は船の目が出るたびに1マス前進。上のトラックがもう7マス目の手前です。',
     prep: (s) => {
       cutToTurn(s);
@@ -660,6 +685,7 @@ const cakBeats = [
     hold: 1000,
   },
   {
+    cut: { id: 'cak-wall', title: '城壁と、13点への道', lead: '手札上限を上げる・点の取り方' },
     say: '🧱 城壁は 🧱2。7が出たときの手札上限が1枚につき +2(7→9)。ボタンの数字のとおり、1人3枚までです。',
     prep: (s) => ensure(s, P, { brick: 2 }),
     tap: () => ({ btn: 'mode:wall' }),
@@ -684,32 +710,77 @@ const cakBeats = [
   },
 ];
 
-export const DEMO_CHAPTERS = [
+// ---- 節と章 ----
+//
+// **1本を短くする。** 前は3本で 61 / 182 / 114 秒あり、「基本の手番」の
+// 1本に12の話題(ダイス・道・開拓地・都市・コマ・銀行交易・相手との交易・
+// 発展カード・7と盗賊・街道建設・出目記録・最長交易路)が詰まっていた
+// ── 交易だけ見たい人が、3分待たないと交易にたどり着けない。
+//
+// **切れ目はビートに印(cut)を付ける。番号で切らない。** 番号で切ると、
+// ビートを1つ足しただけで後ろの章が全部ずれる。印なら、足したビートは
+// 前の印の章にそのまま収まる。
+//
+// 章は節にまとまっていて、節を続けて再生すれば通しでも見られる
+// ── **通し用の台本を別に持たない**(2本持つと必ず片方が古くなる)。
+function cutInto(section, mode, beats, opts = {}) {
+  const out = [];
+  for (const beat of beats) {
+    if (beat.cut || !out.length) {
+      const c = beat.cut ?? opts.first;
+      // **2本目からは手番の途中で始まる。** 先頭の章だけが手番の頭
+      // (ダイスを振るところ)から始まり、あとは振ってある状態にする
+      // ── でないと建設も交易も「先にダイスを振ってください」で弾かれる
+      out.push({
+        ...c, section, mode, midTurn: out.length > 0, ...opts.chapter, beats: [],
+      });
+    }
+    out[out.length - 1].beats.push(beat);
+  }
+  return out;
+}
+
+export const DEMO_SECTIONS = [
   {
-    id: 'setup',
-    mode: 'base',
-    title: 'はじめの配置',
-    lead: '開拓地と道を置いてゲームが始まる',
-    // 初期配置そのものを見せる章なので、盤面は setup の1手目から始める
-    fromSetup: true,
-    beats: setupBeats,
-  },
-  {
-    id: 'basic',
-    mode: 'base',
-    title: '基本の手番',
-    lead: 'ダイス → 建設 → 交易 → ターン終了',
-    beats: basicBeats,
+    id: 'base',
+    icon: '🎲',
+    title: 'はじめて',
+    lead: '基本のルールを、話題ごとに短く',
   },
   {
     id: 'cak',
-    mode: 'cak',
+    icon: '⚔️',
     title: '都市と騎士',
     lead: '商品・都市改良・騎士・蛮族の襲来',
-    beats: cakBeats,
   },
 ];
 
+export const DEMO_CHAPTERS = [
+  // 初期配置そのものを見せる章なので、盤面は setup の1手目から始める
+  ...cutInto('base', 'base', setupBeats, {
+    first: { id: 'setup', title: 'はじめの配置', lead: '開拓地と道を置いてゲームが始まる' },
+    chapter: { fromSetup: true },
+  }),
+  ...cutInto('base', 'base', basicBeats),
+  ...cutInto('cak', 'cak', cakBeats),
+];
+
+export const CHAPTER_BY_ID = Object.fromEntries(DEMO_CHAPTERS.map((c) => [c.id, c]));
+
 export function findChapter(id) {
-  return DEMO_CHAPTERS.find((c) => c.id === id) ?? DEMO_CHAPTERS[0];
+  return CHAPTER_BY_ID[id] ?? DEMO_CHAPTERS[0];
+}
+
+// 節の中の章(一覧に並べる順)
+export function chaptersOf(sectionId) {
+  return DEMO_CHAPTERS.filter((c) => c.section === sectionId);
+}
+
+// 次の章。**節をまたがない** ── 「騎士」を見終えて基本の話に戻されると、
+// 見ている人は自分がどこにいるか分からなくなる
+export function nextChapter(id) {
+  const now = CHAPTER_BY_ID[id];
+  if (!now) return null;
+  const list = chaptersOf(now.section);
+  return list[list.indexOf(now) + 1] ?? null;
 }

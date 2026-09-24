@@ -231,6 +231,31 @@ function gearLine(p) {
   return `${SLOT_IDS.map((s) => gearOf(p, s)?.icon ?? '').join(' ')} 盤まわり ›`;
 }
 
+// あそびかたの一覧。**台本は動的に読む** ── demo/script.js はルール
+// エンジンも一緒に引き連れてくるので、一覧のために最初の読み込みを
+// 重くしたくない。一度組み立てたら並びは変わらないので覚えておく。
+let demoIndexRows = null;
+async function renderDemosPanel() {
+  const panel = document.getElementById('demos-panel');
+  if (!panel || screen !== 'demos') return;
+  if (!demoIndexRows) {
+    const [{ demoIndexHtml }, script, scenario] = await Promise.all([
+      import('./render/demo-index.js'),
+      import('./demo/script.js'),
+      import('./demo/scenario.js'),
+    ]);
+    demoIndexRows = demoIndexHtml(
+      script.DEMO_SECTIONS,
+      script.DEMO_CHAPTERS.map((c) => ({
+        id: c.id, section: c.section, title: c.title, lead: c.lead,
+        seconds: scenario.chapterSeconds(c),
+      })),
+    );
+    if (screen !== 'demos') return;   // 読んでいる間に画面が変わっていた
+  }
+  setHTML(panel, demoIndexRows);
+}
+
 // 盤まわりの画面。中身は持ち物の棚と同じ組み立てを使う
 // (買う場所と使う場所で見え方が違うと、さっき買ったものを見失う)。
 //
@@ -649,10 +674,12 @@ let demoChapter = null;
 let demoRunning = false;
 let demoReturn = 'title'; // 終了後に戻る画面
 
+// 次の短編。**節をまたがない**(script.js の nextChapter) ── 「騎士」を
+// 見終えて基本の話に戻されると、見ている人は自分がどこにいるか分からなくなる。
+// 節の終わりまで来たら null を返し、一覧へ戻す
 function nextDemoChapter() {
   if (!demoScript || !demoChapter) return null;
-  const i = demoScript.DEMO_CHAPTERS.indexOf(demoChapter);
-  return demoScript.DEMO_CHAPTERS[i + 1] ?? null;
+  return demoScript.nextChapter(demoChapter.id);
 }
 
 // 盤面要素の画面座標(3D はレイキャスト用の射影、2D は view から逆算)
@@ -704,7 +731,9 @@ async function startDemo(chapterId, from = 'title') {
   clearTimeout(cpuTimer);
   demoRunning = true;
   setSeat(0);
-  state = scenario.buildDemoState(demoChapter.mode, { finishSetup: !demoChapter.fromSetup });
+  state = scenario.buildDemoState(demoChapter.mode, {
+    finishSetup: !demoChapter.fromSetup, midTurn: demoChapter.midTurn,
+  });
   ui = freshUi();
   setScreen('game');
   if (viewMode === '3d' && !renderer3dFailed) await ensureRenderer3d();
@@ -729,7 +758,8 @@ function endDemo(where) {
     return;
   }
   showTitleBoard();
-  setScreen(demoReturn === 'rules' ? 'rules' : 'title');
+  // 一覧から入ったら一覧へ戻す ── 続けて別の短編を選べるように
+  setScreen({ rules: 'rules', demos: 'demos' }[demoReturn] ?? 'title');
 }
 
 // 説明書画面(タイトル・設定画面・ロビーから遷移)
@@ -3022,6 +3052,7 @@ function refresh() {
   renderOnlinePanel();
   renderRecordsPanel();
   renderGearPanel();
+  renderDemosPanel();
   // タイトル画面の読み込み状態表示
   const note = document.getElementById('load-note');
   if (note) {
@@ -3672,6 +3703,7 @@ document.addEventListener('click', (e) => {
     // ---- 画面フロー ----
     case 'goto-select': setScreen('select'); return;
     case 'goto-gear': setScreen('gear'); return;
+    case 'goto-demos': setScreen('demos'); return;
     case 'goto-title':
       if (isOnline()) leaveNet(true);
       else setScreen('title');
@@ -3981,7 +4013,7 @@ document.addEventListener('click', (e) => {
       saveProgress(progress);
       afterAdmin('↩️ 買った品を手放した');
       return;
-    case 'demo': startDemo(arg, screen === 'rules' ? 'rules' : 'title'); return;
+    case 'demo': startDemo(arg, { rules: 'rules', demos: 'demos' }[screen] ?? 'title'); return;
     case 'reload-app': location.reload(); return;
 
     // ---- オンライン対戦 ----
