@@ -737,6 +737,63 @@ async function islandAutoFish() {
   }
 }
 
+// 集まりにエントリーして始める。**人数が足りないと始まらない**ので
+// CPU を足す。受付のパネルは近づくと開いている前提(walk: 'desk' のあと)
+async function islandStartMeet({ cpu = 3 } = {}) {
+  const hit = (act) => document.querySelector(`[data-act="${act}"]`)?.click();
+  hit('meet-enter');
+  await sleep(500);
+  hit(`meet-cpu:${cpu}`);
+  await sleep(500);
+  hit('meet-start');
+  await sleep(1400);
+}
+
+// スティックを倒して歩かせる。**必ず戻す** ── 倒したままにすると、
+// 次のビートの字幕を読んでいる間ずっと歩き続けてしまう
+async function islandStick({ x = 0, y = -1, ms = 1500 }) {
+  if (!walk) return;
+  walk.setStick(x, y);
+  await sleep(ms);
+  walk.setStick(0, 0);
+}
+
+// 弓を n 回、引いて放つ。引き絞る時間を変えて、当たり外れの両方を見せる
+async function islandShoot(n = 3) {
+  for (let i = 0; i < n; i += 1) {
+    bowPress();
+    await sleep(500 + (i % 3) * 250);
+    bowRelease();
+    await sleep(900);
+  }
+}
+
+// 大富豪を n 手ぶん進める。**出せる手は playsFor に数えさせる** ──
+// 自前で「弱い1枚」を選ぶと、場の縛りに合わずに弾かれて画面が動かない
+// (実物の手札の表示も同じ関数で沈める札を決めている)。
+async function islandPlayCards(n = 4) {
+  for (let i = 0; i < n * 3; i += 1) {          // 相手の番も回るので多めに見る
+    const t = dfgTable();
+    const seat = mySeat();
+    if (!t || seat == null) { await sleep(800); continue; }
+    if (t.turn !== seat || t.awaiting) { await sleep(700); continue; }
+    const plays = playsFor(t, t.hand);
+    if (plays.length) {
+      const cards = plays[0];
+      dfgSel = [...cards];
+      renderDaifugo();
+      await sleep(800);                          // 選んだ札を見せてから打つ
+      meetSend('play', { cards });
+      dfgSel = [];
+    } else {
+      meetSend('pass');
+    }
+    await sleep(1400);
+    n -= 1;
+    if (n <= 0) return;
+  }
+}
+
 const demoHost = {
   getState: () => state,
   getUi: () => ui,
@@ -775,7 +832,11 @@ const demoHost = {
       await sleep(500);
       return;
     }
-    if (op.fish) await islandAutoFish();
+    if (op.fish) { await islandAutoFish(); return; }
+    if (op.meet) { await islandStartMeet(op.meet); return; }
+    if (op.stick) { await islandStick(op.stick); return; }
+    if (op.bow) { await islandShoot(op.bow); return; }
+    if (op.cards) await islandPlayCards(op.cards);
   },
 };
 

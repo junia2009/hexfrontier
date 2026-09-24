@@ -134,7 +134,7 @@ test('デモ: 島の章の操作が、実在のボタンを指している', () 
     [...srcs.matchAll(/data-act="([a-z-]+):\$\{/g)].map((m) => m[1]),
   );
   const known = (act) => acts.has(act) || prefixes.has(act.split(':')[0]);
-  const KINDS = ['click', 'walk', 'wait', 'fish'];
+  const KINDS = ['click', 'walk', 'wait', 'fish', 'meet', 'stick', 'bow', 'cards'];
   // main.js の islandSpot が知っている行き先と揃える
   const WALKS = ['fish', 'shop', 'desk', 'notice'];
   let ops = 0;
@@ -359,6 +359,21 @@ test('デモ: 島の集まり全部に、短編が1本はある', () => {
   // 集まりは島ごとに違うので、章の mode もばらけているはず
   const modes = new Set(DEMO_CHAPTERS.filter((c) => c.id.startsWith('meet-')).map((c) => c.mode));
   assert.equal(modes.size, kinds.length, `集まりの島が ${modes.size} 種類しかない`);
+});
+
+// **字幕を読むだけの動画にしない。** はじめ集まりの5本は受付まで歩いて
+// 説明を読むだけで、遊んでいるところが1秒も映っていなかった
+// ──「これだと動画にしてる意味がない」。実際に始めて、遊ぶ操作が
+// 入っていることを見張る。
+test('デモ: 集まりの短編は、エントリーして実際に遊んでいる', () => {
+  const PLAY = ['fish', 'stick', 'bow', 'cards'];
+  for (const ch of DEMO_CHAPTERS.filter((c) => c.id.startsWith('meet-'))) {
+    const ops = ch.beats.map((b) => b.island).filter(Boolean);
+    assert.ok(ops.some((o) => o.meet), `${ch.id}: エントリーして始めていない`);
+    const plays = ops.filter((o) => PLAY.some((k) => k in o));
+    assert.ok(plays.length >= 2,
+      `${ch.id}: 遊ぶ操作が ${plays.length} 個(字幕を読むだけの動画になっている)`);
+  }
 });
 
 // ---- 台本が使う仕込みの部品 ----
