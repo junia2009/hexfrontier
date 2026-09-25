@@ -532,7 +532,7 @@ function dlgSettings(state, ui, d, p) {
 
 function dlgRules(state, ui, d, p) {
   return `<h3>📖 あそびかた</h3>
-    ${rulesHtml(d.tab, { demo: false })}
+    ${rulesHtml(d.tab, { demo: false, openAll: !!d.openAll })}
     <div class="row end"><button class="primary" data-act="dialog-cancel">閉じる</button></div>`;
   return '';
 }

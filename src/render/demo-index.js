@@ -32,21 +32,31 @@ function rowHtml(ch, i) {
 
 // sections: [{ id, icon, title, lead }]
 // chapters: [{ id, section, title, lead, seconds }]
-export function demoIndexHtml(sections, chapters) {
+// open: はじめから開けておく節の id(既定はどれも開かない。'all' なら全部)
+//
+// **節ごとに畳む。** 40本を平らに並べると画面 4.3 枚ぶんあって、
+// 「島のことだけ見たい」人が島まで巻かないといけない。畳めば
+// まず7行の目次になり、節の長さ(本数と時間)もその1行で分かる。
+export function demoIndexHtml(sections, chapters, { open = null } = {}) {
   const body = sections.map((sec) => {
     const list = chapters.filter((c) => c.section === sec.id);
     if (!list.length) return '';
     const total = list.reduce((a, c) => a + c.seconds, 0);
-    return `<div class="demo-sec">
-      <p class="demo-sec-head"><b>${sec.icon} ${sec.title}</b><small>${sec.lead}</small></p>
+    const on = open === 'all' || open === sec.id;
+    return `<details class="demo-sec"${on ? ' open' : ''}>
+      <summary><span class="demo-sec-head"><b>${sec.icon} ${sec.title}</b><small>${sec.lead}</small></span>
+        <span class="demo-sec-len">${list.length}本<small>${lengthLabel(total)}</small></span></summary>
       ${list.map(rowHtml).join('')}
       <button class="demo-all" data-act="demo:${list[0].id}">
         ▶ ${list.length}本を続けて見る<small>${lengthLabel(total)}</small></button>
-    </div>`;
+    </details>`;
   }).join('');
+  const n = sections.filter((s) => chapters.some((c) => c.section === s.id)).length;
   return `<h3>▶ あそびかた</h3>
     <div class="panel-scroll">
       <div class="net-note">本物の画面がそのまま動きます。途中でやめられます。</div>
+      ${n > 1 ? `<button class="rsec-all" data-act="demos-openall">${
+        open === 'all' ? '⊖ ぜんぶ閉じる' : `⊕ ぜんぶ開く（${n}節・${chapters.length}本）`}</button>` : ''}
       ${body}
     </div>
     <div class="row end rules-close">

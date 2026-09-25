@@ -3,6 +3,7 @@
 
 import { PROGRESS_CARDS } from '../rules/cak/progress-cards.js';
 import { meetsGuideHtml } from './meet-guide.js';
+import { collapsible, sectionCount } from './sections.js';
 
 export const RULES_TABS = [
   ['basic', '基本'],
@@ -302,8 +303,10 @@ function seaHtml(demo) {
 }
 
 // タブ付きの説明書本体。tabAct のボタンで data-act="rules-tab:<id>" を発行する。
+//
 // demo: 動画デモへの導線を出すか(対戦中に開いたときは出さない ── 進行中の盤面を捨てさせないため)
-export function rulesHtml(tab = 'basic', { demo = true } = {}) {
+// openAll: 章を全部開くか。既定は**どれも開かない**(まず目次を見せる)
+export function rulesHtml(tab = 'basic', { demo = true, openAll = false } = {}) {
   const tabs = `<div class="seg rules-tabs">${RULES_TABS.map(
     ([id, label]) =>
       `<button class="${tab === id ? 'sel' : ''}" data-act="rules-tab:${id}">${label}</button>`,
@@ -317,7 +320,15 @@ export function rulesHtml(tab = 'basic', { demo = true } = {}) {
     : tab === 'meets' ? meetsGuideHtml()
     : tab === 'setup' ? setupHtml()
     : basicHtml(demo);
+  // **章ごとに畳む。** 畳まないと 🎪集まり だけで画面 18 枚ぶんある
+  // (sections.js に実測を書いてある)
+  const n = sectionCount(body);
+  const toggle = n > 1
+    ? `<button class="rsec-all" data-act="rules-openall">${
+      openAll ? '⊖ ぜんぶ閉じる' : `⊕ ぜんぶ開く（${n}章）`}</button>`
+    : '';
   // panel-scroll: パネルの中で開いたときに、ここだけが流れる
   // (ダイアログの中で開いたときは .dialog .rules-body 側が効く)
-  return `${tabs}<div class="rules-body panel-scroll">${body}</div>`;
+  return `${tabs}<div class="rules-body panel-scroll">${toggle}${
+    collapsible(body, { open: openAll ? 'all' : 'none' })}</div>`;
 }

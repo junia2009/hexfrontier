@@ -236,26 +236,34 @@ function gearLine(p) {
 // あそびかたの一覧。**台本は動的に読む** ── demo/script.js はルール
 // エンジンも一緒に引き連れてくるので、一覧のために最初の読み込みを
 // 重くしたくない。一度組み立てたら並びは変わらないので覚えておく。
-let demoIndexRows = null;
+let demoIndexData = null;
+// **名前のまま持つ。** ここを `d.html(...)` のような呼び方にすると、
+// 「この画面は何で組み立てているか」を名前でたどっているテスト
+// (test/panel-scroll.test.js)が追えなくなる ── 実際そうして落とした
+let demoIndexHtml = null;
+// 節を全部開いているか。**既定はどれも開かない**(まず目次を見せる)
+let demosOpenAll = false;
 async function renderDemosPanel() {
   const panel = document.getElementById('demos-panel');
   if (!panel || screen !== 'demos') return;
-  if (!demoIndexRows) {
-    const [{ demoIndexHtml }, script, scenario] = await Promise.all([
+  if (!demoIndexData) {
+    const [mod, script, scenario] = await Promise.all([
       import('./render/demo-index.js'),
       import('./demo/script.js'),
       import('./demo/scenario.js'),
     ]);
-    demoIndexRows = demoIndexHtml(
-      script.DEMO_SECTIONS,
-      script.DEMO_CHAPTERS.map((c) => ({
+    demoIndexHtml = mod.demoIndexHtml;
+    demoIndexData = {
+      sections: script.DEMO_SECTIONS,
+      chapters: script.DEMO_CHAPTERS.map((c) => ({
         id: c.id, section: c.section, title: c.title, lead: c.lead,
         seconds: scenario.chapterSeconds(c),
       })),
-    );
+    };
     if (screen !== 'demos') return;   // 読んでいる間に画面が変わっていた
   }
-  setHTML(panel, demoIndexRows);
+  setHTML(panel, demoIndexHtml(demoIndexData.sections, demoIndexData.chapters,
+    { open: demosOpenAll ? 'all' : null }));
 }
 
 // 盤まわりの画面。中身は持ち物の棚と同じ組み立てを使う
@@ -1067,13 +1075,16 @@ function endDemo(where) {
 
 // 説明書画面(タイトル・設定画面・ロビーから遷移)
 let rulesTab = 'basic';
+// 章を全部開いているか。**既定は先頭の1章だけ**(まず目次を見せる)。
+// タブを変えても引き継ぐ ── 全部読みたい人が毎回押し直さずに済む
+let rulesOpenAll = false;
 // 開く前の画面。閉じたらここへ戻す(ロビーから開いても部屋に戻れるように)
 let rulesFrom = 'title';
 function renderRulesPanel() {
   const panel = document.getElementById('rules-panel');
   if (!panel || screen !== 'rules') return;
   const backLabel = { select: '← 設定へ', online: '← 部屋へ' }[rulesFrom] ?? '← タイトルへ';
-  panel.innerHTML = `<h3>📖 あそびかた</h3>${rulesHtml(rulesTab)}
+  panel.innerHTML = `<h3>📖 あそびかた</h3>${rulesHtml(rulesTab, { openAll: rulesOpenAll })}
     <div class="row end rules-close"><button class="primary" data-act="rules-back">${backLabel}</button></div>`;
 }
 
@@ -4429,6 +4440,17 @@ document.addEventListener('click', (e) => {
       else rulesTab = arg;
       refresh();
       return;
+    case 'demos-openall':
+      demosOpenAll = !demosOpenAll;
+      refresh();
+      return;
+    case 'rules-openall':
+      // **開き具合はここでしか持たない。** 章ごとの開け閉ては <details> が
+      // 自分で覚えているので、こちらが数えると二重管理になる
+      if (ui?.dialog?.type === 'rules') ui.dialog.openAll = !ui.dialog.openAll;
+      else rulesOpenAll = !rulesOpenAll;
+      refresh();
+      return;
     case 'rules-open':
       ui.dialog = { type: 'rules', tab: 'basic' };
       refresh();
@@ -4793,6 +4815,31 @@ document.addEventListener('input', (e) => {
 });
 
 // デバッグ・テスト用フック(シード制御と合わせて再現検証に使う)
+// 畳んだ章を開いたとき、見出しを上へ寄せる。
+//
+// **開いた中身が画面の外へ伸びる。** 下のほうの章を叩くと本文は下へ伸びるので、
+// そのままでは1行も見えない ── 自分で巻き直すことになる。
+// 収まっているときは動かさない(勝手に飛ぶほうが気持ち悪い)。
+//
+// **toggle ではなく、見出しを叩いたことで拾う。** はじめ toggle を捕捉して
+// いたら、**画面を組み立てた瞬間の `<details open>` でも飛んだ** ──
+// 一覧を開くといきなり1つめの節まで巻かれて、上の説明と「ぜんぶ開く」が
+// 画面の外にあった。叩いたときだけなら、そこと取り違えようがない。
+document.addEventListener('click', (e) => {
+  const sum = e.target instanceof Element ? e.target.closest('summary') : null;
+  const el = sum?.parentElement;
+  if (!(el instanceof HTMLDetailsElement) || !el.matches('.rsec, .demo-sec')) return;
+  const box = el.closest('.panel-scroll');
+  if (!box || el.open) return;                 // 閉じるときは動かさない
+  // 開いたあとの高さで測る(この時点ではまだ閉じている)
+  requestAnimationFrame(() => {
+    const r = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    if (r.bottom <= b.bottom) return;          // 収まっているなら動かさない
+    box.scrollTo({ top: box.scrollTop + (r.top - b.top), behavior: 'smooth' });
+  });
+});
+
 window.hexDebug = {
   getState: () => state,
   setState: (s) => { state = s; refresh(); scheduleCpu(); },

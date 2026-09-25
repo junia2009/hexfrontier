@@ -118,7 +118,7 @@ export const GUIDES = {
 
 // CPU のこと。**どの遊びにも共通**なので1か所に置いて、どの説明にも足す。
 // ここが読めないと「ひとりでは遊べない」と思われたままになる。
-const CPU_NOTE = `<h4>🤖 CPU を入れる</h4>
+const CPU_NOTE = `<h4 class="sub">🤖 CPU を入れる</h4>
   <p>受付の「🤖 CPU」で、<b>オーナー(部屋を立てた人。ひとりで歩いているときは自分)</b>が
   何人入れるかを決めます。CPU も島の上を歩いて、円卓に座り、櫓に立ち、竜から逃げます。
   <b>ひとりで歩いているときも入れられる</b>ので、友達が居なくても遊べます。</p>
@@ -141,7 +141,7 @@ function dfgRulesHtml(rules) {
     return `<div class="rrow mg-rule${on ? ' on' : ''}"><b>${r.name}</b>
       <span class="rcost">${tag}</span></div><p class="mg-desc">${r.desc}</p>`;
   }).join('');
-  return `<h4>🃏 入れるルール(13種)</h4>
+  return `<h4 class="sub">🃏 入れるルール(13種)</h4>
     <p>${rules ? 'この卓に' : 'ゲームマスターが'}入れるものを選びます。${
       rules ? '' : '5つは<b>はじめから入っています</b>。'}</p>${rows}`;
 }
@@ -158,11 +158,11 @@ export function guideBodyHtml(id, { rules = null } = {}) {
     <p>${g.goal}</p>
     ${limit}
     <div class="rrow"><b>人数</b><span class="rcost">${MIN_PLAYERS}人から</span></div>
-    <h4>🎮 やりかた</h4>
+    <h4 class="sub">🎮 やりかた</h4>
     ${g.steps.map(stepRow).join('')}
-    ${g.rules ? `<h4>🔢 札の決まり</h4>${list(g.rules)}` : ''}
-    ${g.score ? `<h4>🏆 点の入りかた</h4><p>${g.score}</p>` : ''}
-    ${g.tips ? `<h4>💡 コツ</h4>${list(g.tips)}` : ''}
+    ${g.rules ? `<h4 class="sub">🔢 札の決まり</h4>${list(g.rules)}` : ''}
+    ${g.score ? `<h4 class="sub">🏆 点の入りかた</h4><p>${g.score}</p>` : ''}
+    ${g.tips ? `<h4 class="sub">💡 コツ</h4>${list(g.tips)}` : ''}
     ${g.note ? `<p class="mg-note">${g.note}</p>` : ''}
     ${CPU_NOTE}
     ${id === 'daifugo' ? dfgRulesHtml(rules) : ''}`;
@@ -234,11 +234,15 @@ export function meetsGuideHtml() {
   const where = Object.entries(MEETS)
     .map(([mode, m]) => `<div class="rrow"><b>${MODE_JP[mode] ?? mode}</b><span class="rcost">${m.title}</span></div>`)
     .join('');
-  return `<p><b>ひとりでも、友達とでも</b>遊べます。タイトルの 🚶 から島を選べば
+  // **導入にも見出しを付ける。** 説明書は見出しごとに畳まれる(sections.js)が、
+  // 最初の見出しより前は畳まれない ── ここは前書きと島の一覧で 350px あって、
+  // 畳んだ意味が消えていた(目次が画面の外に押し出されていた)
+  return `<h4>🎪 集まりとは</h4>
+    <p><b>ひとりでも、友達とでも</b>遊べます。タイトルの 🚶 から島を選べば
     ひとりで、オンラインで部屋を立てて「島を歩く」なら全員で同じ島を歩けます。
     島の中心には受付が立っていて、そこから<b>みんなで遊ぶ集まり</b>を開けます。</p>
     ${where}
     <p class="mg-note">遊びは島ごとに違います。集まりに出なくても、島は自由に歩けます。</p>
     ${walkGuideHtml()}
-    ${order.map((id) => `<hr class="mg-hr">${guideBodyHtml(id)}`).join('')}`;
+    ${order.map((id) => guideBodyHtml(id)).join('')}`;
 }

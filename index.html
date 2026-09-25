@@ -1600,9 +1600,35 @@
   }
   .gear-none { margin: 6px 0 0; color: var(--dim); }
   /* ---- あそびかたの一覧 ---- */
-  .demo-sec { margin: 12px 0 16px; }
-  .demo-sec-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; margin: 0 0 6px; }
+  /* 節は畳める(40本を平らに並べると画面4.3枚ぶんある)。
+     畳んだときは「節の名前 + 本数と時間」の1行になる */
+  .demo-sec {
+    flex: none; margin: 8px 0; background: rgba(255,255,255,0.045);
+    border: 1px solid rgba(130,180,230,0.18); border-radius: 10px;
+    padding: 0 10px; overflow: hidden;
+  }
+  .demo-sec > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 2px; margin: 0 -10px; padding-left: 12px; padding-right: 12px;
+  }
+  .demo-sec > summary::-webkit-details-marker { display: none; }
+  .demo-sec > summary::before {
+    content: '▸'; flex: none; width: 14px; text-align: center;
+    color: rgba(150,195,235,0.8); transition: transform 0.15s ease-out;
+  }
+  .demo-sec[open] > summary { border-bottom: 1px solid rgba(130,180,230,0.18); margin-bottom: 8px; }
+  .demo-sec[open] > summary::before { transform: rotate(90deg); }
+  .demo-sec > summary:active { background: rgba(255,255,255,0.06); }
+  /* 節の名前。**縮む側にする** ── 本数の札を押し出して折り返させない */
+  .demo-sec-head { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline;
+    margin: 0; flex: 1 1 auto; min-width: 0; }
   .demo-sec-head small { color: var(--dim); font-size: 11px; }
+  .demo-sec-len {
+    flex: none; text-align: right; font-size: 12px; font-weight: 700; color: var(--accent2);
+  }
+  .demo-sec-len small { display: block; color: var(--dim); font-weight: 400; font-size: 10.5px; }
+  .demo-sec > :last-child { margin-bottom: 10px; }
   .demo-row {
     display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 6px;
     padding: 9px 10px; text-align: left; color: inherit; min-width: 0;
@@ -1723,13 +1749,59 @@
   /* タブは8つあるので、狭い画面では折り返す(折り返した1つが横幅いっぱいに
      伸びないよう、タブだけは内容幅にする) */
   /* 2段になっても本文が透けないよう、タブ帯は不透明にする */
-  .rules-tabs { position: sticky; top: -6px; z-index: 2; padding: 6px 0 8px; flex-wrap: wrap;
+  .rules-tabs { position: sticky; top: -6px; z-index: 2; padding: 5px 0 6px; flex-wrap: wrap;
+    gap: 4px;
     background: #17334f; box-shadow: 0 6px 8px -6px rgba(0,0,0,0.5); }
-  .seg.rules-tabs button { flex: 0 1 auto; }
+  /* **8つを2段に収める。** 既定の大きさだと3段=140px あって、パネル 726px の
+     2割をタブが食っていた ── 実測で 12px + 詰めた余白なら2段(81px)に入り、
+     本文が 429px → 488px に増える。横に巻かせて隠す手もあるが、
+     見えている8つがそのまま目次なので、**全部見えているほうを取る** */
+  .seg.rules-tabs button { flex: 0 1 auto; font-size: 12px; padding: 7px 7px; }
   .rules-body { display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
   .rules-body h4 {
     color: var(--accent2); font-size: 14.5px; margin-top: 10px;
     border-bottom: 1px solid rgba(130,180,230,0.2); padding-bottom: 4px;
+  }
+  /* ---------- 畳める章(sections.js) ----------
+     説明書は縦に長い(🎪集まり だけで画面18枚ぶんあった)。章ごとに畳んで、
+     まず目次を見せる。開け閉ては <details> に任せる(自前の state を持たない)。 */
+  .rsec {
+    /* **縮ませない。** .rules-body は縦の flex なので、既定では子が
+       潰れて枠に収まろうとする ── 章の帯が 20px まで押し潰されて
+       字が切れた(「1画面に収まった」と測れてしまうので、絵で気づいた) */
+    flex: none;
+    background: rgba(255,255,255,0.045);
+    border: 1px solid rgba(130,180,230,0.18);
+    border-radius: 10px; overflow: hidden;
+  }
+  .rsec > summary {
+    /* ▸ は自前で描く(既定の三角は端末ごとに位置も色も違う) */
+    list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 12px; font-size: 14.5px; font-weight: 700;
+    color: var(--accent2);
+  }
+  .rsec > summary::-webkit-details-marker { display: none; }
+  .rsec > summary::before {
+    content: '▸'; flex: none; width: 14px; text-align: center;
+    color: rgba(150,195,235,0.8); transition: transform 0.15s ease-out;
+  }
+  .rsec[open] > summary::before { transform: rotate(90deg); }
+  .rsec[open] > summary { border-bottom: 1px solid rgba(130,180,230,0.18); }
+  .rsec > summary:active { background: rgba(255,255,255,0.06); }
+  .rsec-body {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 10px 12px 12px;
+  }
+  /* 章の中の小見出し(class="sub")。章の見出しより一段おとなしく */
+  .rules-body .rsec-body h4 { margin-top: 4px; font-size: 13.5px; color: #a8c8e6; }
+  .rules-body .rsec-body > :first-child { margin-top: 0; }
+  /* 最初の見出しより前(導入と動画への導線)は畳まない */
+  .rsec-intro { display: flex; flex-direction: column; gap: 8px; flex: none; }
+  /* ぜんぶ開く / 閉じる */
+  .rsec-all {
+    flex: none; align-self: flex-start; padding: 6px 12px; font-size: 12.5px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(130,180,230,0.28);
   }
   .rules-body p, .rules-body li { color: #cfdcea; line-height: 1.75; }
   .rules-body ol { padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
