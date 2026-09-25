@@ -9,6 +9,7 @@ import {
   DragonHunt, HUNT_MS, GRACE_MS, DRAGON_SPEED, CATCH_R,
 } from '../src/minigame/meet/dragon-hunt.js';
 import { WALK_SPEED } from '../src/minigame/motion.js';
+import { fleePick } from '../src/minigame/contest.js';
 
 const at = (t) => t;
 // 2人でエントリーして始めたところまで進める
@@ -190,4 +191,69 @@ test('竜: 逃げきりは、捕まった人と同率にならない', () => {
   const caught = rank.find((r) => !r.alive);
   assert.equal(alive.place, 1, '逃げきったのに1位でない');
   assert.equal(caught.place, 2, `捕まったのに ${caught.place} 位`);
+});
+
+// ---- 逃げ先の選びかた(fleePick)----
+//
+// CPU(meet/cpu.js)とあそびかたデモの自動運転が、両方ここを通る。
+//
+// **実測で見つけた穴が2つある。**
+//   1. 竜の逆へまっすぐ逃げると**海に落ちる**。短編の順位も生き残り時間も
+//      1位のまま、絵は水の中で「🌊 海に落ちた!」が出ていた
+//      ── 数字だけ見ていたら通っていた。
+//   2. 「逆向きにいちばん近い、歩ける向き」にすると**岸に沿って走り、
+//      行き止まりの岬に入って捕まる**(13〜31 秒で袋小路)。
+// だから「どこまで歩けるか」も見て選ぶ。ここはその2つを押さえる。
+
+// 半径 r の丸い島。おまけで、細くて行き止まりの岬を生やせる
+function isle(r = 4, spit = null) {
+  return (x, z) => {
+    if (Math.hypot(x, z) <= r) return true;
+    if (!spit) return false;
+    // spit: { a(向き), len(長さ), w(半幅) } ── 島の縁から生える細い道
+    const sn = Math.sin(spit.a);
+    const c = Math.cos(spit.a);
+    const along = x * sn + z * c;              // 岬に沿った距離
+    const side = x * c - z * sn;               // 岬の横へのずれ
+    return along > 0 && along <= r + spit.len && Math.abs(side) <= spit.w;
+  };
+}
+
+// その向きへ d だけ進んだ先
+const step = (x, z, a, d) => [x + Math.sin(a) * d, z + Math.cos(a) * d];
+
+test('竜: 逃げ先は必ず陸(まっすぐ逃げると海でも、海は選ばない)', () => {
+  const ok = isle(4);
+  // 島の北の縁に立っていて、竜は真南 ── 「逆へまっすぐ」は海
+  const [x, z] = [0, 3.6];
+  const dragon = { x: 0, z: 0 };
+  const a = fleePick(x, z, dragon, ok);
+  assert.ok(a != null, '陸があるのに逃げ先が見つからない');
+  for (const d of [0.5, 1, 1.5]) {
+    assert.ok(ok(...step(x, z, a, d)),
+      `${d} 進んだ先が海(向き ${a.toFixed(2)})── 「海に落ちた!」が出る`);
+  }
+});
+
+test('竜: 行き止まりの岬には入らない', () => {
+  // 北へ細い岬。立っているのは島の中、竜は南 ── 素直に逃げると岬へ入る
+  const ok = isle(4, { a: 0, len: 0.6, w: 0.35 });
+  const dragon = { x: 0, z: -3 };
+  const a = fleePick(0, 3.2, dragon, ok);
+  assert.ok(a != null, '逃げ先が見つからない');
+  // 岬(ほぼ真北)を選んでいないこと。±25度を岬とみなす
+  assert.ok(Math.abs(a) > 0.44 && Math.abs(a - Math.PI * 2) > 0.44,
+    `行き止まりの岬(北)へ逃げようとしている(向き ${a.toFixed(2)})`);
+  // それでも竜からは離れる側を選んでいる(北寄り = cos > 0)
+  assert.ok(Math.cos(a) > 0, `竜のほうへ走っている(向き ${a.toFixed(2)})`);
+});
+
+test('竜: どこへも歩けなければ何も返さない', () => {
+  assert.equal(fleePick(0, 0, { x: 1, z: 1 }, () => false), null,
+    '海しか無いのに逃げ先を返した(海へ走り込む)');
+});
+
+test('竜: 竜がまだ居なくても、歩ける向きは返す', () => {
+  const a = fleePick(0, 0, null, isle(4));
+  assert.ok(a != null, '竜が飛び立つ前に固まってしまう');
 });

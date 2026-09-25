@@ -25,7 +25,7 @@ import {
   COURSE_L, COURSE_W, DRUM_AXIS, DRUM_BAND, DRUM_LEN, DRUM_R, DRUM_TOP, GRACE_MS,
   FREE_TURN, HOLE_ARC, angleAt, courseGround, findAnchor, holeOpen, makeCourse, rollTime, safeZ,
   ROLL_MS, ROLL_WALK, ROLL_ACCEL, slipRate, spinAt, startSpots, toLocal, toWorld, turnAt, turnOf,
-  upstreamFace, withCourse,
+  upstreamFace, withCourse, rollStick,
 } from '../src/minigame/logroll.js';
 
 const island = (seed = 7) => createGame({ seed, playerCount: 4, humanIndex: -1, mode: 'sea' });
@@ -558,4 +558,68 @@ test('丸太: 優勝と自己最高で実績がつく', () => {
   // 進捗バーに出る(取っていない人に「あと何秒か」が見える)
   assert.equal(summarize(r2.progress).bests.rollBest, 64);
   assert.ok(achievementById('roll-minute')?.title, '称号が無い');
+});
+
+// ---- 乗りかた(rollStick)----
+//
+// あそびかたデモの自動運転が、丸太の上で使う入力。
+//
+// **実測で見つけた穴。** 台本にスティックの向きを直に書いていたころ、
+// 丸太乗りの短編は**4.1 秒で落ちて最下位**になり、残り4ビートを岸に
+// 立ったまま喋っていた ── 固定の向きは、回っている丸太には当たらない。
+// 乗り手の腕前を1本の関数にまとめ、ここで本物の動き(WalkerMotion)に
+// 乗せて測る。
+//
+// 上の rider() は「腕前 skill・反応 react の人」を模したもので、手ごたえの
+// 釣り合いを測るためのもの。こちらは**実物(デモ)が使う**関数なので、
+// 壊れたらデモが壊れる ── 別々に押さえる。
+
+// rollStick の答えを motion.js の入力へ。カメラは 0(= 世界の向きそのまま)。
+// main.js の stickToward と同じ式(camYaw = 0)
+const stickFrom = (want) => (want
+  ? { x: -Math.sin(want.dir) * want.mag, y: Math.cos(want.dir) * want.mag }
+  : { x: 0, y: 0 });
+
+const autoInput = (fix) => ({ t, m }) =>
+  stickFrom(rollStick(fix.course, fix.anchor, t, m.pos.x, m.pos.z));
+
+test('丸太: rollStick に任せれば、棒立ちよりずっと長く乗っていられる', () => {
+  // **盤を1つで測らない。** 丸太の回る向きも切れ目の並びも種で変わるので、
+  // 1つだけだと「その盤にたまたま当たる向き」を測ってしまう(実際、
+  // 台本に固定の向きを書いていたころの失敗がこれ)
+  for (const seed of [7, 11, 23]) {
+    const fix = setup(seed);
+    const still = ride(fix, { input: { x: 0, y: 0 }, secs: 95 });
+    const auto = ride(fix, { input: autoInput(fix), secs: 95 });
+    assert.ok(still.t < 4, `種 ${seed}: 棒立ちが ${still.t.toFixed(1)}秒 も残った(前提が崩れている)`);
+    assert.ok(auto.t > 15,
+      `種 ${seed}: 自動運転が ${auto.t.toFixed(1)}秒 で落ちた`
+      + ' ── 短編が「説明しながら真っ先に落ちる動画」になる');
+    // 終盤は流れが歩きを追い越すので、いつかは落ちる(丸太の決めごと)
+    assert.ok(auto.fell, `種 ${seed}: 自動運転が ${ROLL_MS / 1000}秒 逃げ切った(勝負が決まらない)`);
+  }
+});
+
+test('丸太: rollStick は、流れと反対へ押し返す', () => {
+  const fix = setup();
+  // 回りはじめて十分たった時刻で、てっぺんに立っている人を見る
+  const t = 30;
+  const w = toWorld(fix.anchor, 0, 0);
+  const want = rollStick(fix.course, fix.anchor, t, w.x, w.z);
+  assert.ok(want, 'てっぺんに立っているのに null が返った');
+  // 局所 +x へ流れているなら、行きたいのは局所 -x 側(逆もまた)
+  const c = Math.cos(fix.anchor.angle);
+  const sn = Math.sin(fix.anchor.angle);
+  const lx = Math.sin(want.dir) * c + Math.cos(want.dir) * sn;   // 世界→局所 x
+  assert.ok(Math.sign(lx) === -Math.sign(fix.course.dir),
+    `流れ(${fix.course.dir})と同じ側へ歩こうとしている(局所x ${lx.toFixed(2)})`);
+  assert.ok(want.mag > 0.3, `押し返しが弱すぎる(${want.mag.toFixed(2)})`);
+});
+
+test('丸太: 丸太から外れていたら rollStick は何も返さない', () => {
+  const fix = setup();
+  // 丸太の帯の外(長さ方向の端のさらに先)
+  const w = toWorld(fix.anchor, DRUM_R * 2, 0);
+  assert.equal(rollStick(fix.course, fix.anchor, 10, w.x, w.z), null,
+    '海の上に居るのに、まだ舵を切ろうとしている');
 });

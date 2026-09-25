@@ -178,11 +178,17 @@ export class DemoDriver {
 
   // 字幕と再生バーを画面下に置く。HUD(下部パネル)やダイアログ(モバイルはボトムシート)
   // に重ならない高さへ。ダイアログはビートの途中で開くので再生タイマーから測り直す。
+  //
+  // **島の下の UI も避ける。** 盤の HUD しか見ていなかったころ、大富豪の
+  // 短編は「出せる札だけが浮きます」と言いながら、その手札が字幕の箱で
+  // まるごと隠れていた ── 見せたいものを自分で覆っていた。
   #placePanel() {
     let top = window.innerHeight;
     for (const el of [
       document.getElementById('bottom'),
       document.querySelector('#dialog-root .dialog'),
+      document.getElementById('dfg'),           // 円卓(手札と場)
+      document.getElementById('walk-contest'),  // 受付・結果のパネル
     ]) {
       const r = el?.getBoundingClientRect();
       if (r && r.height > 0) top = Math.min(top, r.top);

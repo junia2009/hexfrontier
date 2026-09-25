@@ -62,7 +62,8 @@ import { raceIntensity, raceScene } from './audio/score.js';
 import { computePoints as vpOf, pointsToWin } from './rules/victory.js';
 import { Sfx, sfxForAction, sfxForEnd, suspendAudio } from './audio/sfx.js';
 import { stepSound } from './audio/footsteps.js';
-import { contestOutcome } from './minigame/contest.js';
+import { contestOutcome, fleePick } from './minigame/contest.js';
+import { rollStick } from './minigame/logroll.js';
 import { DESK_REACH, POST_RADIUS, TABLE_REACH, shopPoint } from './minigame/ground.js';
 import { BOW_Y, reach as arrowReach } from './minigame/archery.js';
 import { meetFor } from './minigame/meets.js';
@@ -844,6 +845,114 @@ async function islandPlayCards(n = 4) {
   }
 }
 
+// ---- 集まりの自動運転 ----
+//
+// **字幕を読んでいる間も遊び続ける。** ビートごとに1手だけ出す作りだと、
+// 説明のあいだ画面が止まる ── 大会はこちらが止まっても進むので、
+// 「凍った画面に字幕だけが流れる動画」になっていた(実測: 大富豪は
+// 手番が自分のまま 12 秒 + 21 秒固まり、丸太乗りは 4.1 秒で落ちたあと
+// 岸に立ったまま残り 4 ビートを喋り、竜からは 9.9 秒で捕まって最下位)。
+//
+// だから**大会が始まったらここを回しっぱなしにする**。台本は喋るだけ。
+// 遊び方(逃げる向き・踏ん張る向き)は実物と同じ関数を通す
+// (contest.js の fleePick、logroll.js の rollStick)── デモ専用の下手な
+// 遊び方を書くと、「説明どおりにやって最下位になる動画」に逆戻りする。
+let demoAuto = false;
+
+function stopIslandAuto() {
+  demoAuto = false;
+  walk?.setStick(0, 0);
+}
+
+// 竜から逃げるとき、木や岩に突き当たったら向きを振る側。
+// 一方向に決め打つと、詰まった角から出られない
+let autoSide = 1;
+
+// 竜から逃げる向き。島の形は walk が持っているので、ここで渡す。
+//
+// **まっすぐ逃げるだけでは海に落ちる。** 実測で、竜から逃げる短編は
+// 順位も生き残り時間も1位のまま ── なのに絵は水の中で、「🌊 海に落ちた!」
+// を出しては岸へ戻される、を繰り返していた。**数字だけ見ていたら通った。**
+// 選びかたは contest.js の fleePick(node のテストで測れる)。
+function autoFleeDir(dragon) {
+  if (!walk?.islandGround) return null;
+  const w = walk.walker.motion.pos;
+  return fleePick(w.x, w.z, dragon, (x, z) => walk.islandGround(x, z).ok, { side: autoSide });
+}
+
+// いま自分の大会が走っているか(見学中や結果の表示中は動かさない)
+const autoRunning = () => demoAuto && !!walk
+  && contest?.phase === 'running' && (contest.entries ?? []).includes(mySeat());
+
+// 向き(+Z を 0 とした角)を、カメラ基準のスティックへ。
+// motion.js は dir = atan2(-x, y) + camYaw で読むので、その逆を解く
+function stickToward(dir, mag = 1) {
+  const d = dir - (walk?.camYaw ?? 0);
+  return { x: -Math.sin(d) * mag, y: Math.cos(d) * mag };
+}
+
+async function islandAutoLoop() {
+  let stuck = 0;
+  while (demoAuto) {
+    const kind = contest?.kind;
+    if (!autoRunning()) {
+      // まだ始まっていない/もう終わった。止まって待つ
+      walk?.setStick(0, 0);
+      await sleep(200);
+      continue;
+    }
+    // **会場に居なければ、まず会場へ。** 台本のビートにも「港へ」「櫓へ」を
+    // 置いてあるが、そこを頼りにすると、ビートを差し替えたときに
+    // 「受付の前で竿を振る動画」に戻る(蛮族を射るが実際そうなっていた)
+    const venue = kind === 'fishing' ? 'fish' : kind === 'raid' ? 'post' : null;
+    if (venue) {
+      const to = islandSpot(venue);
+      const w = walk.walker.motion.pos;
+      if (to && Math.hypot(to.x - w.x, to.z - w.z) > 1.2) {
+        walk.walker.setPosition(to.x, to.z);
+        await sleep(300);
+        continue;
+      }
+    }
+    if (kind === 'dragonhunt') {
+      // **木や岩は fleePick には見えない。** あれが見ているのは島の形
+      // (海と崖)で、木の当たりは walker の側にある ── だから「向きは
+      // 出ているのに進んでいない」が起きる(実測で、40 秒のうち 15 秒が
+      // 木に押し当たったまま足踏みだった)。動けていないぶんだけ横へ
+      // ずらして回り込み、それでも駄目なら回り込む側を入れ替える。
+      const slow = Math.hypot(walk.walker.vel.x, walk.walker.vel.z) < 0.15;
+      stuck = slow ? stuck + 1 : 0;
+      if (stuck > 12) { autoSide = -autoSide; stuck = 4; }
+      const go = autoFleeDir(contest.dragon);
+      // 四方が水なら止まる。**海へ走り込むより、捕まるほうがまし** ──
+      // 落ちると「🌊 海に落ちた!」が出て、説明の動画としては台無しになる
+      const s = go == null
+        ? { x: 0, y: 0 }
+        : stickToward(go + autoSide * Math.min(stuck, 8) * 0.18);
+      walk.setStick(s.x, s.y);
+      await sleep(120);
+    } else if (kind === 'logroll') {
+      if (!walk.roll || walk.drumOut) { walk.setStick(0, 0); await sleep(200); continue; }
+      const w = walk.walker.motion.pos;
+      const want = rollStick(walk.roll.course, walk.roll.anchor, walk.rollT, w.x, w.z);
+      if (want) {
+        const s = stickToward(want.dir, want.mag);
+        walk.setStick(s.x, s.y);
+      }
+      await sleep(80);        // 丸太は目を離すと転がされる。細かく舵を当てる
+    } else if (kind === 'daifugo') {
+      await islandPlayCards(1);
+    } else if (kind === 'fishing') {
+      await islandAutoFish();
+      await sleep(400);       // 釣った魚を見せてから次を投げる
+    } else if (kind === 'raid') {
+      await islandShoot(1);
+    } else {
+      await sleep(300);
+    }
+  }
+}
+
 const demoHost = {
   getState: () => state,
   getUi: () => ui,
@@ -871,6 +980,10 @@ const demoHost = {
   // node のテストから確かめられず、`data-act` の綴り間違いが
   // 「押しても何も起きない動画」になって気づけない。
   island: async (op) => {
+    // **自動運転は待たない。** 章が終わるまで裏で回り続けるので、
+    // ここで await すると台本がこのビートから先へ進まなくなる。
+    // ほかの op と同じビートに書けるように、return もしない
+    if (op.auto) { demoAuto = true; autoSide = 1; islandAutoLoop(); }
     if (op.wait) { await sleep(op.wait); return; }
     if (op.click) {
       document.querySelector(`[data-act="${op.click}"]`)?.click();
@@ -902,6 +1015,7 @@ async function startDemo(chapterId, from = 'title') {
   demoReturn = from;
   clearTimeout(cpuTimer);
   demoRunning = true;
+  stopIslandAuto();      // 前の章の自動運転が残っていたら止める
   setSeat(0);
   // 前の章の島が残っていたら、ここでも畳む ── 一覧から直に別の章へ
   // 飛んだときなど、endDemo を通らない道があるため(二重に畳んでも無害)
@@ -928,6 +1042,9 @@ function endDemo(where) {
   const next = where === 'next' ? nextDemoChapter() : null;
   demoDriver?.stop();
   demoRunning = false;
+  // **自動運転を止める。** 止めないと、閉じたあとも裏の輪が回り続けて
+  // 島を畳んだ walk を触りにいく(次の章の島を勝手に歩かせる)
+  stopIslandAuto();
   // **島を畳む。** 島の章は実物の島に入るので、畳まないと walk が生きたまま
   // 残り、次に盤の短編を開いても画面には島が映り続ける(字幕だけが進む)
   // ── 「再生されているようで画面に映らない」と言われたのがこれ。

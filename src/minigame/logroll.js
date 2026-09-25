@@ -410,6 +410,53 @@ export function safeZ(course, a, t, ahead = 1.5, from = 0) {
   return far ? far.lz : null;
 }
 
+// ---- 乗りかた ----
+
+// てっぺんへ戻ろうとする強さ(ラジアン/秒、傾き1ラジアンあたり)。
+// 流れを打ち消して**余ったぶん**でしか戻れないので、強めに欲しがっておく
+// (足りないぶんは下のスティックの上限で勝手に削られる)。
+const TOP_GAIN = 2.4;
+// 切れ目から逃げる強さ(タイル/秒、ずれ1タイルあたり)。安全地帯に着いたら
+// 自然に緩む ── 緩まないと長さ方向へ行き過ぎて端から落ちる。
+const Z_GAIN = 3;
+
+// **丸太の上で踏ん張る向き。** 乗る側の「腕前」をここに書く。
+//
+// 返すのは世界の向きと強さ(`{ dir, mag }`)。スティックはカメラ基準なので、
+// そこへの読み替えは呼ぶ側(main.js)に置く ── ここは丸太のことだけを考える。
+//
+// **太さ方向と長さ方向は取り合いになる**(スティックは合計 1 まで)。
+// 流れに逆らうぶんを先に取り、余ったぶんで切れ目をよける ── 順番を逆に
+// すると、切れ目をよけている間に転がされて落ちる。この取り合いが
+// この遊びの手ごたえそのもの(HOLE_ARC のところに書いたのと同じ話)。
+//
+// 丸太の外(もう落ちている)なら null。
+export function rollStick(course, anchor, t, x, z, { look = 1.5 } = {}) {
+  const p = toLocal(anchor, x, z);
+  const a = angleAt(p.x);
+  if (a == null) return null;
+  // 太さ方向。押されるぶん(回転 + 滑り)を打ち消し、余りでてっぺんへ戻る。
+  // **猶予中(t <= 0)は流れない** ── courseGround と揃える
+  const push = t > 0 ? spinOf(course, t) + slipRate(a) : 0;
+  const wantA = -push - a * TOP_GAIN;                          // 角の速さ
+  // 角の速さ → 水平の速さ(courseGround が流れを水平へ直すのと同じ式)
+  const vx = wantA * DRUM_R * Math.max(0.05, Math.cos(a));
+  // 長さ方向。切れ目の来ない場所へ寄る
+  const safe = safeZ(course, a, t, look, p.z);
+  const vz = safe == null ? 0 : (safe - p.z) * Z_GAIN;
+  const sx = Math.max(-1, Math.min(1, vx / ROLL_WALK));
+  const room = Math.sqrt(Math.max(0, 1 - sx * sx));            // 残りの持ち分
+  const sz = Math.max(-room, Math.min(room, vz / ROLL_WALK));
+  // 局所 → 世界。局所 +x の世界向きは (cos, sin)、+z は (-sin, cos)
+  const c = Math.cos(anchor.angle);
+  const sn = Math.sin(anchor.angle);
+  const wx = sx * c - sz * sn;
+  const wz = sx * sn + sz * c;
+  const mag = Math.hypot(wx, wz);
+  if (mag < 1e-4) return { dir: alongFace(anchor, p.z), mag: 0 };
+  return { dir: Math.atan2(wx, wz), mag: Math.min(1, mag) };
+}
+
 // 始めるときに立たせる場所。**全員てっぺんに、長さ方向へ並べて散らす。**
 //
 // 切れ目に当たらない場所だけを候補に拾ってから配るので、

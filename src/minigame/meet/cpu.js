@@ -27,6 +27,7 @@ import {
   DRUM_BAND, DRUM_LEN, DRUM_R, holeOpen, rollTime, safeZ, slipRate, spinOf, startSpots,
   toLocal, toWorld, turnOf, upstreamFace,
 } from '../logroll.js';
+import { fleeFace } from '../contest.js';
 
 // 入れられる人数の上限。席の数から自分のぶんを引いたぶんまで
 export const CPU_MAX = WALK_SEATS - 1;
@@ -339,10 +340,8 @@ export class CpuCrowd {
     //
     // 腕前は「どれだけ横に回り込むか」で出す。竜は曲がるのが下手なので、
     // 少し斜めに逃げるほうが振り切りやすい(人が上手に逃げるときと同じ)。
-    const away = Math.atan2(b.x - d.x, b.z - d.z);
     if (!b.side) b.side = this._roll(b) < 0.5 ? -1 : 1;
-    const dir = away + b.side * b.skill * 0.6;
-    this._push(b, dir, CPU_SPEED * dt);
+    this._push(b, fleeFace(b.x, b.z, d, b.side, b.skill), CPU_SPEED * dt);
   }
 
   // 目的地へ一歩。着いていたら true。

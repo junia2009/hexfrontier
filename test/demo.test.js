@@ -134,7 +134,7 @@ test('デモ: 島の章の操作が、実在のボタンを指している', () 
     [...srcs.matchAll(/data-act="([a-z-]+):\$\{/g)].map((m) => m[1]),
   );
   const known = (act) => acts.has(act) || prefixes.has(act.split(':')[0]);
-  const KINDS = ['click', 'walk', 'wait', 'fish', 'meet', 'stick', 'bow', 'cards'];
+  const KINDS = ['click', 'walk', 'wait', 'fish', 'meet', 'stick', 'bow', 'cards', 'auto'];
   // main.js の islandSpot が知っている行き先と揃える
   const WALKS = ['fish', 'shop', 'desk', 'notice', 'post'];
   let ops = 0;
@@ -144,14 +144,18 @@ test('デモ: 島の章の操作が、実在のボタンを指している', () 
     assert.ok(ch.beats.some((b) => b.island), `${ch.id}: 操作が1つも無い(字幕だけの章)`);
     for (const [i, b] of ch.beats.entries()) {
       if (!b.island) continue;
-      const kind = Object.keys(b.island)[0];
-      assert.ok(KINDS.includes(kind), `${ch.id}[${i}]: 知らない操作 ${kind}`);
+      // **鍵を1つだけ見ない。** `{ meet: …, auto: true }` のように
+      // 1ビートで2つ当てることがあるので、書いてある鍵ぜんぶを見る
+      // ── 先頭だけ見ていたころは、綴りを間違えた2つめが黙って無視された
+      for (const kind of Object.keys(b.island)) {
+        assert.ok(KINDS.includes(kind), `${ch.id}[${i}]: 知らない操作 ${kind}`);
+      }
       ops += 1;
-      if (kind === 'click') {
+      if (b.island.click) {
         assert.ok(known(b.island.click),
           `${ch.id}[${i}]: 押せないボタン "${b.island.click}"(そんな data-act は無い)`);
       }
-      if (kind === 'walk') {
+      if (b.island.walk) {
         assert.ok(WALKS.includes(b.island.walk), `${ch.id}[${i}]: 知らない行き先 ${b.island.walk}`);
       }
       // 指を出す先も実在すること(演出だけとはいえ、空振りすると指が出ない)
@@ -363,16 +367,40 @@ test('デモ: 島の集まり全部に、短編が1本はある', () => {
 
 // **字幕を読むだけの動画にしない。** はじめ集まりの5本は受付まで歩いて
 // 説明を読むだけで、遊んでいるところが1秒も映っていなかった
-// ──「これだと動画にしてる意味がない」。実際に始めて、遊ぶ操作が
-// 入っていることを見張る。
-test('デモ: 集まりの短編は、エントリーして実際に遊んでいる', () => {
-  const PLAY = ['fish', 'stick', 'bow', 'cards'];
+// ──「これだと動画にしてる意味がない」。
+//
+// **次に、ビートごとに1手だけ出す形にしたのも足りなかった。** 大会は
+// こちらが止まっても進むので、説明を読んでいるあいだ画面が凍る ── 実測で
+//   大富豪    … 自分の手番のまま 12 秒 + 21 秒固まる
+//   丸太乗り  … 4.1 秒で落ちて、残り4ビートを岸に立って喋る(最下位)
+//   竜から逃げろ… 9.9 秒で捕まって、残り3ビートを死んだまま喋る(最下位)
+//   つり大会  … 最後の 15 秒、魚を掛けたまま止まる
+// だから**始めたら章の終わりまで回しっぱなし**にする(`{ auto: true }`)。
+// エントリーと同じビートに置く ── 後ろのビートに置くと、そこまでの
+// あいだ画面が凍る。
+test('デモ: 集まりの短編は、エントリーしてそのまま遊び続けている', () => {
   for (const ch of DEMO_CHAPTERS.filter((c) => c.id.startsWith('meet-'))) {
     const ops = ch.beats.map((b) => b.island).filter(Boolean);
-    assert.ok(ops.some((o) => o.meet), `${ch.id}: エントリーして始めていない`);
-    const plays = ops.filter((o) => PLAY.some((k) => k in o));
-    assert.ok(plays.length >= 2,
-      `${ch.id}: 遊ぶ操作が ${plays.length} 個(字幕を読むだけの動画になっている)`);
+    const enter = ops.find((o) => o.meet);
+    assert.ok(enter, `${ch.id}: エントリーして始めていない`);
+    assert.ok(enter.auto,
+      `${ch.id}: エントリーのビートで自動運転を始めていない`
+      + ' ── 字幕を読んでいるあいだ画面が凍る(大会だけが進む)');
+  }
+});
+
+// main.js の自動運転が、集まりの種類ぜんぶを知っていること。
+//
+// **知らない種類は「何もしない」に落ちる**ので、足したときに気づけない
+// ── 受付まで歩いてエントリーして、あとは棒立ちの動画になる。
+// 増やすなら islandAutoLoop に1本足す。
+test('デモ: 自動運転が、集まりの種類ぜんぶを見ている', () => {
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const loop = main.slice(main.indexOf('async function islandAutoLoop'));
+  const body = loop.slice(0, loop.indexOf('\n}\n'));
+  for (const m of Object.values(MEETS)) {
+    assert.match(body, new RegExp(`'${m.id}'`),
+      `自動運転が「${m.name}」(${m.id})を知らない ── エントリーして棒立ちになる`);
   }
 });
 
