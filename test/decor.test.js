@@ -252,7 +252,12 @@ test('飾り: 飾りどうしは重ならない。1つの島の数にも上限�
   // 間隔ぶん離れていれば置ける
   assert.equal(whyCannotPlace(s, { x: at.x + DECOR_GAP * 1.01, z: at.z }, placed), null);
   const full = Array.from({ length: DECOR_MAX }, (_, i) => ({ id: 'flag', x: 90 + i, z: 90, f: 0 }));
-  assert.match(whyCannotPlace(s, freeSpot(s), full) ?? '', /16個まで/, '上限を超えて置けた');
+  // **数を決め打ちしない**(上限を動かすたびにテストを書き直すことになる)
+  assert.match(whyCannotPlace(s, freeSpot(s), full) ?? '',
+    new RegExp(`${DECOR_MAX}個まで`), '上限を超えて置けた');
+  // 品の数ぶんは置ける ── 1つずつ並べられないと、増やした意味が薄い
+  assert.ok(DECOR_MAX >= DECOR.length,
+    `品が ${DECOR.length} 種類あるのに、1島に ${DECOR_MAX} 個しか置けない`);
 });
 
 // 置き場所は**足もとではなく少し前**。足もとに置くと、自分がその中に
@@ -364,6 +369,19 @@ test('飾り: 部屋の名簿に乗って、相手の島にも出る', () => {
 // 保存と通信には `v` で乗る。**0 のときは書かない**(柄を足す前の保存と
 // 同じ形のまま)。
 
+// **種類の数を、数として押さえる。** 「100種類を目指す」と決めたので、
+// 減ったら気づけるようにしておく ── 品(店の行)と、実際に置ける
+// 見た目の数(品×柄)は別もので、増やしたいのは後者。
+test('柄: 置ける見た目が100種類ある', () => {
+  const looks = DECOR.reduce((a, d) => a + lookCount(d.id), 0);
+  assert.ok(looks >= 100,
+    `置ける見た目が ${looks} 種類しかない(品 ${DECOR.length})`);
+  // **品の数は棚の長さに直に効く。** 柄は棚を伸ばさないので、
+  // 増やすならまず柄 ── 品を増やすときは店の並べかたも見直すこと
+  assert.ok(DECOR.length <= 24,
+    `品が ${DECOR.length} 個(店の棚が長くなりすぎる。柄で増やすか、棚を組み直す)`);
+});
+
 test('柄: 表がそろっている(名前があり、重ならない)', () => {
   let total = 0;
   for (const d of DECOR) {
@@ -380,19 +398,19 @@ test('柄: 表がそろっている(名前があり、重ならない)', () => {
 });
 
 test('柄: 番号を正す(知らない値は、はじめの柄に落とす)', () => {
-  assert.equal(lookCount('planter'), 5);
-  assert.equal(cleanLook('planter', 3), 3);
-  for (const bad of [null, undefined, -1, 5, 99, NaN, Infinity, '2', {}, 1.9]) {
+  // **数を決め打ちしない** ── 柄を足すたびにテストを書き直すことになる
+  const n = lookCount('planter');
+  assert.ok(n >= 3, `花壇の柄が ${n} 個しかない`);
+  assert.equal(cleanLook('planter', n - 1), n - 1);
+  for (const bad of [null, undefined, -1, n, n + 40, NaN, Infinity, {}, 1.9]) {
     const got = cleanLook('planter', bad);
-    assert.ok(got >= 0 && got < 5, `${JSON.stringify(bad)} → ${got}(範囲の外)`);
+    assert.ok(got >= 0 && got < n, `${JSON.stringify(bad)} → ${got}(範囲の外)`);
   }
   assert.equal(cleanLook('planter', '2'), 2, '文字の数字も読む(保存が文字になっていることがある)');
   assert.equal(cleanLook('planter', 1.9), 1, '小数は切り捨てる');
-  // 柄を持たない品は、何を渡しても 0
-  assert.equal(lookCount('shell'), 1);
-  for (const v of [0, 1, 5, null]) assert.equal(cleanLook('shell', v), 0);
-  // 知らない品でも落ちない
-  assert.equal(cleanLook('しらないもの', 3), 0);
+  // **柄を持たない品**(いまは無いが、仕組みとしては 1 に落ちること)
+  assert.equal(lookCount('しらないもの'), 1);
+  for (const v of [0, 1, 5, null]) assert.equal(cleanLook('しらないもの', v), 0);
   assert.equal(lookOf('しらないもの', 0), null);
   assert.equal(lookName('しらないもの', 0), '');
   assert.equal(lookName('planter', 2), looksOf('planter')[2].name);
@@ -409,7 +427,7 @@ test('柄: 置くと保存に乗る。0 のときは書かない', () => {
   const c = placeDecor(p0, 'fish', 'planter', { x: 1, z: 2, facing: 0 });
   assert.equal('v' in placedDecor(c.progress, 'fish')[0], false, '柄を指さないと v が付く');
   // 範囲の外は落とす
-  const d = placeDecor(p0, 'fish', 'planter', { x: 1, z: 2, facing: 0, look: 99 });
+  const d = placeDecor(p0, 'fish', 'planter', { x: 1, z: 2, facing: 0, look: 999 });
   assert.equal('v' in placedDecor(d.progress, 'fish')[0], false, '範囲の外の柄が残っている');
 });
 
@@ -417,14 +435,15 @@ test('柄: 保存を読み戻しても残る。壊れた値は落とす', () => 
   const round = (list) => placedDecor(
     parseProgress(JSON.stringify({ v: 2, decor: { fish: list } })), 'fish',
   );
-  assert.equal(round([{ id: 'planter', x: 0, z: 0, v: 4 }])[0].v, 4);
+  const last = lookCount('planter') - 1;
+  assert.equal(round([{ id: 'planter', x: 0, z: 0, v: last }])[0].v, last);
   assert.equal('v' in round([{ id: 'planter', x: 0, z: 0, v: 0 }])[0], false);
-  for (const bad of [99, -3, 'あ', null, {}]) {
+  for (const bad of [999, -3, 'あ', null, {}]) {
     const got = round([{ id: 'planter', x: 0, z: 0, v: bad }])[0];
     assert.equal('v' in got, false, `壊れた柄 ${JSON.stringify(bad)} が残った`);
   }
-  // 柄を持たない品に柄が付いていても落とす
-  assert.equal('v' in round([{ id: 'shell', x: 0, z: 0, v: 2 }])[0], false);
+  // 知らない品は行ごと落ちる(柄が付いていても)
+  assert.deepEqual(round([{ id: 'なぞ', x: 0, z: 0, v: 2 }]), []);
 });
 
 test('柄: 部屋の名簿にも乗る(相手の島でも同じ柄で出る)', () => {
@@ -435,27 +454,29 @@ test('柄: 部屋の名簿にも乗る(相手の島でも同じ柄で出る)', (
     look: 1,
     decor: [
       { id: 'planter', x: 0, z: 0, v: 3 },
-      { id: 'planter', x: 1, z: 0, v: 99 },   // 範囲の外
-      { id: 'shell', x: 2, z: 0, v: 1 },      // 柄を持たない品
+      { id: 'planter', x: 1, z: 0, v: 999 },  // 範囲の外
+      { id: 'planter', x: 2, z: 0, v: 'あ' }, // 数でない
     ],
   });
   const seen = room.lobbyInfo().seats[0].decor;
   assert.equal(seen[0].v, 3, '柄が相手に届かない');
   assert.equal('v' in seen[1], false, '範囲の外の柄がそのまま届いている');
-  assert.equal('v' in seen[2], false, '柄を持たない品に柄が付いて届いている');
+  assert.equal('v' in seen[2], false, '数でない柄がそのまま届いている');
 });
 
 test('柄: 下見で送れる。柄の無い品では動かない', () => {
+  const n = lookCount('planter');
   let a = newAim('planter');
   assert.equal(a.look, 0);
   const seen = [];
-  for (let i = 0; i < 6; i += 1) { seen.push(a.look); a = aimLook(a, 1); }
-  assert.deepEqual(seen, [0, 1, 2, 3, 4, 0], 'ひとまわりして戻らない');
-  assert.equal(aimLook(newAim('planter'), -1).look, 4, '逆に送れない');
+  for (let i = 0; i <= n; i += 1) { seen.push(a.look); a = aimLook(a, 1); }
+  assert.deepEqual(seen, [...Array.from({ length: n }, (_, i) => i), 0],
+    'ひとまわりして戻らない');
+  assert.equal(aimLook(newAim('planter'), -1).look, n - 1, '逆に送れない');
   assert.equal(canLook(newAim('planter')), true);
-  // 柄を持たない品
-  assert.equal(canLook(newAim('shell')), false);
-  assert.equal(aimLook(newAim('shell'), 1).look, 0, '柄が1つしかないのに動いた');
+  // 柄を持たない品(知らない id は柄1つ扱い)
+  assert.equal(canLook(newAim('しらないもの')), false);
+  assert.equal(aimLook(newAim('しらないもの'), 1).look, 0, '柄が1つしかないのに動いた');
   // 見本の場所には柄も付いてくる(置く側が組み立て直さなくてよい)
   const at = { x: 0, z: 0, facing: 0 };
   assert.equal(aimSpot(aimLook(newAim('planter'), 1), at).look, 1);

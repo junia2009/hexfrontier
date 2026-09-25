@@ -1534,6 +1534,21 @@
   }
   /* 買い切った品は1行に畳む(shelfItems が下へ送っている) */
   .shop-item.has { opacity: 0.6; padding: 5px 9px; }
+  /* ---------- 飾りの棚だけ2列 ----------
+     品が19あって、1列だと画面3枚ぶんあった(ほかの棚は4〜6品)。
+     開いた札だけは2列ぶんに広げる ── 説明が細い桁に押し込まれると読めない。 */
+  .shop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .shop-grid .shop-item { min-width: 0; padding: 7px 8px; }
+  .shop-grid .shop-item.open { grid-column: 1 / -1; }
+  /* 2列は横に詰める。**手持ちの数は名前の下へ落とす** ──
+     1行に並べると 180px の桁で値段が折り返す */
+  .shop-grid .shop-line { flex-wrap: nowrap; gap: 5px; }
+  .shop-grid .shop-icon { font-size: 18px; }
+  /* 名前の桁をできるだけ広く取る(4〜6文字が折り返さない太さ) */
+  .shop-grid .shop-name { flex: 1 1 auto; min-width: 0; padding: 0; }
+  .shop-grid .shop-name b { font-size: 12px; line-height: 1.3; }
+  .shop-grid .shop-n { display: block; font-size: 10px; font-weight: 400; }
+  .shop-grid .shop-pay { flex: none; padding: 6px 7px; font-size: 12px; }
   .shop-item.open { border-color: rgba(255,217,125,0.45); background: rgba(255,217,125,0.07); }
   .shop-line { display: flex; align-items: center; gap: 8px; }
   /* 名前と短い説明。**行ごと押せる**(説明を開く口) */

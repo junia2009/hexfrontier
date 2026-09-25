@@ -279,7 +279,7 @@ function faceHtml(item) {
 }
 
 // 売り物1つぶん。**開いているものだけ**説明と注意書きを出す
-function shopItemHtml(item, progress, open) {
+function shopItemHtml(item, progress, open, grid = false) {
   // 飾りは**何個でも買える**ので「✓ 持っています」で終わらせない。
   // いくつ手元にあるかを出して、買う口は出したままにする
   const many = isDecor(item.id);
@@ -301,7 +301,7 @@ function shopItemHtml(item, progress, open) {
       <button class="shop-name" data-act="shop-more:${item.id}"
         aria-expanded="${open ? 'true' : 'false'}">
         <b>${item.name}${many && n ? ` <span class="shop-n">手持ち ${n}</span>` : ''}</b>
-        ${open ? '' : `<small>${shortDesc(item)}</small>`}
+        ${open || grid ? '' : `<small>${shortDesc(item)}</small>`}
       </button>
       <button class="primary shop-pay" data-act="shop-buy:${item.id}" ${why ? 'disabled' : ''}
         title="${why ?? `${item.price}枚で買う`}">${COIN_ICON} ${item.price}</button>
@@ -340,10 +340,12 @@ export function shopHtml(progress, view = {}) {
   const shelf = cleanShelf(view.shelf);
   const open = view.open ?? null;
   const list = shelfItems(shelf, progress);
-  const rows = list.map((item) => shopItemHtml(item, progress, item.id === open)).join('');
+  const grid = !!SHELVES.find((s) => s.id === shelf)?.grid;
+  const rows = list
+    .map((item) => shopItemHtml(item, progress, item.id === open, grid)).join('');
   const left = list.filter((item) => !soldOut(progress, item.id)).length;
   return `${shelfTabsHtml(progress, shelf)}
-    ${rows}
+    ${grid ? `<div class="shop-grid">${rows}</div>` : rows}
     ${left ? '' : '<p><small>この棚のものは全部そろいました。</small></p>'}
     <p class="shop-foot"><small>札を押すとくわしい説明が出ます。遊ぶと銀貨がたまります。</small></p>`;
 }

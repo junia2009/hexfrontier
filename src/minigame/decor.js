@@ -36,6 +36,9 @@ export const DECOR = [
       { name: 'きの色', wood: 0x8a5a32, leg: 0x4a3a24 },
       { name: '白木', wood: 0xdccdb4, leg: 0x9c8e77 },
       { name: '石', wood: 0x9aa0a6, leg: 0x6f757b },
+      { name: '青ペンキ', wood: 0x4a7fa8, leg: 0x2f5570 },
+      { name: '赤ペンキ', wood: 0xc4543f, leg: 0x8a3628 },
+      { name: '黒鉄', wood: 0x3c4149, leg: 0x23272c },
     ],
   },
   {
@@ -51,6 +54,9 @@ export const DECOR = [
       { name: '石', stone: 0x9aa0a6, fire: 0xffe9b0 },
       { name: '苔むし', stone: 0x7d8a72, fire: 0xffe9b0 },
       { name: '青い火', stone: 0x9aa0a6, fire: 0xc6e6ff },
+      { name: '砂岩', stone: 0xcbb694, fire: 0xffe9b0 },
+      { name: '黒御影', stone: 0x4b5058, fire: 0xffd27a },
+      { name: '緑の火', stone: 0x9aa0a6, fire: 0xbdf0c4 },
     ],
   },
   {
@@ -67,6 +73,9 @@ export const DECOR = [
       { name: 'みどり', cloth: 0x4fa36a },
       { name: 'きいろ', cloth: 0xecc23f },
       { name: 'しろ', cloth: 0xf2f0ea },
+      { name: 'むらさき', cloth: 0x9a6fd0 },
+      { name: 'だいだい', cloth: 0xef8f3c },
+      { name: 'くろ', cloth: 0x333941 },
     ],
   },
   {
@@ -83,6 +92,10 @@ export const DECOR = [
       { name: 'ひまわり', flowers: [0xffc83d, 0xffc83d, 0xffc83d], stem: 0x5c9447 },
       { name: 'ラベンダー', flowers: [0x9b7fd4, 0xb79ae0, 0x8a6fc4] },
       { name: 'しろつめくさ', flowers: [0xf7f4ec, 0xf7f4ec, 0xf7f4ec], stem: 0x6fae5a },
+      { name: 'あじさい', flowers: [0x7f9fe0, 0x9b8fe0, 0x6fb5d8] },
+      { name: 'ひなげし', flowers: [0xe8453f, 0xf06a5a, 0xd8342f] },
+      { name: 'すいせん', flowers: [0xfdf0c4, 0xffd24a, 0xfdf0c4], stem: 0x4f8f52 },
+      { name: 'ハーブ', flowers: [0xbfd88a, 0xa8c97a, 0xd2e3a0], stem: 0x7fa85e },
     ],
   },
   // ---- ここから、あとで足したもの ----
@@ -103,6 +116,9 @@ export const DECOR = [
       { name: 'きつね色', cap: 0xc98b45, dot: 0xf0e0c4 },
       { name: 'あお', cap: 0x4f8fb5, dot: 0xeaf6ff },
       { name: 'むらさき', cap: 0x8a6bb0, dot: 0xf2e9ff },
+      { name: 'しろ', cap: 0xf0ece0, dot: 0xd8d0be },
+      { name: 'くろ', cap: 0x3f434a, dot: 0x8d949c },
+      { name: 'もえぎ', cap: 0x6faa55, dot: 0xe8f4d8 },
     ],
   },
   {
@@ -114,6 +130,13 @@ export const DECOR = [
     r: sc(0.24),
     h: sc(0.32),
     night: true,        // 夜に光る。**島の明るさにも数える**(lampGlow)
+    looks: [
+      { name: 'ふつう', flame: 0xffb03a, stone: 0x8b8f95 },
+      { name: '青い炎', flame: 0x8fd4ff, stone: 0x8b8f95 },
+      { name: '緑の炎', flame: 0x9be8a0, stone: 0x8b8f95 },
+      { name: '白い石', flame: 0xffb03a, stone: 0xdcd6c8 },
+      { name: '赤い炎', flame: 0xff6a3a, stone: 0x6f5a52 },
+    ],
   },
   {
     id: 'well',
@@ -123,6 +146,13 @@ export const DECOR = [
     desc: '石積みの井戸。屋根とつるべが付いています。',
     r: sc(0.26),
     h: sc(0.66),
+    looks: [
+      { name: '石', stone: 0x9aa0a6, roof: 0x4a3a24 },
+      { name: 'レンガ', stone: 0xb06a52, roof: 0x4a3a24 },
+      { name: '白石', stone: 0xe2ddd0, roof: 0x8a7a60 },
+      { name: '苔むし', stone: 0x7d8a72, roof: 0x3c4a34 },
+      { name: '黒瓦', stone: 0x9aa0a6, roof: 0x2e3238 },
+    ],
   },
   {
     id: 'statue',
@@ -132,6 +162,13 @@ export const DECOR = [
     desc: '島に古くからある形の石像。並べると参道のようになります。',
     r: sc(0.18),
     h: sc(0.72),
+    looks: [
+      { name: '石', stone: 0x8d8579, dim: 0x5d564d },
+      { name: '苔むし', stone: 0x76826c, dim: 0x4a5442 },
+      { name: '白石', stone: 0xdcd6c8, dim: 0xa39b8c },
+      { name: '黒石', stone: 0x454a52, dim: 0x272b30 },
+      { name: '金', stone: 0xd8b44a, dim: 0x9a7c24 },
+    ],
   },
   {
     id: 'koi',
@@ -141,6 +178,13 @@ export const DECOR = [
     desc: '竿に吊るした吹き流し。風になびいて揺れます。',
     r: sc(0.12),
     h: sc(1.05),
+    looks: [
+      { name: '五色', fish: [0x2b4f7d, 0xd8483c, 0x4fa36a] },
+      { name: '紅白', fish: [0xd8483c, 0xf2f0ea, 0xd8483c] },
+      { name: '海の色', fish: [0x1f5f8f, 0x4fa9d8, 0x9fd8ef] },
+      { name: '夕焼け', fish: [0xef7a3c, 0xf2b23c, 0xd8483c] },
+      { name: 'くろしろ', fish: [0x333941, 0xf2f0ea, 0x333941] },
+    ],
   },
   {
     id: 'torii',
@@ -154,6 +198,8 @@ export const DECOR = [
       { name: '朱', paint: 0xc4432f, beam: 0x2c211c },
       { name: '石', paint: 0x9aa0a6, beam: 0x6b7278 },
       { name: '木', paint: 0x8a5a32, beam: 0x4a3a24 },
+      { name: '白木', paint: 0xdccdb4, beam: 0x9c8e77 },
+      { name: '黒', paint: 0x343a41, beam: 0x1d2126 },
     ],
   },
   // ---- さらに足したもの ----
@@ -169,6 +215,13 @@ export const DECOR = [
     desc: 'ごく小さな飾り。浜や道ばたに散らすと、島に人の気配が出ます。',
     r: sc(0.13),
     h: sc(0.14),
+    looks: [
+      { name: 'さくら貝', pale: 0xffd3c8, deep: 0xe79a88 },
+      { name: '白い貝', pale: 0xf6f2e8, deep: 0xd6cfbe },
+      { name: '青い貝', pale: 0xbfdcef, deep: 0x7fa8c4 },
+      { name: '黄の貝', pale: 0xf6e2a8, deep: 0xd8b968 },
+      { name: '紫の貝', pale: 0xdcc8ef, deep: 0xa78cc4 },
+    ],
   },
   {
     id: 'fence',
@@ -182,6 +235,9 @@ export const DECOR = [
       { name: '丸太', wood: 0x8a5a32, post: 0x4a3a24 },
       { name: '白い柵', wood: 0xf2efe6, post: 0xd8d0c0 },
       { name: '黒い柵', wood: 0x3c4149, post: 0x23272c },
+      { name: '竹', wood: 0xbfcf7a, post: 0x8fa356 },
+      { name: '石積み', wood: 0x9aa0a6, post: 0x71777d },
+      { name: '赤い柵', wood: 0xc4543f, post: 0x8a3628 },
     ],
   },
   {
@@ -192,6 +248,13 @@ export const DECOR = [
     desc: '浜に立てかけた古い錨。港のそばに置くと似合います。',
     r: sc(0.2),
     h: sc(0.5),
+    looks: [
+      { name: '鉄', iron: 0x5c6167, rust: 0x7a5a42 },
+      { name: '赤錆', iron: 0x8a5438, rust: 0x6b4630 },
+      { name: '黒', iron: 0x2f3338, rust: 0x4a4038 },
+      { name: '真鍮', iron: 0xc2a150, rust: 0x8a6f2c },
+      { name: '白ペンキ', iron: 0xe2ded2, rust: 0xb0a894 },
+    ],
   },
   {
     id: 'sakura',
@@ -206,6 +269,9 @@ export const DECOR = [
       { name: 'しらゆき', bloom: 0xf7f2ea },
       { name: 'もみじ', bloom: 0xd4643a },
       { name: 'わかば', bloom: 0x7ec06a },
+      { name: 'こがね', bloom: 0xe8c04a },
+      { name: 'ふじ', bloom: 0xa98ed8 },
+      { name: 'ときいろ', bloom: 0xef8fa0 },
     ],
   },
   {
@@ -216,6 +282,13 @@ export const DECOR = [
     desc: '羽根の回る風車。遠くからでも動いているのが分かります。',
     r: sc(0.3),
     h: sc(1.35),
+    looks: [
+      { name: '白壁', wall: 0xe6dcc8, roof: 0x4a3a24, sail: 0xf5f1e6 },
+      { name: '木の壁', wall: 0xa8794a, roof: 0x3c2f1e, sail: 0xf5f1e6 },
+      { name: '石の壁', wall: 0x9aa0a6, roof: 0x4b5058, sail: 0xe8e4da },
+      { name: '赤い屋根', wall: 0xf0e8d8, roof: 0xb44a34, sail: 0xf5f1e6 },
+      { name: '青い帆', wall: 0xe6dcc8, roof: 0x2f4a6b, sail: 0x9fc4e8 },
+    ],
   },
   {
     id: 'beacon',
@@ -230,6 +303,58 @@ export const DECOR = [
       { name: '紅白', band: 0xc4432f },
       { name: '青白', band: 0x3f6fae },
       { name: '黒白', band: 0x394048 },
+      { name: '緑白', band: 0x3f8f63 },
+      { name: '黄白', band: 0xe0ad33 },
+    ],
+  },
+  // ---- 砂漠・浜・竹やぶ ----
+  //
+  // 島には砂漠のヘックスも浜もあるのに、そこに似合うものが1つも無かった。
+  {
+    id: 'cactus',
+    name: 'サボテン',
+    icon: '🌵',
+    price: 150,
+    desc: '砂漠のヘックスに似合う多肉。花の咲く柄もあります。',
+    r: sc(0.16),
+    h: sc(0.6),
+    looks: [
+      { name: 'みどり', body: 0x4f8f52, spine: 0xd8dcc0 },
+      { name: '青みどり', body: 0x3f8f7a, spine: 0xd8dcc0 },
+      { name: '花つき', body: 0x4f8f52, spine: 0xd8dcc0, flower: 0xef6a8a },
+      { name: '黄の花', body: 0x5c9447, spine: 0xe8e0c0, flower: 0xffc83d },
+      { name: '枯れ', body: 0x8a8a5a, spine: 0xc4bf9a },
+    ],
+  },
+  {
+    id: 'parasol',
+    name: 'パラソル',
+    icon: '⛱',
+    price: 230,
+    desc: '浜辺の日よけ。下にベンチを置くと、休むところになります。',
+    r: sc(0.34),
+    h: sc(0.78),
+    looks: [
+      { name: '赤白', top: 0xd8483c, alt: 0xf6f2e8 },
+      { name: '青白', top: 0x3f7fc4, alt: 0xf6f2e8 },
+      { name: '黄白', top: 0xecc23f, alt: 0xf6f2e8 },
+      { name: '緑白', top: 0x4fa36a, alt: 0xf6f2e8 },
+      { name: '生成り', top: 0xe8dcc0, alt: 0xd0c2a2 },
+    ],
+  },
+  {
+    id: 'bamboo',
+    name: '笹',
+    icon: '🎋',
+    price: 170,
+    desc: '細くて高い笹のむら。並べると小さな竹やぶになります。',
+    r: sc(0.18),
+    h: sc(1.15),
+    looks: [
+      { name: '青竹', stalk: 0x7fa83f, leaf: 0x5c8f34 },
+      { name: '黒竹', stalk: 0x3f4438, leaf: 0x53613f },
+      { name: '金竹', stalk: 0xc4a83f, leaf: 0x9a9438 },
+      { name: '枯れ笹', stalk: 0xc2b07a, leaf: 0xa8955e },
     ],
   },
 ];
@@ -238,9 +363,17 @@ export const DECOR_BY_ID = Object.fromEntries(DECOR.map((d) => [d.id, d]));
 export const DECOR_IDS = DECOR.map((d) => d.id);
 
 // 1つの島に置ける数と、1種類あたりの持てる数。
+//
 // **上限を置くのは通信のため** ── 散策部屋では自分の置いたものを名簿に
 // 乗せて配るので、際限なく増えると1人ぶんの名簿が重くなる。
-export const DECOR_MAX = 16;      // 1つの島に置ける合計
+//
+// **16 から 24 へ上げた。** 品が19種類になって、16 では**1つずつ並べる
+// ことすらできなかった**。名簿の重さを測ってから決めてある(1件 ≒ 53B):
+//   16個/人 … 1人 849B / 8人の名簿 6.9KB
+//   24個/人 … 1人 1273B / 8人の名簿 10.3KB
+// 名簿は毎フレームではなく**置いたときだけ**流れるので、この差は通る
+// (位置リレーは別口で、こちらには乗らない)。
+export const DECOR_MAX = 24;      // 1つの島に置ける合計
 export const STOCK_MAX = 12;      // 1種類あたり、持てる数(置いたぶんは含まない)
 
 // 飾りどうしの間隔。近すぎると重なって1つに見える
