@@ -20,7 +20,7 @@
 // (「前後ろはとてもやりやすいが、横の微調整がやりにくい」)。
 
 import { s as sc } from './scale.js';
-import { PLACE_AHEAD } from './decor.js';
+import { PLACE_AHEAD, cleanLook, lookCount } from './decor.js';
 
 // 遠さの帯。近すぎると置いた瞬間に自分が中にいて押し出され、
 // 遠すぎると手の届かないところに物を生やすことになる。
@@ -45,10 +45,11 @@ export const SIDE_STEP = NEAR_STEP;
 export const TURN_STEP = Math.PI / 12;
 export const TURN_STEPS = Math.round((Math.PI * 2) / TURN_STEP);
 
-// 下見のはじまり。**遠さも横も向きも、今までと同じ置き場所から始める** ──
-// 何も触らずに「置く」を押した人には、今までとまったく同じ場所に置かれる。
+// 下見のはじまり。**遠さも横も向きも柄も、今までと同じところから始める** ──
+// 何も触らずに「置く」を押した人には、今までとまったく同じ場所に、
+// はじめの柄で置かれる。
 export function newAim(id) {
-  return { id, away: PLACE_AHEAD, side: 0, turn: 0 };
+  return { id, away: PLACE_AHEAD, side: 0, turn: 0, look: 0 };
 }
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -92,6 +93,22 @@ export function aimTurn(aim, d) {
   return { ...aim, turn: (((i % TURN_STEPS) + TURN_STEPS) % TURN_STEPS) * TURN_STEP };
 }
 
+// 柄を送る。ひとまわりしたら戻る(向きと同じ扱い)。
+//
+// **柄の無い品では何も起きない。** 貝がらや錨のように1つしか柄が無いものは、
+// 押しても変わらない ── ボタン自体も canLook で押せなくしてある。
+export function aimLook(aim, d) {
+  if (!aim) return aim;
+  const n = lookCount(aim.id);
+  if (n <= 1) return aim;
+  const i = (((aim.look ?? 0) + Math.sign(d)) % n + n) % n;
+  return { ...aim, look: i };
+}
+
+export function canLook(aim) {
+  return !!aim && lookCount(aim.id) > 1;
+}
+
 // いま見本が出ている場所。at は自分の位置と向き。
 //
 // **turn = 0 は「自分のほうを向く」**(decor.js の placeSpot と同じ)。
@@ -109,6 +126,9 @@ export function aimSpot(aim, at) {
     x: at.x + Math.sin(at.facing) * aim.away - Math.cos(at.facing) * side,
     z: at.z + Math.cos(at.facing) * aim.away + Math.sin(at.facing) * side,
     facing: at.facing + Math.PI + aim.turn,
+    // 柄も一緒に返す ── ここが「いま見えている見本そのもの」なので、
+    // 置く側は場所と柄を別々に組み立てなくてよい
+    look: cleanLook(aim.id, aim.look),
   };
 }
 

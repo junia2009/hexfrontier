@@ -9,8 +9,10 @@ import { readFileSync } from 'node:fs';
 
 import {
   DECOR, DECOR_BY_ID, DECOR_GAP, DECOR_IDS, DECOR_MAX, LAMP_FULL, STOCK_MAX,
-  cleanDecorId, decorNear, lampGlow, placeSpot, visibleDecor, whyCannotPlace,
+  cleanDecorId, cleanLook, decorNear, lampGlow, lookCount, lookName, lookOf, looksOf,
+  placeSpot, visibleDecor, whyCannotPlace,
 } from '../src/minigame/decor.js';
+import { aimLook, aimSpot, canLook, newAim } from '../src/minigame/place.js';
 import {
   DECOR_ITEMS, ITEM_BY_ID, buyItem, isDecor, isWear, owns, stockOf,
 } from '../src/shop.js';
@@ -351,4 +353,129 @@ test('飾り: 部屋の名簿に乗って、相手の島にも出る', () => {
   // 送らなければ空(古い版の相手)
   room.setDecor('a', 'こわれた値');
   assert.deepEqual(room.lobbyInfo().seats[0].decor, []);
+});
+
+// ---- 柄(同じ品の色ちがい)----
+//
+// **品を増やさずに種類を増やす。** 花壇を5色ぶん店に並べると棚が5行伸びる
+// (16品で画面2.6枚あるところへ、さらに)。買うのは「花壇」1つで、
+// 置くときに柄を選ぶ ── 1つ買えばその品の柄は全部置ける。
+//
+// 保存と通信には `v` で乗る。**0 のときは書かない**(柄を足す前の保存と
+// 同じ形のまま)。
+
+test('柄: 表がそろっている(名前があり、重ならない)', () => {
+  let total = 0;
+  for (const d of DECOR) {
+    const looks = looksOf(d.id);
+    if (!looks) { assert.equal(lookCount(d.id), 1, `${d.id}: 柄が無いのに数が 1 でない`); continue; }
+    assert.ok(looks.length >= 2, `${d.id}: 柄が1つしかない(looks を消すべき)`);
+    const names = looks.map((l) => l.name);
+    assert.ok(names.every(Boolean), `${d.id}: 名前の無い柄がある`);
+    assert.equal(new Set(names).size, names.length, `${d.id}: 同じ名前の柄がある(${names})`);
+    assert.equal(lookCount(d.id), looks.length);
+    total += looks.length;
+  }
+  assert.ok(total >= 20, `柄が ${total} 個しかない(探し方が壊れている)`);
+});
+
+test('柄: 番号を正す(知らない値は、はじめの柄に落とす)', () => {
+  assert.equal(lookCount('planter'), 5);
+  assert.equal(cleanLook('planter', 3), 3);
+  for (const bad of [null, undefined, -1, 5, 99, NaN, Infinity, '2', {}, 1.9]) {
+    const got = cleanLook('planter', bad);
+    assert.ok(got >= 0 && got < 5, `${JSON.stringify(bad)} → ${got}(範囲の外)`);
+  }
+  assert.equal(cleanLook('planter', '2'), 2, '文字の数字も読む(保存が文字になっていることがある)');
+  assert.equal(cleanLook('planter', 1.9), 1, '小数は切り捨てる');
+  // 柄を持たない品は、何を渡しても 0
+  assert.equal(lookCount('shell'), 1);
+  for (const v of [0, 1, 5, null]) assert.equal(cleanLook('shell', v), 0);
+  // 知らない品でも落ちない
+  assert.equal(cleanLook('しらないもの', 3), 0);
+  assert.equal(lookOf('しらないもの', 0), null);
+  assert.equal(lookName('しらないもの', 0), '');
+  assert.equal(lookName('planter', 2), looksOf('planter')[2].name);
+});
+
+test('柄: 置くと保存に乗る。0 のときは書かない', () => {
+  const p0 = { ...emptyProgress(), stock: { planter: 5 } };
+  const a = placeDecor(p0, 'fish', 'planter', { x: 1, z: 2, facing: 0, look: 3 });
+  assert.equal(a.ok, true);
+  assert.equal(placedDecor(a.progress, 'fish')[0].v, 3);
+  // **0 は書かない** ── 柄を足す前の保存とまったく同じ形にする
+  const b = placeDecor(p0, 'fish', 'planter', { x: 1, z: 2, facing: 0, look: 0 });
+  assert.equal('v' in placedDecor(b.progress, 'fish')[0], false, 'v: 0 を書いている');
+  const c = placeDecor(p0, 'fish', 'planter', { x: 1, z: 2, facing: 0 });
+  assert.equal('v' in placedDecor(c.progress, 'fish')[0], false, '柄を指さないと v が付く');
+  // 範囲の外は落とす
+  const d = placeDecor(p0, 'fish', 'planter', { x: 1, z: 2, facing: 0, look: 99 });
+  assert.equal('v' in placedDecor(d.progress, 'fish')[0], false, '範囲の外の柄が残っている');
+});
+
+test('柄: 保存を読み戻しても残る。壊れた値は落とす', () => {
+  const round = (list) => placedDecor(
+    parseProgress(JSON.stringify({ v: 2, decor: { fish: list } })), 'fish',
+  );
+  assert.equal(round([{ id: 'planter', x: 0, z: 0, v: 4 }])[0].v, 4);
+  assert.equal('v' in round([{ id: 'planter', x: 0, z: 0, v: 0 }])[0], false);
+  for (const bad of [99, -3, 'あ', null, {}]) {
+    const got = round([{ id: 'planter', x: 0, z: 0, v: bad }])[0];
+    assert.equal('v' in got, false, `壊れた柄 ${JSON.stringify(bad)} が残った`);
+  }
+  // 柄を持たない品に柄が付いていても落とす
+  assert.equal('v' in round([{ id: 'shell', x: 0, z: 0, v: 2 }])[0], false);
+});
+
+test('柄: 部屋の名簿にも乗る(相手の島でも同じ柄で出る)', () => {
+  const room = new RoomCore({ code: 'TEST', seed: 1, kind: 'walk' });
+  room.join({
+    clientId: 'a',
+    name: 'あ',
+    look: 1,
+    decor: [
+      { id: 'planter', x: 0, z: 0, v: 3 },
+      { id: 'planter', x: 1, z: 0, v: 99 },   // 範囲の外
+      { id: 'shell', x: 2, z: 0, v: 1 },      // 柄を持たない品
+    ],
+  });
+  const seen = room.lobbyInfo().seats[0].decor;
+  assert.equal(seen[0].v, 3, '柄が相手に届かない');
+  assert.equal('v' in seen[1], false, '範囲の外の柄がそのまま届いている');
+  assert.equal('v' in seen[2], false, '柄を持たない品に柄が付いて届いている');
+});
+
+test('柄: 下見で送れる。柄の無い品では動かない', () => {
+  let a = newAim('planter');
+  assert.equal(a.look, 0);
+  const seen = [];
+  for (let i = 0; i < 6; i += 1) { seen.push(a.look); a = aimLook(a, 1); }
+  assert.deepEqual(seen, [0, 1, 2, 3, 4, 0], 'ひとまわりして戻らない');
+  assert.equal(aimLook(newAim('planter'), -1).look, 4, '逆に送れない');
+  assert.equal(canLook(newAim('planter')), true);
+  // 柄を持たない品
+  assert.equal(canLook(newAim('shell')), false);
+  assert.equal(aimLook(newAim('shell'), 1).look, 0, '柄が1つしかないのに動いた');
+  // 見本の場所には柄も付いてくる(置く側が組み立て直さなくてよい)
+  const at = { x: 0, z: 0, facing: 0 };
+  assert.equal(aimSpot(aimLook(newAim('planter'), 1), at).look, 1);
+});
+
+// **表に柄を足して、見た目が読み忘れると「名前だけ増えた柄」になる。**
+// decor-fx.js は THREE を使うのでテストから読めないので、文字で確かめる。
+test('柄: 表が持っている色を、見た目がぜんぶ読んでいる', () => {
+  const fx = readFileSync(new URL('../src/minigame/decor-fx.js', import.meta.url), 'utf8');
+  for (const d of DECOR) {
+    const looks = looksOf(d.id);
+    if (!looks) continue;
+    // 柄を持つ品の作る関数は、柄を受け取る形になっていること
+    assert.match(fx, new RegExp(`function ${d.id}\\(d, k\\)`),
+      `${d.name}(${d.id})は柄を持つのに、作る関数が柄を受け取っていない`);
+    const keys = new Set(looks.flatMap((l) => Object.keys(l)).filter((k) => k !== 'name'));
+    assert.ok(keys.size, `${d.id}: 柄に名前しか無い(色が無い)`);
+    for (const key of keys) {
+      assert.match(fx, new RegExp(`k\\?\\.${key}\\b`),
+        `${d.name}の柄の「${key}」を、見た目が読んでいない ── 名前だけ増えた柄になる`);
+    }
+  }
 });

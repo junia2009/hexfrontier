@@ -32,6 +32,11 @@ export const DECOR = [
     desc: '木のベンチ。島のすきな場所に置けます。',
     r: sc(0.26),        // ぶつかる太さ
     h: sc(0.3),         // 高さ(これより高く跳べば越えられる)
+    looks: [
+      { name: 'きの色', wood: 0x8a5a32, leg: 0x4a3a24 },
+      { name: '白木', wood: 0xdccdb4, leg: 0x9c8e77 },
+      { name: '石', wood: 0x9aa0a6, leg: 0x6f757b },
+    ],
   },
   {
     id: 'lamp',
@@ -42,6 +47,11 @@ export const DECOR = [
     r: sc(0.16),
     h: sc(0.62),
     night: true,        // 夜に光る(decor-fx.js)
+    looks: [
+      { name: '石', stone: 0x9aa0a6, fire: 0xffe9b0 },
+      { name: '苔むし', stone: 0x7d8a72, fire: 0xffe9b0 },
+      { name: '青い火', stone: 0x9aa0a6, fire: 0xc6e6ff },
+    ],
   },
   {
     id: 'flag',
@@ -51,15 +61,29 @@ export const DECOR = [
     desc: '高い旗。遠くからでも自分の置いた場所が分かります。',
     r: sc(0.12),
     h: sc(1.0),
+    looks: [
+      { name: 'あか', cloth: 0xe2604a },
+      { name: 'あお', cloth: 0x4a7fe2 },
+      { name: 'みどり', cloth: 0x4fa36a },
+      { name: 'きいろ', cloth: 0xecc23f },
+      { name: 'しろ', cloth: 0xf2f0ea },
+    ],
   },
   {
     id: 'planter',
     name: '花壇',
     icon: '🌻',
     price: 140,
-    desc: '花を植えた木の箱。',
+    desc: '花を植えた木の箱。植える花を選べます。',
     r: sc(0.22),
     h: sc(0.22),
+    looks: [
+      { name: 'よせ植え', flowers: [0xff9ec4, 0xffd97d, 0xb08ee8] },
+      { name: 'チューリップ', flowers: [0xe2503f, 0xf2a03d, 0xe2503f] },
+      { name: 'ひまわり', flowers: [0xffc83d, 0xffc83d, 0xffc83d], stem: 0x5c9447 },
+      { name: 'ラベンダー', flowers: [0x9b7fd4, 0xb79ae0, 0x8a6fc4] },
+      { name: 'しろつめくさ', flowers: [0xf7f4ec, 0xf7f4ec, 0xf7f4ec], stem: 0x6fae5a },
+    ],
   },
   // ---- ここから、あとで足したもの ----
   //
@@ -74,6 +98,12 @@ export const DECOR = [
     desc: '見上げるほどではない、大きなキノコ。低いので景色を塞ぎません。',
     r: sc(0.2),
     h: sc(0.36),
+    looks: [
+      { name: 'あか', cap: 0xd6503f, dot: 0xfdf4e6 },
+      { name: 'きつね色', cap: 0xc98b45, dot: 0xf0e0c4 },
+      { name: 'あお', cap: 0x4f8fb5, dot: 0xeaf6ff },
+      { name: 'むらさき', cap: 0x8a6bb0, dot: 0xf2e9ff },
+    ],
   },
   {
     id: 'fire',
@@ -120,6 +150,11 @@ export const DECOR = [
     desc: 'いちばん高い目印。島のどこからでも見つけられます。',
     r: sc(0.3),
     h: sc(1.2),
+    looks: [
+      { name: '朱', paint: 0xc4432f, beam: 0x2c211c },
+      { name: '石', paint: 0x9aa0a6, beam: 0x6b7278 },
+      { name: '木', paint: 0x8a5a32, beam: 0x4a3a24 },
+    ],
   },
   // ---- さらに足したもの ----
   //
@@ -143,6 +178,11 @@ export const DECOR = [
     desc: '低くて幅のある柵。並べて道を作ったり、庭を囲ったりできます。',
     r: sc(0.42),        // **幅のある飾りは、ここも広く取る**(見た目と揃える)
     h: sc(0.34),
+    looks: [
+      { name: '丸太', wood: 0x8a5a32, post: 0x4a3a24 },
+      { name: '白い柵', wood: 0xf2efe6, post: 0xd8d0c0 },
+      { name: '黒い柵', wood: 0x3c4149, post: 0x23272c },
+    ],
   },
   {
     id: 'anchor',
@@ -161,6 +201,12 @@ export const DECOR = [
     desc: '花をつけた木。島の緑のなかで、ここだけ色が変わります。',
     r: sc(0.26),
     h: sc(1.1),
+    looks: [
+      { name: 'さくら', bloom: 0xf3a9c4 },
+      { name: 'しらゆき', bloom: 0xf7f2ea },
+      { name: 'もみじ', bloom: 0xd4643a },
+      { name: 'わかば', bloom: 0x7ec06a },
+    ],
   },
   {
     id: 'mill',
@@ -180,6 +226,11 @@ export const DECOR = [
     r: sc(0.28),
     h: sc(1.7),
     night: true,        // 夜に光る。島の明るさにも数える
+    looks: [
+      { name: '紅白', band: 0xc4432f },
+      { name: '青白', band: 0x3f6fae },
+      { name: '黒白', band: 0x394048 },
+    ],
   },
 ];
 
@@ -197,6 +248,44 @@ export const DECOR_GAP = sc(0.34);
 
 export function cleanDecorId(id) {
   return typeof id === 'string' && DECOR_BY_ID[id] ? id : null;
+}
+
+// ---- 柄(同じ品の、色ちがい)----
+//
+// **品を増やさずに種類を増やす。** 花壇を5色ぶん店に並べると、棚がそれだけ
+// 5行に伸びる(16品で画面2.6枚あるところへ、さらに)。買うのは「花壇」1つで、
+// **置くときに柄を選ぶ** ── 下見の帯に「柄」を足してあるので、遠さ・横・
+// 向きと同じ手つきで変えられるし、1つ買えば全部の柄を置ける。
+//
+// 柄そのもの(色)は**この表が持つ**。decor-fx.js は THREE を使っていて
+// テストから読めないので、色まであちらに置くと、柄を足したのに
+// 出ない/名前だけ増えた、が検査できない。
+//
+// 保存と通信には `v`(柄の番号)で乗る。**0 のときは書かない** ──
+// 古い保存と同じ形のままで、名簿も太らない。
+
+export function looksOf(id) {
+  const l = DECOR_BY_ID[id]?.looks;
+  return Array.isArray(l) && l.length ? l : null;
+}
+
+export function lookCount(id) {
+  return looksOf(id)?.length ?? 1;
+}
+
+// 番号を正す。知らない品・範囲の外・数でないものは 0(はじめの柄)
+export function cleanLook(id, v) {
+  const n = lookCount(id);
+  const i = Math.trunc(Number(v));
+  return Number.isFinite(i) && i > 0 && i < n ? i : 0;
+}
+
+export function lookOf(id, v) {
+  return looksOf(id)?.[cleanLook(id, v)] ?? null;
+}
+
+export function lookName(id, v) {
+  return lookOf(id, v)?.name ?? '';
 }
 
 // 置いてよい場所か。置けるなら null、置けないなら日本語の理由を返す。

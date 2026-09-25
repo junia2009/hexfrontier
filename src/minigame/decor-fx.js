@@ -3,18 +3,22 @@
 //
 // 寸法は decor.js の r(太さ)と h(高さ)に合わせる。合わせないと、
 // 見えている大きさとぶつかる大きさが食い違って「触っていないのに止まる」。
+//
+// **柄(色ちがい)も decor.js の表が持つ。** ここは第2引数の `k` で受け取り、
+// 無ければ今までの色にする ── 柄を持たない品(たき火・錨など)も、
+// 柄を足す前の保存も、そのまま同じ絵になる。
 
 import * as THREE from 'three';
-import { DECOR_BY_ID } from './decor.js';
+import { DECOR_BY_ID, lookOf } from './decor.js';
 
 const WOOD = 0x8a5a32;
 const DARK = 0x4a3a24;
 const STONE = 0x9aa0a6;
 
-function bench(d) {
+function bench(d, k) {
   const g = new THREE.Group();
-  const wood = new THREE.MeshStandardMaterial({ color: WOOD, roughness: 0.85 });
-  const dark = new THREE.MeshStandardMaterial({ color: DARK, roughness: 0.8 });
+  const wood = new THREE.MeshStandardMaterial({ color: k?.wood ?? WOOD, roughness: 0.85 });
+  const dark = new THREE.MeshStandardMaterial({ color: k?.leg ?? DARK, roughness: 0.8 });
   const w = d.r * 2;
   const seat = new THREE.Mesh(new THREE.BoxGeometry(w, d.h * 0.12, d.r * 0.8), wood);
   seat.position.y = d.h * 0.5;
@@ -38,9 +42,9 @@ function bench(d) {
   return { group: g, lamp: null };
 }
 
-function lamp(d) {
+function lamp(d, k) {
   const g = new THREE.Group();
-  const stone = new THREE.MeshStandardMaterial({ color: STONE, roughness: 0.95 });
+  const stone = new THREE.MeshStandardMaterial({ color: k?.stone ?? STONE, roughness: 0.95 });
   const base = new THREE.Mesh(
     new THREE.CylinderGeometry(d.r * 0.9, d.r * 1.05, d.h * 0.12, 8), stone,
   );
@@ -56,7 +60,9 @@ function lamp(d) {
   // 火袋。夜はここが光る
   const box = new THREE.Mesh(
     new THREE.CylinderGeometry(d.r * 0.72, d.r * 0.72, d.h * 0.22, 6),
-    new THREE.MeshStandardMaterial({ color: 0xffe9b0, roughness: 0.6, emissive: 0x000000 }),
+    new THREE.MeshStandardMaterial({
+      color: k?.fire ?? 0xffe9b0, roughness: 0.6, emissive: 0x000000,
+    }),
   );
   box.position.y = d.h * 0.73;
   g.add(box);
@@ -67,11 +73,11 @@ function lamp(d) {
   return { group: g, lamp: box.material };
 }
 
-function flag(d) {
+function flag(d, k) {
   const g = new THREE.Group();
   const dark = new THREE.MeshStandardMaterial({ color: DARK, roughness: 0.8 });
   const cloth = new THREE.MeshStandardMaterial({
-    color: 0xe2604a, roughness: 0.8, side: THREE.DoubleSide,
+    color: k?.cloth ?? 0xe2604a, roughness: 0.8, side: THREE.DoubleSide,
   });
   const pole = new THREE.Mesh(
     new THREE.CylinderGeometry(d.r * 0.25, d.r * 0.3, d.h, 7), dark,
@@ -87,7 +93,7 @@ function flag(d) {
   return { group: g, lamp: null };
 }
 
-function planter(d) {
+function planter(d, k) {
   const g = new THREE.Group();
   const wood = new THREE.MeshStandardMaterial({ color: WOOD, roughness: 0.9 });
   const soil = new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 1 });
@@ -101,19 +107,19 @@ function planter(d) {
   const dirt = new THREE.Mesh(new THREE.BoxGeometry(d.r * 1.8, d.h * 0.1, d.r * 1.1), soil);
   dirt.position.y = d.h * 0.72;
   g.add(dirt);
-  // 花。3本。色を変えて並べる
-  const colors = [0xff9ec4, 0xffd97d, 0xb08ee8];
+  // 花。3本。色を変えて並べる(柄で花の色が変わる)
+  const colors = k?.flowers ?? [0xff9ec4, 0xffd97d, 0xb08ee8];
+  const stemMat = new THREE.MeshStandardMaterial({ color: k?.stem ?? 0x6fae5a, roughness: 0.9 });
   for (let i = 0; i < 3; i += 1) {
     const stem = new THREE.Mesh(
-      new THREE.CylinderGeometry(d.h * 0.03, d.h * 0.03, d.h * 0.38, 5),
-      new THREE.MeshStandardMaterial({ color: 0x6fae5a, roughness: 0.9 }),
+      new THREE.CylinderGeometry(d.h * 0.03, d.h * 0.03, d.h * 0.38, 5), stemMat,
     );
     const x = (i - 1) * d.r * 0.62;
     stem.position.set(x, d.h * 0.92, 0);
     g.add(stem);
     const head = new THREE.Mesh(
       new THREE.SphereGeometry(d.h * 0.16, 8, 6),
-      new THREE.MeshStandardMaterial({ color: colors[i], roughness: 0.8 }),
+      new THREE.MeshStandardMaterial({ color: colors[i % colors.length], roughness: 0.8 }),
     );
     head.scale.y = 0.72;
     head.position.set(x, d.h * 1.14, 0);
@@ -129,7 +135,7 @@ function planter(d) {
 // どれも「地面から h の高さに収まる」ことだけ守れば、当たり判定と噛み合う。
 
 // 大きなキノコ。低くて丸いので、並べても景色を塞がない
-function shroom(d) {
+function shroom(d, k) {
   const g = new THREE.Group();
   const stalk = new THREE.Mesh(
     new THREE.CylinderGeometry(d.r * 0.3, d.r * 0.42, d.h * 0.6, 8),
@@ -141,14 +147,14 @@ function shroom(d) {
   // かさ。**半球を潰す** ── 円錐だと三角の帽子に見えてキノコにならない
   const cap = new THREE.Mesh(
     new THREE.SphereGeometry(d.r, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: 0xd6503f, roughness: 0.8 }),
+    new THREE.MeshStandardMaterial({ color: k?.cap ?? 0xd6503f, roughness: 0.8 }),
   );
   cap.scale.y = 0.68;
   cap.position.y = d.h * 0.58;
   cap.castShadow = true;
   g.add(cap);
   // 白い斑点。かさの上に散らす
-  const dot = new THREE.MeshStandardMaterial({ color: 0xfdf4e6, roughness: 0.9 });
+  const dot = new THREE.MeshStandardMaterial({ color: k?.dot ?? 0xfdf4e6, roughness: 0.9 });
   for (const [a, t] of [[0.4, 0.45], [2.3, 0.62], [4.3, 0.5], [5.6, 0.72]]) {
     const s = new THREE.Mesh(new THREE.SphereGeometry(d.r * 0.15, 7, 5), dot);
     const rr = d.r * t;
@@ -308,10 +314,10 @@ function koi(d) {
 }
 
 // 鳥居。島でいちばん高い目印
-function torii(d) {
+function torii(d, k) {
   const g = new THREE.Group();
-  const paint = new THREE.MeshStandardMaterial({ color: 0xc4432f, roughness: 0.8 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x2c211c, roughness: 0.85 });
+  const paint = new THREE.MeshStandardMaterial({ color: k?.paint ?? 0xc4432f, roughness: 0.8 });
+  const dark = new THREE.MeshStandardMaterial({ color: k?.beam ?? 0x2c211c, roughness: 0.85 });
   const span = d.r * 1.7;          // 柱の間隔(当たり半径に収まる幅にする)
   for (const sx of [-1, 1]) {
     const post = new THREE.Mesh(
@@ -383,10 +389,10 @@ function shell(d) {
 }
 
 // 丸太の柵。**幅のある、ただ1つの飾り** ── 並べて道や庭を囲うためのもの
-function fence(d) {
+function fence(d, k) {
   const g = new THREE.Group();
-  const wood = new THREE.MeshStandardMaterial({ color: WOOD, roughness: 0.9 });
-  const dark = new THREE.MeshStandardMaterial({ color: DARK, roughness: 0.9 });
+  const wood = new THREE.MeshStandardMaterial({ color: k?.wood ?? WOOD, roughness: 0.9 });
+  const dark = new THREE.MeshStandardMaterial({ color: k?.post ?? DARK, roughness: 0.9 });
   const w = d.r * 2;
   for (const sx of [-1, 0, 1]) {
     const post = new THREE.Mesh(
@@ -461,10 +467,10 @@ function anchor(d) {
 }
 
 // 桜の木。**島の緑のなかで、ここだけ色が変わる**
-function sakura(d) {
+function sakura(d, k) {
   const g = new THREE.Group();
   const bark = new THREE.MeshStandardMaterial({ color: 0x6b4a3a, roughness: 0.95 });
-  const bloom = new THREE.MeshStandardMaterial({ color: 0xf3a9c4, roughness: 0.85 });
+  const bloom = new THREE.MeshStandardMaterial({ color: k?.bloom ?? 0xf3a9c4, roughness: 0.85 });
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(d.r * 0.16, d.r * 0.26, d.h * 0.5, 7), bark,
   );
@@ -543,10 +549,10 @@ function mill(d) {
 }
 
 // 灯台。**島でいちばん高い。夜は明かりが回る**
-function beacon(d) {
+function beacon(d, k) {
   const g = new THREE.Group();
   const white = new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.9 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xc4432f, roughness: 0.85 });
+  const red = new THREE.MeshStandardMaterial({ color: k?.band ?? 0xc4432f, roughness: 0.85 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x33383d, roughness: 0.8 });
   // 胴。**紅白の縞にする** ── 昼でも灯台だと分かる
   const bands = 5;
@@ -605,7 +611,8 @@ const BUILD = {
 export function makeDecor(scene, spec, groundY) {
   const d = DECOR_BY_ID[spec?.id];
   if (!d) return null;
-  const made = BUILD[d.id](d);
+  // 柄。**表から引く**ので、知らない番号でもはじめの柄に落ちる(lookOf)
+  const made = BUILD[d.id](d, lookOf(d.id, spec.v));
   const g = made.group;
   g.position.set(spec.x, groundY, spec.z);
   g.rotation.y = spec.facing ?? 0;

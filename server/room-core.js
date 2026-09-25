@@ -12,7 +12,7 @@ import { totalCards } from '../src/rules/build.js';
 import { WALK_SEATS } from '../src/minigame/remote-st.js';
 import { cleanSpecies, DEFAULT_SPECIES } from '../src/minigame/species.js';
 import { cleanHat } from '../src/minigame/hats.js';
-import { DECOR_MAX, cleanDecorId } from '../src/minigame/decor.js';
+import { DECOR_MAX, cleanDecorId, cleanLook } from '../src/minigame/decor.js';
 
 export const MAX_SEATS = 4;
 // 散策部屋(同じ島をみんなで歩く)は対戦の席数に縛られないので多めに取る。
@@ -91,7 +91,8 @@ function cleanDecor(list) {
     const x = num(d?.x);
     const z = num(d?.z);
     if (!id || x == null || z == null) continue;
-    out.push({ id, x, z, f: num(d?.f) ?? 0 });
+    const v = cleanLook(id, d?.v);
+    out.push({ id, x, z, f: num(d?.f) ?? 0, ...(v ? { v } : {}) });
   }
   return out;
 }

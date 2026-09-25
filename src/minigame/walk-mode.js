@@ -840,11 +840,14 @@ export class WalkMode {
   //
   // 当たり判定には**入れない**(_rebuildBlocker を呼ばない)。見本に
   // ぶつかると、置きたい場所へ自分が近づけなくなる。
-  setGhost(id) {
-    if (this.ghostId === id) return;
+  // **柄も見分ける。** id だけで覚えていると、柄を送っても見本が作り直されず、
+  // 「柄を変えたのに見本は前の色のまま、置いたら変わる」になる
+  setGhost(id, v = 0) {
+    const key = id ? `${id}:${v}` : null;
+    if (this.ghostId === key) return;
     this.clearGhost();
     if (!id) return;
-    const fx = makeDecor(this.b.scene, { id, x: 0, z: 0, facing: 0 }, 0);
+    const fx = makeDecor(this.b.scene, { id, v, x: 0, z: 0, facing: 0 }, 0);
     if (!fx) return;
     fx.group.traverse((o) => {
       if (!o.material) return;
@@ -855,7 +858,7 @@ export class WalkMode {
       }
     });
     this.ghost = fx;
-    this.ghostId = id;
+    this.ghostId = key;
     this.ghostOk = null;
   }
 

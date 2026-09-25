@@ -18,7 +18,7 @@ import { marketRate } from './market.js';
 import { dayIndex, questGain, questsFor } from './quests.js';
 import { isWear, stockOf } from './shop.js';
 import { GEAR_BY_ID, SLOT_IDS } from './gear.js';
-import { DECOR_MAX, STOCK_MAX, cleanDecorId } from './minigame/decor.js';
+import { DECOR_MAX, STOCK_MAX, cleanDecorId, cleanLook } from './minigame/decor.js';
 
 const KEY = 'progress';
 export const PROGRESS_VERSION = 2;
@@ -75,8 +75,11 @@ export function placedDecor(progress, mode) {
 // 置く。手持ちが無ければ何も変えない。
 export function placeDecor(progress, mode, id, at) {
   if (stockOf(progress, id) <= 0) return { progress, ok: false, reason: '持っていません' };
+  // **柄は 0 のときだけ書かない。** 古い保存とまったく同じ形のままにして
+  // おくと、柄を足す前の島がそのまま読める(名簿も太らない)
+  const v = cleanLook(id, at.look);
   const list = [...placedDecor(progress, mode), {
-    id, x: at.x, z: at.z, f: at.facing ?? 0,
+    id, x: at.x, z: at.z, f: at.facing ?? 0, ...(v ? { v } : {}),
   }];
   return {
     progress: {
@@ -563,7 +566,8 @@ function sanitizeDecor(src) {
       const x = num(d?.x);
       const z = num(d?.z);
       if (!id || x == null || z == null) continue;
-      kept.push({ id, x, z, f: num(d?.f) ?? 0 });
+      const v = cleanLook(id, d?.v);
+      kept.push({ id, x, z, f: num(d?.f) ?? 0, ...(v ? { v } : {}) });
     }
     if (kept.length) out[mode] = kept;
   }

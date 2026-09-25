@@ -25,8 +25,12 @@ import { bandOf, marketBoard } from './market.js';
 import {
   buyItem, cleanBagShelf, cleanShelf, ITEMS, ITEM_BY_ID, owns, stockOf,
 } from './shop.js';
-import { DECOR_BY_ID, lampGlow, placeSpot, whyCannotPlace } from './minigame/decor.js';
-import { aimNudge, aimSide, aimSpot, aimTurn, canNudge, canSide, newAim } from './minigame/place.js';
+import {
+  DECOR_BY_ID, lampGlow, lookCount, lookName, placeSpot, whyCannotPlace,
+} from './minigame/decor.js';
+import {
+  aimLook, aimNudge, aimSide, aimSpot, aimTurn, canLook, canNudge, canSide, newAim,
+} from './minigame/place.js';
 import {
   bagHtml, fishbookHtml, gearPanelHtml, questsHtml, storeHtml, recordsHtml,
 } from './render/records.js';
@@ -2039,6 +2043,18 @@ function updateAim() {
   bar?.classList.toggle('bad', !!why);
   const put = bar?.querySelector('[data-act="decor-put"]');
   if (put) put.disabled = !!why;
+  // **柄も見本に当てる。** ここで作り直さないと、柄を送っても色が変わらない
+  walk.setGhost(aim.id, aim.look ?? 0);
+  // 柄の名前(柄が1つしかない品では、行ごと隠す)
+  const row = bar?.querySelector('.aim-look');
+  const many = canLook(aim);
+  row?.classList.toggle('off', !many);
+  const tag = document.getElementById('walk-aim-look');
+  if (tag) {
+    tag.textContent = many
+      ? `${lookName(aim.id, aim.look)}(${(aim.look ?? 0) + 1}/${lookCount(aim.id)})`
+      : '';
+  }
   // 帯の端まで来たボタンは押せなくする。**前後も横も同じ扱い** ──
   // 押しても何も動かないボタンが残っていると、効かないのか端なのか分からない
   for (const [act, on] of [
@@ -4188,6 +4204,8 @@ document.addEventListener('click', (e) => {
     case 'decor-near': aim = aimNudge(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
     case 'decor-side': aim = aimSide(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
     case 'decor-turn': aim = aimTurn(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
+    // 柄を送る。**買い直さなくてよい** ── 1つ買えば、その品の柄は全部置ける
+    case 'decor-look': aim = aimLook(aim, Number(arg)); updateAim(); sfx.play('ui'); return;
     case 'decor-cancel': endAim(); sfx.play('ui'); return;
     // 決めた場所に置いて、島へ流し込む
     case 'decor-put': {
@@ -4195,6 +4213,9 @@ document.addEventListener('click', (e) => {
       const why = whyCannotPlaceHere();
       if (why) { walkNote(why); return; }
       const id = aim.id;
+      // **柄は endAim の前に控える**(endAim が aim を捨てるので、
+      // あとから読むと undefined になる)
+      const kName = lookName(id, aim.look);
       const r = placeDecor(progress, state.mode, id, decorSpot());
       if (!r.ok) { walkNote(r.reason ?? '置けません'); return; }
       progress = r.progress;
@@ -4204,7 +4225,8 @@ document.addEventListener('click', (e) => {
       net?.setDecor(placedDecor(progress, state.mode));
       renderBag();
       sfx.play('ui');
-      walkNote(`${ITEM_BY_ID[id]?.icon ?? ''} ${ITEM_BY_ID[id]?.name ?? ''}を置いた`);
+      walkNote(`${ITEM_BY_ID[id]?.icon ?? ''} ${ITEM_BY_ID[id]?.name ?? ''}`
+        + `${kName ? `(${kName})` : ''}を置いた`);
       return;
     }
     // 目の前の飾りをしまう(手持ちへ戻す。捨てない)
