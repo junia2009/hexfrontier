@@ -352,7 +352,254 @@ function torii(d) {
   return { group: g, lamp: null };
 }
 
-const BUILD = { bench, lamp, flag, planter, shroom, fire, well, statue, koi, torii };
+// 貝がら。**ごく小さい** ── 道ばたや浜に散らすためのもの。
+//
+// **島には灰色の石が転がっている。** はじめ半球をクリーム色で潰して
+// 置いたら、遠目にはその石と見分けが付かなかった(実測の絵で気づいた)。
+// 桃色にして、**筋の入った扇**にする ── 形と色の両方で石と違えておく。
+function shell(d) {
+  const g = new THREE.Group();
+  const pale = new THREE.MeshStandardMaterial({ color: 0xffd3c8, roughness: 0.45 });
+  const deep = new THREE.MeshStandardMaterial({ color: 0xe79a88, roughness: 0.55 });
+  // 扇。細い板を蝶番から放射に並べる(交互に色を変えて筋にする)
+  const n = 7;
+  for (let i = 0; i < n; i += 1) {
+    const a = -0.62 + (1.24 * i) / (n - 1);
+    const w = new THREE.Mesh(
+      new THREE.BoxGeometry(d.r * 0.3, d.h * 0.42, d.r * 1.5), i % 2 ? deep : pale,
+    );
+    w.position.set(Math.sin(a) * d.r * 0.52, d.h * 0.32, Math.cos(a) * d.r * 0.6);
+    w.rotation.set(-0.2, a, 0);
+    w.castShadow = true;
+    g.add(w);
+  }
+  // 蝶番(扇の要)
+  const hinge = new THREE.Mesh(new THREE.SphereGeometry(d.r * 0.34, 8, 6), deep);
+  hinge.scale.set(1, 0.55, 0.7);
+  hinge.position.y = d.h * 0.26;
+  hinge.castShadow = true;
+  g.add(hinge);
+  return { group: g, lamp: null };
+}
+
+// 丸太の柵。**幅のある、ただ1つの飾り** ── 並べて道や庭を囲うためのもの
+function fence(d) {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: WOOD, roughness: 0.9 });
+  const dark = new THREE.MeshStandardMaterial({ color: DARK, roughness: 0.9 });
+  const w = d.r * 2;
+  for (const sx of [-1, 0, 1]) {
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(d.h * 0.09, d.h * 0.1, d.h, 6), dark,
+    );
+    post.position.set(sx * d.r * 0.88, d.h * 0.5, 0);
+    post.castShadow = true;
+    g.add(post);
+  }
+  // 横木2本。**丸太らしく、少しだけ傾ける**(水平に揃えると板塀に見える)
+  for (const [y, tilt] of [[0.72, 0.012], [0.38, -0.01]]) {
+    const rail = new THREE.Mesh(
+      new THREE.CylinderGeometry(d.h * 0.075, d.h * 0.075, w * 0.98, 6), wood,
+    );
+    rail.rotation.z = Math.PI / 2 + tilt;
+    rail.position.y = d.h * y;
+    rail.castShadow = true;
+    g.add(rail);
+  }
+  return { group: g, lamp: null };
+}
+
+// 錨。浜に立てかける
+function anchor(d) {
+  const g = new THREE.Group();
+  const iron = new THREE.MeshStandardMaterial({ color: 0x5c6167, roughness: 0.55, metalness: 0.45 });
+  const rust = new THREE.MeshStandardMaterial({ color: 0x7a5a42, roughness: 0.9 });
+  // 全体を少し倒して「立てかけてある」形にする
+  const lean = new THREE.Group();
+  lean.rotation.x = 0.22;
+  g.add(lean);
+  const shank = new THREE.Mesh(
+    new THREE.CylinderGeometry(d.r * 0.1, d.r * 0.1, d.h * 0.92, 8), iron,
+  );
+  shank.position.y = d.h * 0.46;
+  shank.castShadow = true;
+  lean.add(shank);
+  // 腕。**下から外へ出て、跳ね上がって爪になる** ── これが無いと、
+  // ただの十字に足が生えた道しるべに見えた(実測の絵で直した)。
+  // 棒を X 方向に置いて Z まわりに回すと、外側の端が持ち上がる
+  for (const sx of [-1, 1]) {
+    const a1 = new THREE.Mesh(new THREE.BoxGeometry(d.r * 0.8, d.r * 0.13, d.r * 0.13), iron);
+    a1.position.set(sx * d.r * 0.34, d.h * 0.05, 0);
+    a1.rotation.z = sx * 0.32;
+    a1.castShadow = true;
+    lean.add(a1);
+    const a2 = new THREE.Mesh(new THREE.BoxGeometry(d.r * 0.6, d.r * 0.13, d.r * 0.13), iron);
+    a2.position.set(sx * d.r * 0.82, d.h * 0.16, 0);
+    a2.rotation.z = sx * 0.95;
+    a2.castShadow = true;
+    lean.add(a2);
+    // 爪。先を尖らせる(ここがあると一目で錨になる)
+    const fluke = new THREE.Mesh(new THREE.ConeGeometry(d.r * 0.24, d.r * 0.46, 4), iron);
+    fluke.position.set(sx * d.r * 1.0, d.h * 0.3, 0);
+    fluke.rotation.z = sx * 0.55;
+    fluke.castShadow = true;
+    lean.add(fluke);
+  }
+  // 横木(ストック)と、上の輪
+  const stock = new THREE.Mesh(
+    new THREE.CylinderGeometry(d.r * 0.07, d.r * 0.07, d.r * 1.8, 6), rust,
+  );
+  stock.rotation.z = Math.PI / 2;
+  stock.position.y = d.h * 0.78;
+  lean.add(stock);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(d.r * 0.2, d.r * 0.055, 6, 10), iron,
+  );
+  ring.position.y = d.h * 0.95;
+  lean.add(ring);
+  return { group: g, lamp: null };
+}
+
+// 桜の木。**島の緑のなかで、ここだけ色が変わる**
+function sakura(d) {
+  const g = new THREE.Group();
+  const bark = new THREE.MeshStandardMaterial({ color: 0x6b4a3a, roughness: 0.95 });
+  const bloom = new THREE.MeshStandardMaterial({ color: 0xf3a9c4, roughness: 0.85 });
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(d.r * 0.16, d.r * 0.26, d.h * 0.5, 7), bark,
+  );
+  trunk.position.y = d.h * 0.25;
+  trunk.castShadow = true;
+  g.add(trunk);
+  // 枝。3本、外へ伸ばす
+  for (let i = 0; i < 3; i += 1) {
+    const a = (i / 3) * Math.PI * 2 + 0.4;
+    const br = new THREE.Mesh(
+      new THREE.CylinderGeometry(d.r * 0.07, d.r * 0.1, d.h * 0.3, 5), bark,
+    );
+    br.position.set(Math.cos(a) * d.r * 0.3, d.h * 0.55, Math.sin(a) * d.r * 0.3);
+    br.rotation.set(Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5);
+    g.add(br);
+  }
+  // 花の塊。**球をいくつか寄せる** ── 1つの球だと風船に見える
+  for (const [dx, dy, dz, s] of [
+    [0, 0.82, 0, 1], [0.52, 0.72, 0.1, 0.72], [-0.48, 0.74, -0.12, 0.7],
+    [0.1, 0.72, -0.5, 0.66], [-0.12, 0.7, 0.48, 0.64],
+  ]) {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(d.r * 0.62 * s, 9, 7), bloom);
+    ball.scale.y = 0.78;
+    ball.position.set(dx * d.r, d.h * dy, dz * d.r);
+    ball.castShadow = true;
+    g.add(ball);
+  }
+  return { group: g, lamp: null };
+}
+
+// 風車。**羽根が回る** ── 遠くからでも動いているのが分かる
+function mill(d) {
+  const g = new THREE.Group();
+  const wall = new THREE.MeshStandardMaterial({ color: 0xe6dcc8, roughness: 0.95 });
+  const wood = new THREE.MeshStandardMaterial({ color: WOOD, roughness: 0.85 });
+  const dark = new THREE.MeshStandardMaterial({ color: DARK, roughness: 0.85 });
+  const tower = new THREE.Mesh(
+    new THREE.CylinderGeometry(d.r * 0.55, d.r * 0.85, d.h * 0.66, 8), wall,
+  );
+  tower.position.y = d.h * 0.33;
+  tower.castShadow = true;
+  tower.receiveShadow = true;
+  g.add(tower);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(d.r * 0.68, d.h * 0.2, 8), dark);
+  roof.position.y = d.h * 0.76;
+  roof.castShadow = true;
+  g.add(roof);
+  // 羽根。**車軸を前に出す**(胴に埋めると、回っても壁に隠れる)
+  const hub = new THREE.Group();
+  hub.position.set(0, d.h * 0.68, d.r * 0.62);
+  g.add(hub);
+  const axle = new THREE.Mesh(
+    new THREE.CylinderGeometry(d.r * 0.07, d.r * 0.07, d.r * 0.3, 6), dark,
+  );
+  axle.rotation.x = Math.PI / 2;
+  hub.add(axle);
+  for (let i = 0; i < 4; i += 1) {
+    const arm = new THREE.Group();
+    arm.rotation.z = (i / 4) * Math.PI * 2;
+    const bar = new THREE.Mesh(
+      new THREE.BoxGeometry(d.r * 0.08, d.h * 0.46, d.r * 0.06), wood,
+    );
+    bar.position.y = d.h * 0.23;
+    bar.castShadow = true;
+    arm.add(bar);
+    const sail = new THREE.Mesh(
+      new THREE.BoxGeometry(d.r * 0.3, d.h * 0.3, d.r * 0.03),
+      new THREE.MeshStandardMaterial({ color: 0xf5f1e6, roughness: 0.9 }),
+    );
+    sail.position.set(d.r * 0.2, d.h * 0.3, 0);
+    sail.castShadow = true;
+    arm.add(sail);
+    hub.add(arm);
+  }
+  return { group: g, lamp: null, hub };
+}
+
+// 灯台。**島でいちばん高い。夜は明かりが回る**
+function beacon(d) {
+  const g = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.9 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xc4432f, roughness: 0.85 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x33383d, roughness: 0.8 });
+  // 胴。**紅白の縞にする** ── 昼でも灯台だと分かる
+  const bands = 5;
+  for (let i = 0; i < bands; i += 1) {
+    const y0 = (i / bands) * d.h * 0.72;
+    const r0 = d.r * (0.85 - 0.3 * (i / bands));
+    const r1 = d.r * (0.85 - 0.3 * ((i + 1) / bands));
+    const seg = new THREE.Mesh(
+      new THREE.CylinderGeometry(r1, r0, d.h * 0.72 / bands, 10),
+      i % 2 ? red : white,
+    );
+    seg.position.y = y0 + d.h * 0.36 / bands;
+    seg.castShadow = true;
+    g.add(seg);
+  }
+  // 手すりのある踊り場
+  const deck = new THREE.Mesh(
+    new THREE.CylinderGeometry(d.r * 0.72, d.r * 0.72, d.h * 0.035, 10), dark,
+  );
+  deck.position.y = d.h * 0.74;
+  deck.castShadow = true;
+  g.add(deck);
+  // 灯室。**回る明かりはこの中**(夜だけ光る)
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0x9fb6c4, roughness: 0.25, transparent: true, opacity: 0.55,
+  });
+  const glass = new THREE.Mesh(
+    new THREE.CylinderGeometry(d.r * 0.5, d.r * 0.5, d.h * 0.14, 10), glassMat,
+  );
+  glass.position.y = d.h * 0.83;
+  g.add(glass);
+  const spin = new THREE.Group();
+  spin.position.y = d.h * 0.83;
+  g.add(spin);
+  const lampMat = new THREE.MeshStandardMaterial({
+    color: 0xfff0c4, roughness: 0.4, emissive: 0x000000,
+  });
+  // 板を1枚だけ。**回ると、こちらを向いたときだけ強く光る**
+  const panel = new THREE.Mesh(
+    new THREE.BoxGeometry(d.r * 0.72, d.h * 0.1, d.r * 0.18), lampMat,
+  );
+  spin.add(panel);
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(d.r * 0.6, d.h * 0.12, 10), red);
+  cap.position.y = d.h * 0.95;
+  cap.castShadow = true;
+  g.add(cap);
+  return { group: g, lamp: lampMat, spin };
+}
+
+const BUILD = {
+  bench, lamp, flag, planter, shroom, fire, well, statue, koi, torii,
+  shell, fence, anchor, sakura, mill, beacon,
+};
 
 // 1つぶん。x/z は盤の座標、groundY はその場所の地面の高さ。
 export function makeDecor(scene, spec, groundY) {
@@ -392,6 +639,11 @@ export function makeDecor(scene, spec, groundY) {
           made.fish[i].rotation.y = Math.sin(t * 1.6 + i * 0.7) * 0.42;
         }
       }
+      // 風車。**ゆっくり回す** ── 速いとおもちゃの羽根に見える。
+      // 風が強くなったり弱くなったりするぶんを、ゆらぎで足す
+      if (made.hub) made.hub.rotation.z = t * 0.9 + Math.sin(t * 0.37) * 0.35;
+      // 灯台。明かりが回る。**板が1枚なので、こちらを向いたときだけ強く光る**
+      if (made.spin) made.spin.rotation.y = t * 1.15;
     },
     dispose() {
       g.removeFromParent();

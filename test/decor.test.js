@@ -78,6 +78,14 @@ test('飾り: 表がそろっている', () => {
     // 見た目とぶつかる大きさを合わせるのに要る
     assert.ok(d.r > 0 && d.h > 0, `${d.id}: 太さか高さが無い`);
   }
+  // **絵も重ねない。** 店の棚は絵で見分けるので、同じ絵が2つ並ぶと
+  // どちらを買ったのか分からなくなる(品が増えるほど起きやすい)
+  const icons = DECOR.map((d) => d.icon);
+  assert.equal(new Set(icons).size, icons.length,
+    `同じ絵の飾りがある: ${icons.join(' ')}`);
+  // 名前も重ねない
+  const names = DECOR.map((d) => d.name);
+  assert.equal(new Set(names).size, names.length, `同じ名前の飾りがある: ${names.join(' ')}`);
   assert.deepEqual(DECOR_IDS, DECOR.map((d) => d.id));
   assert.equal(cleanDecorId('bench'), 'bench');
   for (const bad of [null, 3, 'しらないもの', '']) assert.equal(cleanDecorId(bad), null);
