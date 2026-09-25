@@ -5,6 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   DECOR, DECOR_BY_ID, DECOR_GAP, DECOR_IDS, DECOR_MAX, LAMP_FULL, STOCK_MAX,
@@ -36,6 +37,34 @@ function freeSpot(s) {
   }
   throw new Error('置ける場所が見つからない');
 }
+
+// **表に足して、見た目を足し忘れると「買えるのに出ない飾り」になる。**
+// decor-fx.js は THREE を使うのでテストから読めない(node_modules 無しで
+// 通す決まり)ので、**文字として**突き合わせる ── 絵は目で見るしかないが、
+// 「作る関数がそもそも無い」はここで止まる。
+test('飾り: 表の品ぜんぶに、見た目を作る関数がある', () => {
+  const fx = readFileSync(new URL('../src/minigame/decor-fx.js', import.meta.url), 'utf8');
+  const at = fx.indexOf('const BUILD = {');
+  assert.ok(at > 0, 'decor-fx.js の BUILD が見つからない(探し方が壊れている)');
+  const build = fx.slice(at, fx.indexOf('}', at) + 1);
+  for (const d of DECOR) {
+    assert.match(build, new RegExp(`\\b${d.id}\\b`),
+      `${d.name}(${d.id})の見た目が BUILD に無い ── 買えるのに島に出ない`);
+    assert.match(fx, new RegExp(`function ${d.id}\\b`),
+      `${d.name}(${d.id})を作る関数が無い`);
+  }
+});
+
+// **高さも役どころもばらけていること。** はじめの4つは 0.22〜1.0 の
+// 「置物」ばかりで、並べても同じ景色にしかならなかった。
+test('飾り: 高さがばらけていて、見上げるものも低いものもある', () => {
+  const hs = DECOR.map((d) => d.h);
+  assert.ok(Math.min(...hs) <= 0.2, `いちばん低い飾りが ${Math.min(...hs)}(低いものが無い)`);
+  assert.ok(Math.max(...hs) >= 0.5, `いちばん高い飾りが ${Math.max(...hs)}(見上げるものが無い)`);
+  // 同じ高さの品ばかりにしない(3段階は欲しい)
+  const steps = new Set(hs.map((h) => Math.round(h * 8)));
+  assert.ok(steps.size >= 4, `高さが ${steps.size} 種類しかない`);
+});
 
 test('飾り: 表がそろっている', () => {
   assert.ok(DECOR.length >= 3);
@@ -101,10 +130,14 @@ test('飾り: 持てる数には上限がある(通信に乗る値なので)', (
 
 // **遊びの邪魔になる場所は断る。** ここが緩いと、受付や釣り場をベンチで
 // 塞いで、その島で何もできなくなる。
-// **島を育てると夜が明ける。** 石灯籠を置いていくほど島ぜんぶが明るくなる
+// **島を育てると夜が明ける。** 灯りを置いていくほど島ぜんぶが明るくなる
 // (「石灯籠を購入して島に置いていくにつれて、少しずつ明るくなる過程を
 //   ゲームとして再現したい」)。ここが崩れると、買っても夜が変わらない。
-test('石灯籠: 置いた数だけ夜が明るくなる', () => {
+//
+// **数えるのは表の `night` が立っている品**(石灯籠・たき火)。
+// はじめ lampGlow は `id === 'lamp'` と名指ししていて、たき火を足したら
+// 「燃えているのに島が暗いまま」になった ── このテストがそれで落ちた。
+test('灯り: 置いた数だけ夜が明るくなる', () => {
   const lamps = (n) => Array.from({ length: n }, (_, i) => ({ id: 'lamp', x: i, z: 0 }));
   assert.equal(lampGlow([]), 0, 'はじめの夜が暗くない');
   assert.equal(lampGlow(lamps(LAMP_FULL)), 1, `${LAMP_FULL}個で満ちない`);
@@ -117,11 +150,18 @@ test('石灯籠: 置いた数だけ夜が明るくなる', () => {
   }
   // 上限を超えても 1 まで。明るさが際限なく上がると昼になる
   assert.equal(lampGlow(lamps(LAMP_FULL + 20)), 1, '上限を超えた');
-  // **石灯籠だけ数える。** ベンチを並べても夜は明るくならない
-  const others = DECOR.filter((d) => d.id !== 'lamp')
-    .map((d, i) => ({ id: d.id, x: i, z: 0 }));
-  assert.equal(lampGlow(others), 0, `灯籠以外が数えられている(${others.map((o) => o.id)})`);
-  assert.equal(lampGlow([...others, ...lamps(2)]), step * 2, '混ざると数が狂う');
+  // **灯りだけ数える。** ベンチや石像をいくつ並べても夜は明るくならない
+  const dark = DECOR.filter((d) => !d.night).map((d, i) => ({ id: d.id, x: i, z: 0 }));
+  assert.ok(dark.length >= 3, '光らない飾りが少なすぎて、確かめになっていない');
+  assert.equal(lampGlow(dark), 0, `光らない飾りが数えられている(${dark.map((o) => o.id)})`);
+  assert.equal(lampGlow([...dark, ...lamps(2)]), step * 2, '混ざると数が狂う');
+  // **たき火も数える。** 火のともる品は、どれでも島を明るくする
+  const lit = DECOR.filter((d) => d.night);
+  assert.ok(lit.length >= 2, `光る飾りが ${lit.length} 種類しかない`);
+  for (const d of lit) {
+    assert.equal(lampGlow([{ id: d.id, x: 0, z: 0 }]), step,
+      `${d.name} は night なのに島が明るくならない`);
+  }
   // 壊れた値でも落ちない
   for (const bad of [null, undefined, [null], [{}], [{ id: 3 }]]) {
     assert.equal(lampGlow(bad), 0, `${JSON.stringify(bad)} で落ちるか数えている`);

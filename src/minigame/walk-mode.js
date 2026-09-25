@@ -1082,9 +1082,10 @@ export class WalkMode {
     this.desk?.update?.(dt);
     // 店番。夜はランタンが灯る(board3d が空の時刻を持っている)
     this.store?.update(dt, t, { near: this.atShop, night: this.b?.nightNow?.() ?? 0 });
-    // 石灯籠は夜だけ光る(board3d と同じ「いま夜か」を読む)
+    // 灯りは夜だけともる(board3d と同じ「いま夜か」を読む)。
+    // **時計も渡す** ── たき火の揺らぎと、こいのぼりの振れに要る
     const night = this.b?.nightNow?.() ?? 0;
-    for (const d of this.decor) d.fx.update(night);
+    for (const d of this.decor) d.fx.update(night, t);
     // 置く前の見本。**歩くとついてくる**ので毎コマ動かす(main.js が中身を持つ)
     if (this.ghost) this.onAim?.();
 

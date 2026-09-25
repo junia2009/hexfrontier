@@ -61,6 +61,66 @@ export const DECOR = [
     r: sc(0.22),
     h: sc(0.22),
   },
+  // ---- ここから、あとで足したもの ----
+  //
+  // **高さと役どころをばらけさせる。** はじめの4つは 0.22〜1.0 の
+  // 「置物」ばかりで、並べても同じ景色にしかならなかった。
+  // 低くて丸いもの・見上げる目印・火のもの・動くものを混ぜる。
+  {
+    id: 'shroom',
+    name: '大きなキノコ',
+    icon: '🍄',
+    price: 130,
+    desc: '見上げるほどではない、大きなキノコ。低いので景色を塞ぎません。',
+    r: sc(0.2),
+    h: sc(0.36),
+  },
+  {
+    id: 'fire',
+    name: 'たき火',
+    icon: '🔥',
+    price: 220,
+    desc: '石で囲んだたき火。夜になると燃えて、島を明るくします。',
+    r: sc(0.24),
+    h: sc(0.32),
+    night: true,        // 夜に光る。**島の明るさにも数える**(lampGlow)
+  },
+  {
+    id: 'well',
+    name: '井戸',
+    icon: '⛲',
+    price: 240,
+    desc: '石積みの井戸。屋根とつるべが付いています。',
+    r: sc(0.26),
+    h: sc(0.66),
+  },
+  {
+    id: 'statue',
+    name: '石像',
+    icon: '🗿',
+    price: 260,
+    desc: '島に古くからある形の石像。並べると参道のようになります。',
+    r: sc(0.18),
+    h: sc(0.72),
+  },
+  {
+    id: 'koi',
+    name: 'こいのぼり',
+    icon: '🎏',
+    price: 190,
+    desc: '竿に吊るした吹き流し。風になびいて揺れます。',
+    r: sc(0.12),
+    h: sc(1.05),
+  },
+  {
+    id: 'torii',
+    name: '鳥居',
+    icon: '⛩️',
+    price: 300,
+    desc: 'いちばん高い目印。島のどこからでも見つけられます。',
+    r: sc(0.3),
+    h: sc(1.2),
+  },
 ];
 
 export const DECOR_BY_ID = Object.fromEntries(DECOR.map((d) => [d.id, d]));
@@ -150,10 +210,16 @@ export function visibleDecor(state, placed = []) {
 export const LAMP_FULL = 8;
 
 // 置いてある飾りから、夜の明るさ(0〜1)を出す。
-// **数えるのは石灯籠だけ。** ベンチを並べても夜は明るくならない。
+//
+// **数えるのは火のともる飾りだけ**(表の `night`)。ベンチや石像を
+// いくつ並べても夜は明るくならない。
+//
+// **id で名指ししない。** はじめ `id === 'lamp'` と書いていたら、
+// たき火を足したときに「燃えているのに島が暗いまま」になった ──
+// 光るかどうかは表が持っている。
 export function lampGlow(placed) {
   let n = 0;
-  for (const d of placed ?? []) if (d?.id === 'lamp') n += 1;
+  for (const d of placed ?? []) if (DECOR_BY_ID[d?.id]?.night) n += 1;
   return Math.min(1, n / LAMP_FULL);
 }
 
