@@ -500,3 +500,42 @@ test('柄: 表が持っている色を、見た目がぜんぶ読んでいる', 
     }
   }
 });
+
+// ---- 光の輪(ハロー)----
+//
+// **点いているのに、点いて見えなかった。** 実機の夜の画面をもらって
+// 確かめたら、石灯籠は emissive が満(1)なのに、数歩離れると灰色の柱に
+// しか見えなかった ── 火袋が屋根の下の小さな筒で、光る面が小さすぎる。
+// 灯りのまわりに、減衰のある光の板(Sprite)を1枚重ねてある。
+//
+// 見た目そのものはテストから読めない(decor-fx は THREE を使う)ので、
+// **組み立てを文字で見張る**。絵は実機で確かめた。
+test('灯り: 火のともる品には、光の輪が付いている', () => {
+  const fx = readFileSync(new URL('../src/minigame/decor-fx.js', import.meta.url), 'utf8');
+  const lit = DECOR.filter((d) => d.night);
+  assert.ok(lit.length >= 3, `光る飾りが ${lit.length} 種類しかない`);
+  for (const d of lit) {
+    // その品を作る関数の中だけを見る(隣の品の輪を拾わないように)
+    const at = fx.search(new RegExp(`function ${d.id}\\(`));
+    assert.ok(at > 0, `${d.id} を作る関数が無い`);
+    const body = fx.slice(at, fx.indexOf('\nfunction ', at + 1));
+    assert.match(body, /makeHalo\(/,
+      `${d.name}(${d.id})に光の輪が無い ── 離れると点いて見えない`);
+    assert.match(body, /halo/,
+      `${d.name}の光の輪が返されていない(update から薄くできない)`);
+  }
+  // 夜の濃さを当てている(昼は消える)
+  assert.match(fx, /fadeHalo\(made\.halo, night/,
+    '光の輪に夜の濃さを掛けていない ── 昼も光ってしまう');
+});
+
+// **Sprite の geometry は three が全 Sprite で1つ使い回している。**
+// 片付けで捨てると、島に残っているほかの光の輪まで道連れになる。
+test('灯り: 片付けで Sprite の geometry を捨てない', () => {
+  const fx = readFileSync(new URL('../src/minigame/decor-fx.js', import.meta.url), 'utf8');
+  const at = fx.indexOf('dispose()');
+  assert.ok(at > 0, 'dispose が見つからない(探し方が壊れている)');
+  const body = fx.slice(at, at + 420);
+  assert.match(body, /if \(!o\.isSprite\) o\.geometry\?\.dispose/,
+    'Sprite の geometry を捨てている ── 共有物なので、ほかの光の輪が消える');
+});

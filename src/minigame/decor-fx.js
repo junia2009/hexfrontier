@@ -15,6 +15,71 @@ const WOOD = 0x8a5a32;
 const DARK = 0x4a3a24;
 const STONE = 0x9aa0a6;
 
+// ---- 灯りのまわりの光の輪(ハロー)----
+//
+// **点いているのに、点いて見えなかった。** 実機の夜の画面をもらって確かめた
+// ところ、石灯籠は emissive が満(1)なのに、数歩離れると灰色の柱にしか
+// 見えなかった ── 火袋が屋根の下の小さな筒なので、光る面が小さすぎる。
+//
+// **点光源は使わない**(decor.js に理由。携帯で十数個ともすと重い)。
+//
+// **薄い球を重ねるだけでは駄目だった。** はじめ加算合成の球を3枚重ねたら、
+// 外の縁がそのまま出て**灰色の玉**になった(灯台がいちばんひどかった)。
+// 光の滲みは「中心から外へ薄れていく」ことがすべてなので、
+// **中心が濃く外が透ける絵**を1枚作って、それを板に貼る。
+//
+// 板は Sprite なので**常にカメラを向く** ── update はカメラを知らないので、
+// 自前で板を回す手は使えない。絵は1枚きりを全部の灯りで使い回す。
+//
+// depthWrite は切るが **depthTest は残す** ── 手前の丘に光がしみ出さない。
+let HALO_TEX = null;
+
+function haloTexture() {
+  if (HALO_TEX) return HALO_TEX;
+  if (typeof document === 'undefined') return null;   // 念のため(描かない側)
+  const N = 128;
+  const cv = document.createElement('canvas');
+  cv.width = N;
+  cv.height = N;
+  const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(N / 2, N / 2, 0, N / 2, N / 2, N / 2);
+  // **中心を白く、外をすっと 0 へ。** 途中を早めに落とすと「芯のある光」に
+  // なる(等間隔に落とすと、ただの白い円盤に見える)
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.22, 'rgba(255,255,255,0.45)');
+  grad.addColorStop(0.55, 'rgba(255,255,255,0.12)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, N, N);
+  HALO_TEX = new THREE.CanvasTexture(cv);
+  return HALO_TEX;
+}
+
+// r は光の届く半径、base はいちばん濃いときの濃さ
+function makeHalo(r, color, base = 0.6) {
+  const map = haloTexture();
+  if (!map) return null;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({
+    map,
+    color,
+    transparent: true,
+    opacity: base,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  }));
+  s.scale.set(r * 2, r * 2, 1);
+  s.renderOrder = 2;        // 灯りそのものより後に描く
+  s.userData.halo = base;   // 夜の濃さを掛ける前の、もとの濃さ
+  return s;
+}
+
+// 夜の濃さ(と、ゆらぎ)を当てる。昼は丸ごと消す
+function fadeHalo(halo, k) {
+  if (!halo) return;
+  halo.visible = k > 0.02;
+  if (halo.visible) halo.material.opacity = halo.userData.halo * k;
+}
+
 function bench(d, k) {
   const g = new THREE.Group();
   const wood = new THREE.MeshStandardMaterial({ color: k?.wood ?? WOOD, roughness: 0.85 });
@@ -70,7 +135,11 @@ function lamp(d, k) {
   roof.position.y = d.h * 0.93;
   roof.castShadow = true;
   g.add(roof);
-  return { group: g, lamp: box.material };
+  // **火袋より大きな光の輪。** 光る面が小さすぎて、離れると点いて見えなかった
+  const halo = makeHalo(d.h * 1.15, k?.fire ?? 0xffe9b0, 0.55);
+  halo.position.y = d.h * 0.73;
+  g.add(halo);
+  return { group: g, lamp: box.material, halo };
 }
 
 function flag(d, k) {
@@ -198,7 +267,11 @@ function fire(d, k) {
   );
   flame.position.y = d.h * 0.62;
   g.add(flame);
-  return { group: g, lamp: flame.material, flame };
+  // 焚き火は光の輪も大きい。**ゆらぎは炎と合わせる**(別々に揺れると嘘くさい)
+  const halo = makeHalo(d.h * 2.2, k?.flame ?? 0xffb03a, 0.7);
+  halo.position.y = d.h * 0.55;
+  g.add(halo);
+  return { group: g, lamp: flame.material, flame, halo };
 }
 
 // 井戸。石積み + 屋根 + つるべ
@@ -603,7 +676,12 @@ function beacon(d, k) {
   cap.position.y = d.h * 0.95;
   cap.castShadow = true;
   g.add(cap);
-  return { group: g, lamp: lampMat, spin };
+  // 灯室のまわり。**回る板に合わせて強弱をつける**ので、
+  // 遠くからは灯台が明滅して見える(灯台らしさはここで出る)
+  const halo = makeHalo(d.r * 3.2, 0xfff0c4, 0.65);
+  halo.position.y = d.h * 0.83;
+  g.add(halo);
+  return { group: g, lamp: lampMat, spin, halo };
 }
 
 // サボテン。**砂漠に似合うものが1つも無かった。**
@@ -774,6 +852,7 @@ export function makeDecor(scene, spec, groundY) {
         made.lamp.emissiveIntensity = night;
       }
       // たき火。**昼は消えている** ── 炎だけ消して、石と薪は残す
+      let flicker = 1;
       if (made.flame) {
         made.flame.visible = night > 0.04;
         if (made.flame.visible) {
@@ -782,6 +861,7 @@ export function makeDecor(scene, spec, groundY) {
           made.flame.scale.set(1, w, 1);
           made.flame.rotation.z = Math.sin(t * 5.1) * 0.09;
           made.flame.material.opacity = 0.7 + 0.3 * night;
+          flicker = w;   // 光の輪も同じ息づかいで揺らす
         }
       }
       // こいのぼり。**竿を軸に振る** ── 1匹ずつ位相をずらすと、
@@ -796,11 +876,19 @@ export function makeDecor(scene, spec, groundY) {
       if (made.hub) made.hub.rotation.z = t * 0.9 + Math.sin(t * 0.37) * 0.35;
       // 灯台。明かりが回る。**板が1枚なので、こちらを向いたときだけ強く光る**
       if (made.spin) made.spin.rotation.y = t * 1.15;
+      // 光の輪。**夜の濃さで濃くなり、昼は丸ごと消える。**
+      // 灯台は回る板に合わせて強弱をつけるので、遠目には明滅して見える
+      if (made.halo) {
+        const beat = made.spin ? 0.65 + 0.35 * Math.abs(Math.cos(t * 1.15)) : flicker;
+        fadeHalo(made.halo, night * beat);
+      }
     },
     dispose() {
       g.removeFromParent();
       g.traverse((o) => {
-        o.geometry?.dispose?.();
+        // **Sprite の geometry は捨てない。** three が全 Sprite で1つを
+        // 使い回しているので、1つ捨てると他の光の輪まで道連れになる
+        if (!o.isSprite) o.geometry?.dispose?.();
         const m = o.material;
         if (m) (Array.isArray(m) ? m : [m]).forEach((q) => q.dispose?.());
       });
