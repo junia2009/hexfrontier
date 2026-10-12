@@ -43,7 +43,7 @@ export const MODES = [
   { id: 'cak', label: '都市と騎士', note: '都市と騎士' },
   { id: 'dragon', label: '🐉ドラゴン', note: 'ドラゴンの巣' },
   { id: 'fish', label: '🐟漁師', note: '漁師たち' },
-  { id: 'sea', label: '⛵航海者', note: '航海者たち。盤が半径3になり海と船が入る' },
+  { id: 'sea', label: '⛵航海者', note: '航海者たち。盤が半径4に広がり海と船が入る' },
 ];
 export const MODE_IDS = MODES.map((m) => m.id);
 export const isMode = (m) => MODE_IDS.includes(m);

@@ -189,7 +189,7 @@ function buildLayout(maxRadius) {
 }
 
 // 盤面レイアウト(不変)。どのヘックスを実際に使うかは盤(board)側が決める。
-// 航海者たちは半径3まで使うので、レイアウトはそこまで作っておく。
+// 航海者たちは半径4まで使うので、レイアウトはそこまで作っておく。
 export const LAYOUT = buildLayout(MAX_BOARD_RADIUS);
 
 // 半径 r 以内のヘックスID(レイアウトの並び順のまま)
