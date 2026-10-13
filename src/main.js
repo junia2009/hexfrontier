@@ -86,6 +86,7 @@ import {
   NetClient, createRoom, clientId, savedName, saveName, serverBase,
 } from './net/client.js';
 import { installCrashHandler } from './crash.js';
+import { initAnalytics, track } from './analytics.js';
 import { syncUi as syncUiCore } from './ui-sync.js';
 import { actionForPending, cancelPending } from './ui-confirm.js';
 import { applyBoardClick } from './board-click.js';
@@ -113,6 +114,12 @@ let renderer3dFailed = false;
 // シードとモードを添えるのは、その2つがあれば同じ島を手元で作り直せるから。
 // 値ではなく関数で渡すのは、落ちた時点の state を読みたいため。
 installCrashHandler(() => ({ seed: state?.seed ?? null, mode: state?.mode ?? '' }));
+
+// 匿名のアクセス集計(src/analytics.js)。開発・E2E・?seed= 付きでは何もしない。
+// ホーム画面から起動した(PWA として使われている)かも数える。
+if (initAnalytics() && window.matchMedia?.('(display-mode: standalone)').matches) {
+  track('pwa-launch');
+}
 
 // 端末が古い版を掴んだまま(特にPWA)にならないよう、配信中の版と照合する。
 // タイトル画面でしか出さないので、対戦中に邪魔をすることはない。
@@ -517,11 +524,19 @@ function updateNetBadge() {
 }
 
 // サーバーからの状態を反映する。ローカル戦と違い dispatch は一切しない。
+// 集計で「オンライン対戦を始めた」を数えた部屋(合言葉)
+let countedRoom = null;
+
 function onNetState(msg) {
   const prev = state;
   setSeat(msg.seat);
   const first = !state;
   state = msg.state;
+  // 1つの部屋につき1回。再接続や、CPU 戦のあとに入った場合も取りこぼさない
+  if (online.code && countedRoom !== online.code) {
+    countedRoom = online.code;
+    track('online-start', state.mode);
+  }
   if (!ui || first) ui = freshUi();
   ui.sentAwaiting = null; // 新しい state が来たので「返信待ち」は解消
   if (screen !== 'game') {
@@ -1024,6 +1039,7 @@ async function startDemo(chapterId, from = 'title') {
   ]);
   demoScript = script;
   demoChapter = script.findChapter(chapterId);
+  track('demo', chapterId);
   demoReturn = from;
   clearTimeout(cpuTimer);
   demoRunning = true;
@@ -1106,6 +1122,7 @@ let walkStarting = false;
 async function enterWalk() {
   if (walkStarting || walk) return;
   walkStarting = true;
+  if (!demoRunning) track('walk', online.kind === 'walk' ? online.lobby?.settings?.mode : walkSetup.mode);
   try {
     await startWalk();
   } finally {
@@ -3093,6 +3110,7 @@ function newGame() {
   });
   ui = freshUi();
   lastTurnKey = null; // 新しい対戦なので、1手目の合図から出し直す
+  track('game-start', settings.mode);
   refresh();
   scheduleCpu();
 }
@@ -3113,6 +3131,7 @@ let recordedState = null;
 function recordFinishedGame() {
   if (recordedState === state) return;
   recordedState = state;
+  if (!demoRunning) track('game-end', isOnline() ? 'online' : 'cpu', state.mode);
   // オンライン対戦は席の入れ替わりや観戦があるので、まずは CPU 戦だけ数える
   if (isOnline()) return;
   const result = resultOf(state, HUMAN);
@@ -4391,6 +4410,7 @@ document.addEventListener('click', (e) => {
       createRoom(kind)
         .then((code) => {
           online.busy = false;
+          track('room-create', kind);
           startNet(code, name, kind);
         })
         .catch((e) => {
@@ -4414,6 +4434,7 @@ document.addEventListener('click', (e) => {
         return;
       }
       online.busy = false;
+      track('room-join');
       startNet(code, name);
       return;
     }
