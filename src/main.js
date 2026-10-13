@@ -1039,7 +1039,7 @@ async function startDemo(chapterId, from = 'title') {
   ]);
   demoScript = script;
   demoChapter = script.findChapter(chapterId);
-  track('demo', chapterId);
+  track('demo', demoChapter.title);
   demoReturn = from;
   clearTimeout(cpuTimer);
   demoRunning = true;
@@ -3131,7 +3131,7 @@ let recordedState = null;
 function recordFinishedGame() {
   if (recordedState === state) return;
   recordedState = state;
-  if (!demoRunning) track('game-end', isOnline() ? 'online' : 'cpu', state.mode);
+  if (!demoRunning) track(isOnline() ? 'game-end-online' : 'game-end-cpu', state.mode);
   // オンライン対戦は席の入れ替わりや観戦があるので、まずは CPU 戦だけ数える
   if (isOnline()) return;
   const result = resultOf(state, HUMAN);
@@ -4410,7 +4410,7 @@ document.addEventListener('click', (e) => {
       createRoom(kind)
         .then((code) => {
           online.busy = false;
-          track('room-create', kind);
+          track(kind === 'walk' ? 'room-create-walk' : 'room-create-game');
           startNet(code, name, kind);
         })
         .catch((e) => {
